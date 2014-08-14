@@ -75,13 +75,14 @@ am__base_list = \
   sed '$$!N;$$!N;$$!N;$$!N;s/\n/ /g'
 am__installdirs = "$(DESTDIR)$(libdir)"
 LTLIBRARIES = $(lib_LTLIBRARIES)
-libnative_la_LIBADD =
-am_libnative_la_OBJECTS = libnative_la-alarm.lo libnative_la-cond.lo \
-	libnative_la-event.lo libnative_la-heap.lo \
-	libnative_la-init.lo libnative_la-intr.lo libnative_la-misc.lo \
-	libnative_la-mutex.lo libnative_la-pipe.lo \
-	libnative_la-queue.lo libnative_la-sem.lo libnative_la-task.lo \
-	libnative_la-timer.lo libnative_la-wrappers.lo
+libnative_la_DEPENDENCIES = ../common/libxeno_common.la
+am_libnative_la_OBJECTS = libnative_la-alarm.lo libnative_la-buffer.lo \
+	libnative_la-cond.lo libnative_la-event.lo \
+	libnative_la-heap.lo libnative_la-init.lo libnative_la-intr.lo \
+	libnative_la-misc.lo libnative_la-mutex.lo \
+	libnative_la-pipe.lo libnative_la-queue.lo libnative_la-sem.lo \
+	libnative_la-task.lo libnative_la-timer.lo \
+	libnative_la-wrappers.lo
 libnative_la_OBJECTS = $(am_libnative_la_OBJECTS)
 libnative_la_LINK = $(LIBTOOL) --tag=CC $(AM_LIBTOOLFLAGS) \
 	$(LIBTOOLFLAGS) --mode=link $(CCLD) $(AM_CFLAGS) $(CFLAGS) \
@@ -193,6 +194,7 @@ SHELL = @SHELL@
 STRIP = @STRIP@
 VERSION = @VERSION@
 XENO_BUILD_STRING = @XENO_BUILD_STRING@
+XENO_DLOPEN_CONSTRAINT = @XENO_DLOPEN_CONSTRAINT@
 XENO_HOST_STRING = @XENO_HOST_STRING@
 XENO_LINUX_ALL_TARGETS = @XENO_LINUX_ALL_TARGETS@
 XENO_LINUX_ARCH = @XENO_LINUX_ARCH@
@@ -263,9 +265,10 @@ top_build_prefix = @top_build_prefix@
 top_builddir = @top_builddir@
 top_srcdir = @top_srcdir@
 lib_LTLIBRARIES = libnative.la
-libnative_la_LDFLAGS = -version-info 1:0:0 -lpthread
+libnative_la_LDFLAGS = @XENO_DLOPEN_CONSTRAINT@ -version-info 3:0:0 -lpthread
 libnative_la_SOURCES = \
 	alarm.c \
+	buffer.c \
 	cond.c \
 	event.c \
 	heap.c \
@@ -285,6 +288,7 @@ libnative_la_CPPFLAGS = \
 	@XENO_USER_CFLAGS@ \
 	-I$(top_srcdir)/include
 
+libnative_la_LIBADD = ../common/libxeno_common.la
 all: all-am
 
 .SUFFIXES:
@@ -360,6 +364,7 @@ distclean-compile:
 	-rm -f *.tab.c
 
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/libnative_la-alarm.Plo@am__quote@
+@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/libnative_la-buffer.Plo@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/libnative_la-cond.Plo@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/libnative_la-event.Plo@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/libnative_la-heap.Plo@am__quote@
@@ -401,6 +406,13 @@ libnative_la-alarm.lo: alarm.c
 @AMDEP_TRUE@@am__fastdepCC_FALSE@	source='alarm.c' object='libnative_la-alarm.lo' libtool=yes @AMDEPBACKSLASH@
 @AMDEP_TRUE@@am__fastdepCC_FALSE@	DEPDIR=$(DEPDIR) $(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
 @am__fastdepCC_FALSE@	$(LIBTOOL)  --tag=CC $(AM_LIBTOOLFLAGS) $(LIBTOOLFLAGS) --mode=compile $(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(libnative_la_CPPFLAGS) $(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS) -c -o libnative_la-alarm.lo `test -f 'alarm.c' || echo '$(srcdir)/'`alarm.c
+
+libnative_la-buffer.lo: buffer.c
+@am__fastdepCC_TRUE@	$(LIBTOOL)  --tag=CC $(AM_LIBTOOLFLAGS) $(LIBTOOLFLAGS) --mode=compile $(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(libnative_la_CPPFLAGS) $(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS) -MT libnative_la-buffer.lo -MD -MP -MF $(DEPDIR)/libnative_la-buffer.Tpo -c -o libnative_la-buffer.lo `test -f 'buffer.c' || echo '$(srcdir)/'`buffer.c
+@am__fastdepCC_TRUE@	$(am__mv) $(DEPDIR)/libnative_la-buffer.Tpo $(DEPDIR)/libnative_la-buffer.Plo
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	source='buffer.c' object='libnative_la-buffer.lo' libtool=yes @AMDEPBACKSLASH@
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	DEPDIR=$(DEPDIR) $(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
+@am__fastdepCC_FALSE@	$(LIBTOOL)  --tag=CC $(AM_LIBTOOLFLAGS) $(LIBTOOLFLAGS) --mode=compile $(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(libnative_la_CPPFLAGS) $(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS) -c -o libnative_la-buffer.lo `test -f 'buffer.c' || echo '$(srcdir)/'`buffer.c
 
 libnative_la-cond.lo: cond.c
 @am__fastdepCC_TRUE@	$(LIBTOOL)  --tag=CC $(AM_LIBTOOLFLAGS) $(LIBTOOLFLAGS) --mode=compile $(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(libnative_la_CPPFLAGS) $(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS) -MT libnative_la-cond.lo -MD -MP -MF $(DEPDIR)/libnative_la-cond.Tpo -c -o libnative_la-cond.lo `test -f 'cond.c' || echo '$(srcdir)/'`cond.c

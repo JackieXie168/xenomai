@@ -56,7 +56,7 @@ static unsigned long __intr_get_hits(RT_INTR *intr)
 	return sum;
 }
 
-#ifdef CONFIG_XENO_EXPORT_REGISTRY
+#ifdef CONFIG_PROC_FS
 
 static int __intr_read_proc(char *page,
 			    char **start,
@@ -119,14 +119,14 @@ static xnpnode_t __intr_pnode = {
 	.root = &__native_ptree,
 };
 
-#elif defined(CONFIG_XENO_OPT_REGISTRY)
+#else /* !CONFIG_PROC_FS */
 
 static xnpnode_t __intr_pnode = {
 
 	.type = "interrupts"
 };
 
-#endif /* CONFIG_XENO_EXPORT_REGISTRY */
+#endif /* !CONFIG_PROC_FS */
 
 /*! 
  * \fn int rt_intr_create (RT_INTR *intr,const char *name,unsigned irq,rt_isr_t isr,rt_iack_t iack,int mode)
@@ -160,14 +160,18 @@ static xnpnode_t __intr_pnode = {
  * The ISR is not encouraged to use these bits in case it shares the IRQ line
  * with other ISRs in the real-time domain.
  *
+ * - RT_INTR_NOENABLE asks Xenomai not to re-enable the IRQ line upon return
+ * of the interrupt service routine.
+ *
  * - RT_INTR_PROPAGATE tells Xenomai to require the real-time control
  * layer to forward the IRQ. For instance, this would cause the Adeos
  * control layer to propagate the interrupt down the interrupt
  * pipeline to other Adeos domains, such as Linux. This is the regular
- * way to share interrupts between Xenomai and the Linux kernel.
- *
- * - RT_INTR_NOENABLE asks Xenomai not to re-enable the IRQ line upon return
- * of the interrupt service routine.
+ * way to share interrupts between Xenomai and the Linux kernel. In
+ * effect, RT_INTR_PROPAGATE implies RT_INTR_NOENABLE since it would
+ * make no sense to re-enable the interrupt channel before the next
+ * domain down the pipeline has had a chance to process the propagated
+ * interrupt.
  *
  * A count of interrupt receipts is tracked into the interrupt
  * descriptor, and reset to zero each time the interrupt object is
@@ -262,7 +266,7 @@ int rt_intr_create(RT_INTR *intr,
 
 	xnintr_init(&intr->intr_base, intr->name, irq, isr, iack, mode);
 #ifdef CONFIG_XENO_OPT_PERVASIVE
-	xnsynch_init(&intr->synch_base, XNSYNCH_PRIO);
+	xnsynch_init(&intr->synch_base, XNSYNCH_PRIO, NULL);
 	intr->pending = 0;
 	intr->cpid = 0;
 	intr->mode = 0;
@@ -277,27 +281,14 @@ int rt_intr_create(RT_INTR *intr,
 
 	err = xnintr_attach(&intr->intr_base, intr);
 
-#ifdef CONFIG_XENO_OPT_REGISTRY
-	/* <!> Since xnregister_enter() may reschedule, only register
-	   complete objects, so that the registry cannot return handles to
-	   half-baked objects... */
-	if (!err && name) {
-		xnpnode_t *pnode = &__intr_pnode;
-
-		if (!*name) {
-			/* Since this is an anonymous object (empty name on entry)
-			 * from user-space, it gets registered under an unique
-			 * internal name but is not exported through /proc. */
-			xnobject_create_name(intr->name, sizeof(intr->name),
-				(void *)intr);
-			pnode = NULL;
-		}
-
-		err = xnregistry_enter(intr->name, intr, &intr->handle, pnode);
-	}	
-	
-#endif /* CONFIG_XENO_OPT_REGISTRY */
-
+	/*
+	 * <!> Since xnregister_enter() may reschedule, only register
+	 * complete objects, so that the registry cannot return
+	 * handles to half-baked objects...
+	 */
+	if (!err && name)
+		err = xnregistry_enter(intr->name, intr, &intr->handle,
+				       &__intr_pnode);
 	if (err)
 		rt_intr_delete(intr);
 
@@ -364,10 +355,8 @@ int rt_intr_delete(RT_INTR *intr)
 	rc = xnsynch_destroy(&intr->synch_base);
 #endif /* CONFIG_XENO_OPT_PERVASIVE */
 
-#ifdef CONFIG_XENO_OPT_REGISTRY
 	if (intr->handle)
 		xnregistry_remove(intr->handle);
-#endif /* CONFIG_XENO_OPT_REGISTRY */
 
 	xeno_mark_deleted(intr);
 
@@ -712,8 +701,8 @@ int rt_intr_inquire(RT_INTR *intr, RT_INTR_INFO *info)
  * the specified amount of time.
  *
  * - -EPERM is returned if this service should block, but was called
- * from a context which cannot sleep (e.g. interrupt, non-realtime or
- * scheduler locked).
+ * from a context which cannot sleep (e.g. interrupt, non-realtime
+ * context).
  *
  * Environments:
  *

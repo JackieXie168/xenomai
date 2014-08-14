@@ -30,24 +30,20 @@
 
 #if defined(__KERNEL__) || defined(__XENO_SIM__)
 
-#ifdef CONFIG_PROC_FS
-#include <linux/proc_fs.h>
-#endif /* CONFIG_PROC_FS */
-
 struct xntimer;
 
 typedef struct xntbops {
 
-    int (*start_timer)(struct xntimer *timer,
-		       xnticks_t value,
-		       xnticks_t interval,
-		       xntmode_t mode);
-    void (*stop_timer)(struct xntimer *timer);
-    xnticks_t (*get_timer_date)(struct xntimer *timer);
-    xnticks_t (*get_timer_timeout)(struct xntimer *timer);
-    xnticks_t (*get_timer_interval)(struct xntimer *timer);
-    xnticks_t (*get_timer_raw_expiry)(struct xntimer *timer);
-    void (*move_timer)(struct xntimer *timer);
+	int (*start_timer)(struct xntimer *timer,
+			   xnticks_t value,
+			   xnticks_t interval,
+			   xntmode_t mode);
+	void (*stop_timer)(struct xntimer *timer);
+	xnticks_t (*get_timer_date)(struct xntimer *timer);
+	xnticks_t (*get_timer_timeout)(struct xntimer *timer);
+	xnticks_t (*get_timer_interval)(struct xntimer *timer);
+	xnticks_t (*get_timer_raw_expiry)(struct xntimer *timer);
+	void (*move_timer)(struct xntimer *timer);
 
 } xntbops_t;
 
@@ -148,56 +144,9 @@ static inline xnticks_t xntbase_ns2ticks(xntbase_t *base, xntime_t t)
 	return xnarch_ulldiv(t, xntbase_get_tickval(base), NULL);
 }
 
-xnticks_t xntbase_ns2ticks_ceil(xntbase_t *base, xntime_t t);
-
 static inline int xntbase_master_p(xntbase_t *base)
 {
 	return base == &nktbase;
-}
-
-/*!
- * \fn xnticks_t xntbase_convert(xntbase_t *srcbase,xnticks_t ticks,xntbase_t *dstbase)
- * \brief Convert a clock value into another time base.
- *
- * @param srcbase The descriptor address of the source time base.
-
- * @param ticks The clock value expressed in the source time base to
- * convert to the destination time base.
- *
- * @param dstbase The descriptor address of the destination time base.
-
- * @return The converted count of ticks in the destination time base
- * is returned.
- *
- * Environments:
- *
- * This service can be called from:
- *
- * - Kernel module initialization code
- * - Kernel-based task
- * - User-space task
- *
- * Rescheduling: never.
- */
-
-static inline xnticks_t xntbase_convert(xntbase_t *srcbase, xnticks_t ticks, xntbase_t *dstbase)
-{
-	/* Twisted, but tries hard not to rescale to nanoseconds *
-	   before converting, so that we could save a 64bit multiply
-	   in the common cases (i.e. converting to/from master). */
-
-	if (dstbase->tickvalue == srcbase->tickvalue)
-		return ticks;
-
-	if (likely(xntbase_master_p(dstbase)))
-		return xntbase_ticks2ns(srcbase, ticks); /* Periodic to master base. */
-
-	if (xntbase_master_p(srcbase))
-		return xntbase_ns2ticks(dstbase, ticks); /* Master base to periodic. */
-
-	/* Periodic to periodic. */
-
-	return xntbase_ns2ticks(dstbase, xntbase_ticks2ns(srcbase, ticks));
 }
 
 static inline int xntbase_periodic_p(xntbase_t *base)
@@ -234,6 +183,12 @@ void xntbase_start(xntbase_t *base);
 void xntbase_stop(xntbase_t *base);
 
 void xntbase_tick(xntbase_t *base);
+
+xnticks_t xntbase_ns2ticks_ceil(xntbase_t *base, xntime_t t);
+
+xnticks_t xntbase_convert(xntbase_t *srcbase,
+			  xnticks_t ticks,
+			  xntbase_t *dstbase);
 
 #else /* !CONFIG_XENO_OPT_TIMING_PERIODIC */
 
@@ -358,16 +313,28 @@ void xntbase_adjust_time(xntbase_t *base, xnsticks_t delta);
 do {						\
 	inith(&nktbase.link);			\
 	appendq(&nktimebaseq, &nktbase.link);	\
-	xnpod_declare_tbase_proc(&nktbase);	\
+	xntbase_declare_proc(&nktbase);	\
 } while (0)
 
 #define xntbase_umount()			\
 do {						\
-	xnpod_discard_tbase_proc(&nktbase);	\
+	xntbase_remove_proc(&nktbase);		\
 	removeq(&nktimebaseq, &nktbase.link);	\
 } while (0)
 
 #endif /* __KERNEL__ || __XENO_SIM__ */
+
+void xntbase_init_proc(void);
+
+void xntbase_cleanup_proc(void);
+
+#ifdef CONFIG_XENO_OPT_STATS
+void xntbase_declare_proc(xntbase_t *base);
+void xntbase_remove_proc(xntbase_t *base);
+#else /* !CONFIG_XENO_OPT_STATS */
+static inline void xntbase_declare_proc(xntbase_t *base) { }
+static inline void xntbase_remove_proc(xntbase_t *base) { }
+#endif /* !CONFIG_XENO_OPT_STATS */
 
 /*@}*/
 

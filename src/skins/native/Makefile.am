@@ -1,9 +1,10 @@
 lib_LTLIBRARIES = libnative.la
 
-libnative_la_LDFLAGS = -version-info 1:0:0 -lpthread
+libnative_la_LDFLAGS = @XENO_DLOPEN_CONSTRAINT@ -version-info 3:0:0 -lpthread
 
 libnative_la_SOURCES = \
 	alarm.c \
+	buffer.c \
 	cond.c \
 	event.c \
 	heap.c \
@@ -22,3 +23,5 @@ libnative_la_SOURCES = \
 libnative_la_CPPFLAGS = \
 	@XENO_USER_CFLAGS@ \
 	-I$(top_srcdir)/include
+
+libnative_la_LIBADD = ../common/libxeno_common.la

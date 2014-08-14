@@ -22,14 +22,13 @@
 #ifndef _XENO_TASK_H
 #define _XENO_TASK_H
 
-#include <nucleus/core.h>
-#include <nucleus/thread.h>
+#include <nucleus/sched.h>
 #include <native/types.h>
 
 /* Creation flags. */
 #define T_FPU     XNFPU
 #define T_SUSP    XNSUSP
-/* <!> High bits must not conflict with XNFPU|XNSHADOW|XNSHIELD|XNSUSP. */
+/* <!> High bits must not conflict with XNFPU|XNSHADOW|XNSUSP. */
 #define T_CPU(cpu) (1 << (24 + (cpu & 7))) /* Up to 8 cpus [0-7] */
 #define T_CPUMASK  0xff000000
 
@@ -47,9 +46,7 @@
 #define T_STARTED  XNSTARTED  /**< See #XNSTARTED */
 #define T_BOOST    XNBOOST    /**< See #XNBOOST   */
 #define T_LOCK     XNLOCK     /**< See #XNLOCK    */
-#define T_RRB      XNRRB      /**< See #XNRRB     */
 #define T_NOSIG    XNASDI     /**< See #XNASDI    */ 
-#define T_SHIELD   XNSHIELD   /**< See #XNSHIELD  */ 
 #define T_WARNSW   XNTRAPSW   /**< See #XNTRAPSW  */ 
 #define T_RPIOFF   XNRPIOFF   /**< See #XNRPIOFF  */ 
 #define T_PRIMARY  0x00000200	/* Recycle internal bits status which */
@@ -63,8 +60,8 @@
 #define T_DESC(cookie) thread2rtask(cookie)
 
 /* Priority range (POSIXish, same bounds as Xenomai's). */
-#define T_LOPRIO  XNCORE_LOW_PRIO
-#define T_HIPRIO  XNCORE_HIGH_PRIO
+#define T_LOPRIO  XNSCHED_LOW_PRIO
+#define T_HIPRIO  XNSCHED_HIGH_PRIO
 
 typedef struct rt_task_placeholder {
     xnhandle_t opaque;
@@ -154,13 +151,6 @@ typedef struct rt_task {
 	    unsigned long mask;
 	} event;
 
-	struct rt_queue_msg *qmsg;
-
-	struct {
-	    size_t size;
-	    void *block;
-	} heap;
-	
 #ifdef CONFIG_XENO_OPT_NATIVE_MPS
 	struct {
 	    RT_TASK_MCB mcb_s; /* Send area. */
@@ -256,7 +246,7 @@ int rt_task_create(RT_TASK *task,
 		   const char *name,
 		   int stksize,
 		   int prio,
-		   int mode);
+		   int mode) __deprecated_in_kernel__;
 
 int rt_task_start(RT_TASK *task,
 		  void (*fun)(void *cookie),

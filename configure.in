@@ -53,11 +53,12 @@ AC_DEFINE_UNQUOTED(CONFIG_XENO_COMPILER,"`$CC -v 2>&1 | tail -n 1`",[Compiler])
 
 AM_INIT_AUTOMAKE([foreign no-exeext dist-bzip2])
 AM_MAINTAINER_MODE
-AC_PROG_LIBTOOL
 AM_PROG_AS
 AM_PROG_LEX
 
 AC_MSG_CHECKING([for target architecture])
+
+CONFIG_XENO_FASTSYNCH=
 
 if test x$host_alias = x; then
   build_for=$host
@@ -65,42 +66,57 @@ else
   build_for=$host_alias
 fi
 
+use__thread=yes
 case "$build_for" in
  i*86*-*)
 	XENO_TARGET_ARCH=x86
         XENO_LINUX_ARCH=i386
 	XENO_LINUX_INSTALL_TARGET=install
+	CONFIG_XENO_FASTSYNCH=y
+	CONFIG_XENO_DEFAULT_PERIOD=100000
         ;;
  ppc-*)
 	XENO_TARGET_ARCH=powerpc
         XENO_LINUX_ARCH=ppc
 	XENO_LINUX_INSTALL_TARGET=install
+	CONFIG_XENO_FASTSYNCH=y
+	CONFIG_XENO_DEFAULT_PERIOD=100000
         ;;
  powerpc-*|powerpc64-*|ppc64-*)
 	XENO_TARGET_ARCH=powerpc
         XENO_LINUX_ARCH=powerpc
 	XENO_LINUX_INSTALL_TARGET=install
-        ;;
- ia64-*)
-	XENO_TARGET_ARCH=ia64
-        XENO_LINUX_ARCH=ia64
-	XENO_LINUX_INSTALL_TARGET=install
+	CONFIG_XENO_FASTSYNCH=y
+	CONFIG_XENO_DEFAULT_PERIOD=100000
         ;;
  bfin-*|bfinnommu-*|blackfin-*)
 	XENO_TARGET_ARCH=blackfin
         XENO_LINUX_ARCH=blackfin
 	XENO_LINUX_INSTALL_TARGET=install
+	CONFIG_XENO_DEFAULT_PERIOD=100000
         ;;
  arm*-*)
+	use__thread=no
  	XENO_TARGET_ARCH=arm
  	XENO_LINUX_ARCH=arm
 	XENO_LINUX_INSTALL_TARGET=install_image
 	XENO_LINUX_IMAGE=arch/arm/boot/zImage
+	CONFIG_XENO_DEFAULT_PERIOD=1000000
+	# We set CONFIG_XENO_FASTSYNCH later, when we know what architecture we
+	# are running
 	;;
  x86_64-*|amd64-*)
 	XENO_TARGET_ARCH=x86
         XENO_LINUX_ARCH=x86_64
 	XENO_LINUX_INSTALL_TARGET=install
+	CONFIG_XENO_FASTSYNCH=y
+	CONFIG_XENO_DEFAULT_PERIOD=100000
+        ;;
+ nios2-*)
+	XENO_TARGET_ARCH=nios2
+        XENO_LINUX_ARCH=nios2
+	XENO_LINUX_INSTALL_TARGET=install
+	CONFIG_XENO_DEFAULT_PERIOD=10000000
         ;;
  *) echo ""
    echo "*******************************************"
@@ -112,6 +128,16 @@ esac
 
 AC_MSG_RESULT([$XENO_TARGET_ARCH])
 AM_CONDITIONAL(XENO_LINUX_ARCH_I386,[test $XENO_LINUX_ARCH = i386])
+
+case "$XENO_TARGET_ARCH" in
+ nios2)
+	AC_DISABLE_SHARED
+	;;
+ *)
+	AC_ENABLE_SHARED
+	;;
+esac
+AC_PROG_LIBTOOL
 
 dnl
 dnl Parse options
@@ -132,6 +158,9 @@ AC_MSG_RESULT(${debug_symbols:-no})
 dnl SMP support (default: off)
 
 CONFIG_SMP=
+if test $XENO_TARGET_ARCH = x86; then
+	CONFIG_SMP=y
+fi
 AC_MSG_CHECKING(for SMP support)
 AC_ARG_ENABLE(smp,
 	AS_HELP_STRING([--enable-smp], [Enable SMP support]),
@@ -174,19 +203,22 @@ if test $XENO_TARGET_ARCH = arm ; then
   CONFIX_XENO_ARM_EABI=
 
   unset CONFIG_XENO_ARM_SA1100
+  unset CONFIG_XENO_CPU_XSC3
   unset tsc_type
-  unset CONFIG_XENO_ARM_HW_DIRECT_TSC
+  unset vfp
+  unset XNARCH_ARM_TSC_TYPE
 
   AC_MSG_CHECKING(for ARM machine)
   AC_ARG_ENABLE(arm-mach,
 	AS_HELP_STRING([--enable-arm-mach], [Select for which machine we are
-compiling. Valid machines are at91rm9200, at91sam926x, generic, imx, imx21, 
+compiling. Valid machines are at91rm9200, at91sam926x, generic, imx, imx21,
 integrator, ixp4xx, mx2, mx3, pxa, pxa3xx, s3c2410, sa1100.]),
 	[case "$enableval" in
 	at91rm9200)   	arch=4
 	        	tsc_type=__XN_TSC_TYPE_FREERUNNING_FAST_WRAP;;
 
 	at91sam926x)   	arch=5
+			vfp=vfp
 	        	tsc_type=__XN_TSC_TYPE_FREERUNNING_FAST_WRAP;;
 
 	generic)	arch=4
@@ -209,6 +241,11 @@ integrator, ixp4xx, mx2, mx3, pxa, pxa3xx, s3c2410, sa1100.]),
 			tsc_type=__XN_TSC_TYPE_FREERUNNING;;
 
 	mx3)		arch=6
+			vfp=vfp
+			tsc_type=__XN_TSC_TYPE_FREERUNNING;;
+
+	omap3)		arch=7
+			vfp=vfp3
 			tsc_type=__XN_TSC_TYPE_FREERUNNING;;
 
 	pxa) 		arch=5
@@ -223,6 +260,10 @@ integrator, ixp4xx, mx2, mx3, pxa, pxa3xx, s3c2410, sa1100.]),
 	sa1100) 	arch=4
 			CONFIG_XENO_ARM_SA1100=y
 			tsc_type=__XN_TSC_TYPE_FREERUNNING;;
+
+	orion)		arch=5
+			vfp=vfp
+			tsc_type=__XN_TSC_TYPE_FREERUNNING_COUNTDOWN;;
 
 	*)AC_MSG_ERROR([Invalid machine selected: "$enableval"]);;
 	esac],
@@ -242,13 +283,27 @@ integrator, ixp4xx, mx2, mx3, pxa, pxa3xx, s3c2410, sa1100.]),
 		esac
 		CONFIG_XENO_ARM_ARCH="$enableval"
     	])
+  elif test $arch = xscale3; then
+	CONFIG_XENO_ARM_ARCH=5
+	CONFIG_XENO_CPU_XSC3=y
   else
-	CONFIG_XENO_ARM_ARCH=$arch
+	CONFIG_XENO_ARM_ARCH="$arch"
   fi
+# Set the -march flag, FPU flags are set later.
+  case "$arch" in
+  4)	XENO_ARM_ARCH_FLAGS="-march=armv4t";;
+  5)	XENO_ARM_ARCH_FLAGS="-march=armv5";;
+  6)	XENO_ARM_ARCH_FLAGS="-march=armv6";;
+  7)	XENO_ARM_ARCH_FLAGS="-march=armv7-a";;
+  *)	AC_MSG_ERROR([Invalid architecture $arch, only 4, 5, xscale3, 6 and 7 are supported]);;
+  esac
   AC_MSG_RESULT($CONFIG_XENO_ARM_ARCH)
 
   AC_MSG_CHECKING(for ARM SA1100 architecture)
   AC_MSG_RESULT(${CONFIG_XENO_ARM_SA1100:-no})
+
+  AC_MSG_CHECKING(for ARM Xscale3 architecture)
+  AC_MSG_RESULT(${CONFIG_XENO_CPU_XSC3:-no})
 
   AC_MSG_CHECKING(for TSC emulation in user-space.)
   if test $tsc_type; then
@@ -256,10 +311,10 @@ integrator, ixp4xx, mx2, mx3, pxa, pxa3xx, s3c2410, sa1100.]),
 		AS_HELP_STRING([--disable-arm-tsc], [Disable TSC emulation in 
 user-space]),
 	[case "$enableval" in
-	y | yes) CONFIG_XENO_ARM_HW_DIRECT_TSC=$tsc_type ;;
-	*) unset CONFIG_XENO_ARM_HW_DIRECT_TSC ;;
-	esac], [CONFIG_XENO_ARM_HW_DIRECT_TSC=$tsc_type])
-	if test $CONFIG_XENO_ARM_HW_DIRECT_TSC; then
+	y | yes) XNARCH_ARM_TSC_TYPE=$tsc_type ;;
+	*) unset XNARCH_ARM_TSC_TYPE ;;
+	esac], [XNARCH_ARM_TSC_TYPE=$tsc_type])
+	if test $XNARCH_ARM_TSC_TYPE; then
 		AC_MSG_RESULT(yes)
 	else
 		AC_MSG_RESULT(no)
@@ -276,6 +331,21 @@ user-space]),
 	*) unset CONFIG_XENO_ARM_EABI ;;
 	esac])
   AC_MSG_RESULT(${CONFIG_XENO_ARM_EABI:-no})
+
+  # Set FPU flags, if EABI is not enabled, all libraries in the system
+  # must be compiled with the same FPU flags, as we do not know how
+  # other components are compiled, we can not set the flags.
+  if test x$CONFIG_XENO_ARM_EABI = xy; then
+     if test x"$vfp" != x; then
+     	XENO_ARM_ARCH_FLAGS="$XENO_ARM_ARCH_FLAGS -mfpu=$vfp -mfloat-abi=softfp"
+     else
+	XENO_ARM_ARCH_FLAGS="$XENO_ARM_ARCH_FLAGS -msoft-float"
+     fi
+  fi
+
+  if test $CONFIG_XENO_ARM_ARCH -ge 6 || test x$CONFIG_SMP != xy; then
+	CONFIG_XENO_FASTSYNCH=y
+  fi
 fi
 
 dnl Flags for building Linux in Xenomai build tree.
@@ -374,8 +444,8 @@ patch. Default is to infer the patch name from Linux kernel version.]),
 	  cd conftest2.dir && $LNDIR -silent -ignorelinks ../conftest1.dir \
 		&& cd ..
 	  test -e conftest2.dir/foo && LNDIR="$LNDIR -silent -ignorelinks"
-	  rm -Rf contest1.dir conftest2.dir
     fi
+    rm -Rf conftest1.dir conftest2.dir
     if test "x$LNDIR" = "xlndir"; then
 	AC_MSG_RESULT(no)
     else
@@ -423,11 +493,17 @@ patch. Default is to infer the patch name from Linux kernel version.]),
               . $XENO_LINUX_SRCDIR/.config
 	      test x"$CONFIG_ARM" = xy && cfg_arch=arm || :
               test x"$CONFIG_BLACKFIN" = xy && cfg_arch=blackfin || :
-              test x"$CONFIG_IA64" = xy && cfg_arch=ia64 || :
               test x"$CONFIG_PPC" = xy && cfg_arch=ppc || :
               test x"$CONFIG_PPC64" = xy && cfg_arch=ppc64 || :
-              test x"$CONFIG_X86_64" = xy && cfg_arch=x86_64 || :
+	      test x"$CONFIG_PPC_MERGE" = xy && cfg_arch=powerpc || :
               test x"$CONFIG_X86" = xy && cfg_arch=i386 || :
+              test x"$CONFIG_X86_64" = xy && cfg_arch=x86_64 || :
+              test x"$CONFIG_NIOS2" = xy && cfg_arch=nios2 || :
+	      if test -e $XENO_LINUX_SRCDIR/arch/x86; then
+		  case $cfg_arch in
+		  i386|x86_64) cfg_arch=x86;;
+		  esac
+	      fi
               if test $cfg_arch = $XENO_LINUX_ARCH ; then
                  cp $XENO_LINUX_SRCDIR/.config .xenomai.config
               fi
@@ -547,12 +623,20 @@ dnl
 
 test x$CONFIG_XENO_X86_SEP = xy && AC_DEFINE(CONFIG_XENO_X86_SEP,1,[config])
 test x$CONFIG_SMP = xy && AC_DEFINE(CONFIG_SMP,1,[config])
+test x$CONFIG_XENO_FASTSYNCH = xy && AC_DEFINE(CONFIG_XENO_FASTSYNCH,1,[config])
+AM_CONDITIONAL(CONFIG_XENO_FASTSYNCH,[test "$CONFIG_XENO_FASTSYNCH" = y])
+
 test x$CONFIG_X86_TSC = xy && AC_DEFINE(CONFIG_X86_TSC,1,[config])
 test -n "$CONFIG_XENO_ARM_ARCH" && AC_DEFINE_UNQUOTED(CONFIG_XENO_ARM_ARCH,$CONFIG_XENO_ARM_ARCH,[config])
 
 test x$CONFIG_XENO_ARM_SA1100 = xy && AC_DEFINE(CONFIG_XENO_ARM_SA1100,1,[config])
-test $CONFIG_XENO_ARM_HW_DIRECT_TSC && AC_DEFINE_UNQUOTED(CONFIG_XENO_ARM_HW_DIRECT_TSC,$CONFIG_XENO_ARM_HW_DIRECT_TSC,[config])
+test x$CONFIG_XENO_CPU_XSC3 = xy && AC_DEFINE(CONFIG_XENO_CPU_XSC3,1,[config])
+test $XNARCH_ARM_TSC_TYPE && AC_DEFINE_UNQUOTED(XNARCH_ARM_TSC_TYPE,$XNARCH_ARM_TSC_TYPE,[config])
 test x$CONFIG_XENO_ARM_EABI = xy && AC_DEFINE(CONFIG_XENO_ARM_EABI,1,[config])
+AM_CONDITIONAL(CONFIG_XENO_SHARED,[test "$enable_shared" = 'yes'])
+
+# Default sampling period (ns) used in various tests
+AC_DEFINE_UNQUOTED(CONFIG_XENO_DEFAULT_PERIOD,$CONFIG_XENO_DEFAULT_PERIOD,[config])
 
 dnl CAUTION: We need to have the CONFIG_XENO_XX symbols always
 dnl defined when the configuration header is read, but we want the
@@ -630,7 +714,7 @@ fi
 AC_MSG_RESULT([done])
 
 dnl Common CFLAGS and LDFLAGS
-XENO_USER_CFLAGS="-D_GNU_SOURCE -D_REENTRANT"
+XENO_USER_CFLAGS="-D_GNU_SOURCE -D_REENTRANT -Wall -pipe"
 XENO_USER_LDFLAGS=
 
 dnl Exported CFLAGS and LDFLAGS, may be enhanced per-arch below
@@ -639,23 +723,19 @@ XENO_USER_APP_LDFLAGS=$XENO_USER_LDFLAGS
 
 case $XENO_TARGET_ARCH in
  x86)
-	XENO_USER_CFLAGS="$XENO_USER_CFLAGS -Wall -pipe -fstrict-aliasing $gcc_w_noalias"
+	XENO_USER_CFLAGS="$XENO_USER_CFLAGS -fstrict-aliasing $gcc_w_noalias"
         ;;
  powerpc)
-	XENO_USER_CFLAGS="$XENO_USER_CFLAGS -Wall -pipe"
-        ;;
- ia64)
-	XENO_USER_CFLAGS="$XENO_USER_CFLAGS -Wall -pipe"
         ;;
  blackfin)
 	# Produce libraries in FDPIC format.
-	XENO_USER_CFLAGS="$XENO_USER_CFLAGS -Wall -pipe"
-	XENO_USER_LDFLAGS="$XENO_USER_CFLAGS"
-	XENO_USER_APP_CFLAGS="$XENO_USER_APP_CFLAGS"
-	XENO_USER_APP_LDFLAGS="$XENO_USER_APP_LDFLAGS"
         ;;
  arm)
-	XENO_USER_CFLAGS="$XENO_USER_CFLAGS -Wall -pipe -march=armv$CONFIG_XENO_ARM_ARCH"
+	XENO_USER_CFLAGS="$XENO_USER_CFLAGS $XENO_ARM_ARCH_FLAGS"
+        ;;
+ nios2)
+	XENO_USER_LDFLAGS="$XENO_USER_LDFLAGS -Wl,-elf2flt"
+	XENO_USER_APP_LDFLAGS="$XENO_USER_APP_LDFLAGS -Wl,-elf2flt"
         ;;
 esac
 
@@ -735,9 +815,48 @@ if test x$CONFIG_XENO_POSIX_UITRON_MLOCKALL = xy; then
 fi
 
 save_LIBS="$LIBS"
-LIBS="$LIBS -lrt"
-AC_CHECK_FUNCS([shm_open shm_unlink mmap64 ftruncate64])
+LIBS="$LIBS -lrt -lpthread"
+AC_CHECK_FUNCS([shm_open shm_unlink mmap64 ftruncate64 pthread_mutexattr_setprotocol pthread_condattr_setclock pthread_spin_lock])
 LIBS="$save_LIBS"
+
+AC_MSG_CHECKING(whether to enable dlopen support for skin libraries)
+AC_ARG_ENABLE(dlopen-skins,
+	AC_HELP_STRING([--enable-dlopen-skins], [Disable TLS features and
+automatic main thread mapping by the POSIX skin to allows dlopen'ing Xenomai
+libs.]),
+	[case "$enableval" in
+	y | yes) CONFIG_XENO_LIBS_DLOPEN=y ;;
+	*) unset CONFIG_XENO_LIBS_DLOPEN ;;
+	esac])
+AC_MSG_RESULT(${CONFIG_XENO_LIBS_DLOPEN:-no})
+if test x$CONFIG_XENO_LIBS_DLOPEN = xy; then
+	AC_DEFINE(CONFIG_XENO_LIBS_DLOPEN,1,[config])
+fi
+
+XENO_DLOPEN_CONSTRAINT=
+
+AC_ARG_WITH([__thread],
+	    AC_HELP_STRING([--without-__thread],
+			   [do not use TLS features]),
+	    [use__thread=$withval])
+
+dnl Check whether the compiler supports the __thread keyword.
+if test "x$use__thread" != xno -a "x$CONFIG_XENO_LIBS_DLOPEN" != xy; then
+	AC_CACHE_CHECK([for __thread], libc_cv_gcc___thread,
+	[cat > conftest.c <<\EOF
+__thread int a __attribute__ ((tls_model ("initial-exec"))) = 42;
+EOF
+	if AC_TRY_COMMAND([${CC-cc} $CFLAGS $CPPFLAGS -c -Werror conftest.c >&AS_MESSAGE_LOG_FD]); then
+		libc_cv_gcc___thread=yes
+	else
+		libc_cv_gcc___thread=no
+	fi
+	rm -f conftest*])
+	if test "$libc_cv_gcc___thread" = yes; then
+		AC_DEFINE(HAVE___THREAD,1,[config])
+		XENO_DLOPEN_CONSTRAINT="-Wl,-z -Wl,nodlopen"
+	fi
+fi
 
 dnl
 dnl Build the Makefiles
@@ -757,6 +876,7 @@ AC_SUBST(XENO_USER_CFLAGS)
 AC_SUBST(XENO_USER_LDFLAGS)
 AC_SUBST(XENO_USER_APP_CFLAGS)
 AC_SUBST(XENO_USER_APP_LDFLAGS)
+AC_SUBST(XENO_DLOPEN_CONSTRAINT)
 AC_SUBST([CONFIG_STATUS_DEPENDENCIES],
         ['$(top_srcdir)/src/skins/posix/posix.wrappers'])
 AC_SUBST(XENO_POSIX_WRAPPERS)
@@ -776,6 +896,7 @@ AC_CONFIG_FILES([ \
 	src/Makefile \
 	src/rtdk/Makefile \
 	src/skins/Makefile \
+	src/skins/common/Makefile \
        	src/skins/posix/Makefile \
        	src/skins/native/Makefile \
        	src/skins/vxworks/Makefile \
@@ -784,17 +905,22 @@ AC_CONFIG_FILES([ \
        	src/skins/rtdm/Makefile \
        	src/skins/rtai/Makefile \
        	src/skins/uitron/Makefile \
+       	src/drvlib/Makefile \
+       	src/drvlib/analogy/Makefile \
 	src/include/Makefile \
        	src/testsuite/Makefile \
        	src/testsuite/latency/Makefile \
-       	src/testsuite/switchbench/Makefile \
        	src/testsuite/cyclic/Makefile \
        	src/testsuite/switchtest/Makefile \
 	src/testsuite/irqbench/Makefile \
 	src/testsuite/clocktest/Makefile \
        	src/testsuite/klatency/Makefile \
+       	src/testsuite/unit/Makefile \
+       	src/testsuite/sigtest/Makefile \
 	src/utils/Makefile \
 	src/utils/can/Makefile \
+	src/utils/analogy/Makefile \
+	src/utils/ps/Makefile \
        	include/Makefile \
        	include/asm-generic/Makefile \
        	include/asm-generic/bits/Makefile \
@@ -804,10 +930,10 @@ AC_CONFIG_FILES([ \
        	include/asm-x86/bits/Makefile \
        	include/asm-powerpc/Makefile \
        	include/asm-powerpc/bits/Makefile \
-       	include/asm-ia64/Makefile \
-       	include/asm-ia64/bits/Makefile \
        	include/asm-arm/Makefile \
        	include/asm-arm/bits/Makefile \
+       	include/asm-nios2/Makefile \
+       	include/asm-nios2/bits/Makefile \
        	include/asm-sim/Makefile \
        	include/asm-sim/bits/Makefile \
        	include/native/Makefile \
@@ -817,6 +943,7 @@ AC_CONFIG_FILES([ \
        	include/psos+/Makefile \
        	include/rtai/Makefile \
        	include/rtdm/Makefile \
+       	include/analogy/Makefile \
        	include/uitron/Makefile \
        	include/vrtx/Makefile \
        	include/vxworks/Makefile \

@@ -52,7 +52,7 @@
 #include <nucleus/registry.h>
 #include <native/pipe.h>
 
-#ifdef CONFIG_XENO_EXPORT_REGISTRY
+#ifdef CONFIG_PROC_FS
 
 static ssize_t __pipe_link_proc(char *buf, int count, void *data)
 {
@@ -71,14 +71,14 @@ static xnpnode_t __pipe_pnode = {
 	.root = &__native_ptree,
 };
 
-#elif defined(CONFIG_XENO_OPT_REGISTRY)
+#else /* !CONFIG_PROC_FS */
 
 static xnpnode_t __pipe_pnode = {
 
 	.type = "pipes"
 };
 
-#endif /* CONFIG_XENO_EXPORT_REGISTRY */
+#endif /* !CONFIG_PROC_FS */
 
 static void __pipe_flush_pool(xnheap_t *heap,
 			      void *poolmem, u_long poolsize, void *cookie)
@@ -94,6 +94,8 @@ static void *__pipe_alloc_handler(size_t size, void *xstate) /* nklock free */
 	/* Try to allocate memory for the incoming message. */
 	buf = xnheap_alloc(pipe->bufpool, size);
 	if (unlikely(buf == NULL)) {
+		if (pipe->monitor)
+			pipe->monitor(pipe, P_EVENT_NOBUF, size);
 		if (size > xnheap_max_contiguous(pipe->bufpool))
 			buf = (void *)-1; /* Will never succeed. */
 	}
@@ -116,6 +118,30 @@ static void __pipe_free_handler(void *buf, void *xstate) /* nklock free */
 		xnlock_put_irqrestore(&nklock, s);
 	} else
 		xnheap_free(pipe->bufpool, buf);
+}
+
+static void __pipe_output_handler(xnpipe_mh_t *mh, void *xstate) /* nklock held */
+{
+	RT_PIPE *pipe = xstate;
+
+	if (pipe->monitor)
+		pipe->monitor(pipe, P_EVENT_OUTPUT, xnpipe_m_size(mh));
+}
+
+static int __pipe_input_handler(xnpipe_mh_t *mh, int retval, void *xstate) /* nklock held */
+{
+	RT_PIPE *pipe = xstate;
+	
+	if (pipe->monitor == NULL)
+		return retval;
+
+	if (retval == 0)
+		/* Callee may alter the return value passed to userland. */
+		retval = pipe->monitor(pipe, P_EVENT_INPUT, xnpipe_m_size(mh));
+	else if (retval == -EPIPE && mh == NULL)
+		pipe->monitor(pipe, P_EVENT_CLOSE, 0);
+
+	return retval;
 }
 
 static void __pipe_release_handler(void *xstate) /* nklock free */
@@ -226,12 +252,12 @@ void __native_pipe_pkg_cleanup(void)
 int rt_pipe_create(RT_PIPE *pipe, const char *name, int minor, size_t poolsize)
 {
 #if CONFIG_XENO_OPT_NATIVE_PIPE_BUFSZ > 0
-	/* XNCORE_PAGE_SIZE is guaranteed to be significantly greater
+	/* XNHEAP_PAGE_SIZE is guaranteed to be significantly greater
 	 * than sizeof(RT_PIPE_MSG), so that we could store a message
 	 * header along with a useful buffer space into the local
 	 * pool. */
-	size_t streamsz = CONFIG_XENO_OPT_NATIVE_PIPE_BUFSZ < XNCORE_PAGE_SIZE ?
-		XNCORE_PAGE_SIZE : CONFIG_XENO_OPT_NATIVE_PIPE_BUFSZ;
+	size_t streamsz = CONFIG_XENO_OPT_NATIVE_PIPE_BUFSZ < XNHEAP_PAGE_SIZE ?
+		XNHEAP_PAGE_SIZE : CONFIG_XENO_OPT_NATIVE_PIPE_BUFSZ;
 #else
 #define streamsz  0
 #endif
@@ -246,6 +272,7 @@ int rt_pipe_create(RT_PIPE *pipe, const char *name, int minor, size_t poolsize)
 	pipe->buffer = NULL;
 	pipe->bufpool = &kheap;
 	pipe->fillsz = 0;
+	pipe->monitor = NULL;
 	pipe->status = 0;
 	pipe->handle = 0;	/* i.e. (still) unregistered pipe. */
 	pipe->magic = XENO_PIPE_MAGIC;
@@ -261,18 +288,20 @@ int rt_pipe_create(RT_PIPE *pipe, const char *name, int minor, size_t poolsize)
 		   that the actual free space is large enough to match
 		   the requested size. */
 
-		poolsize = xnheap_rounded_size(poolsize, XNCORE_PAGE_SIZE);
+		poolsize = xnheap_rounded_size(poolsize, XNHEAP_PAGE_SIZE);
 		poolmem = xnarch_alloc_host_mem(poolsize);
 
 		if (!poolmem)
 			return -ENOMEM;
 
 		/* Use natural page size */
-		err = xnheap_init(&pipe->privpool, poolmem, poolsize, XNCORE_PAGE_SIZE);
+		err = xnheap_init(&pipe->privpool, poolmem, poolsize, XNHEAP_PAGE_SIZE);
 		if (err) {
 			xnarch_free_host_mem(poolmem, poolsize);
 			return err;
 		}
+		xnheap_set_label(&pipe->privpool,
+				 "rt_pipe: %d / %s", minor, name);
 
 		pipe->bufpool = &pipe->privpool;
 	}
@@ -289,8 +318,9 @@ int rt_pipe_create(RT_PIPE *pipe, const char *name, int minor, size_t poolsize)
 	xnpipe_m_size(pipe->buffer) = streamsz - sizeof(RT_PIPE_MSG);
 #endif /* CONFIG_XENO_OPT_NATIVE_PIPE_BUFSZ > 0 */
 
-	ops.output = NULL;
-	ops.input = NULL;
+			       
+	ops.output = &__pipe_output_handler;
+	ops.input = &__pipe_input_handler;
 	ops.alloc_ibuf = &__pipe_alloc_handler;
 	ops.free_ibuf = &__pipe_free_handler;
 	ops.free_obuf = &__pipe_free_handler;
@@ -315,29 +345,17 @@ int rt_pipe_create(RT_PIPE *pipe, const char *name, int minor, size_t poolsize)
 	pipe->cpid = 0;
 #endif /* CONFIG_XENO_OPT_PERVASIVE */
 
-#ifdef CONFIG_XENO_OPT_REGISTRY
-	/* <!> Since xnregister_enter() may reschedule, only register
-	   complete objects, so that the registry cannot return handles to
-	   half-baked objects... */
-
+	/*
+	 * <!> Since xnregister_enter() may reschedule, only register
+	 * complete objects, so that the registry cannot return handles to
+	 * half-baked objects...
+	 */
 	if (name) {
-		xnpnode_t *pnode = &__pipe_pnode;
-
-		if (!*name) {
-			/* Since this is an anonymous object (empty name on entry)
-			   from user-space, it gets registered under an unique
-			   internal name but is not exported through /proc. */
-			xnobject_create_name(pipe->name, sizeof(pipe->name),
-					     (void *)pipe);
-			pnode = NULL;
-		}
-
-		err = xnregistry_enter(pipe->name, pipe, &pipe->handle, pnode);
-
+		err = xnregistry_enter(pipe->name, pipe, &pipe->handle,
+				       &__pipe_pnode);
 		if (err)
 			rt_pipe_delete(pipe);
 	}
-#endif /* CONFIG_XENO_OPT_REGISTRY */
 
 	return err;
 }
@@ -392,12 +410,10 @@ int rt_pipe_delete(RT_PIPE *pipe)
 	}
 
 	removeq(pipe->rqueue, &pipe->rlink);
-	pipe->buffer = NULL;
+	pipe->monitor = NULL;	/* Stop monitoring. */
 
-#ifdef CONFIG_XENO_OPT_REGISTRY
 	if (pipe->handle)
 		xnregistry_remove(pipe->handle);
-#endif /* CONFIG_XENO_OPT_REGISTRY */
 
 	xeno_mark_deleted(pipe);
 
@@ -468,8 +484,8 @@ int rt_pipe_delete(RT_PIPE *pipe)
  * waiting task before any data was available.
  *
  * - -EPERM is returned if this service should block, but was called
- * from a context which cannot sleep (e.g. interrupt, non-realtime or
- * scheduler locked).
+ * from a context which cannot sleep (e.g. interrupt, non-realtime
+ * context).
  *
  * Environments:
  *
@@ -580,8 +596,8 @@ ssize_t rt_pipe_receive(RT_PIPE *pipe, RT_PIPE_MSG **msgp, RTIME timeout)
  * waiting task before any data was available.
  *
  * - -EPERM is returned if this service should block, but was called
- * from a context which cannot sleep (e.g. interrupt, non-realtime or
- * scheduler locked).
+ * from a context which cannot sleep (e.g. interrupt, non-realtime
+ * context).
  *
  * - -ENOBUFS is returned if @a size is not large enough to collect the
  * message data.
@@ -1010,19 +1026,22 @@ int rt_pipe_free(RT_PIPE *pipe, RT_PIPE_MSG *msg)
  * side in user-space for the given message pipe. Upon success, no
  * data remains to be read from the remote side of the connection.
  *
- * The user-space equivalent is a call to:
- * ioctl(pipefd, XNPIPEIOC_FLUSH, 0).
- *
  * @param pipe The descriptor address of the pipe to flush.
  *
  * @param mode A mask indicating which queues need to be flushed; the
  * following flags may be combined in a single flush request:
  *
- * - XNPIPE_IFLUSH causes the input queue to be flushed (i.e. data
- * coming from user-space to the kernel endpoint will be discarded).
+ * - XNPIPE_OFLUSH causes the output queue to be flushed (i.e. unread
+ * data sent from the real-time endpoint in kernel-space to the non
+ * real-time endpoint in user-space will be discarded).  This is
+ * equivalent to calling ioctl(pipefd, XNPIPEIOC_OFLUSH, 0) from
+ * user-space.
  *
- * - XNPIPE_OFLUSH causes the output queue to be flushed (i.e. data
- * going to user-space from the kernel endpoint will be discarded).
+ * - XNPIPE_IFLUSH causes the input queue to be flushed (i.e. unread
+ * data sent from the non real-time endpoint in user-space to the
+ * real-time endpoint in kernel-space will be discarded).  This is
+ * equivalent to calling ioctl(pipefd, XNPIPEIOC_IFLUSH, 0) from
+ * user-space.
  *
  * @return Zero is returned upon success. Otherwise:
  *
@@ -1065,6 +1084,89 @@ int rt_pipe_flush(RT_PIPE *pipe, int mode)
 	return xnpipe_flush(minor, mode);
 }
 
+/**
+ * @fn int rt_pipe_monitor(RT_PIPE *pipe, int (*fn)(RT_PIPE *pipe, int event, long arg))
+ *
+ * @brief Monitor a message pipe asynchronously.
+ *
+ * This service registers a notifier callback that will be called upon
+ * specific events occurring on the channel.  rt_pipe_monitor() is
+ * particularly useful to monitor a channel asynchronously while
+ * performing other tasks.
+ *
+ * @param pipe The descriptor address of the pipe to monitor.
+ *
+ * @param fn The notification handler. This user-provided routine will
+ * be passed the address of the message pipe descriptor receiving the
+ * event, the event code, and an optional argument.  Four events are
+ * currently defined:
+ *
+ * - P_EVENT_INPUT is sent when the user-space endpoint writes to the
+ *   pipe, which means that some input is pending for the kernel-based
+ *   endpoint. The argument is the size of the incoming message.
+ *
+ * - P_EVENT_OUTPUT is sent when the user-space endpoint successfully
+ *   reads a complete buffer from the pipe. The argument is the size
+ *   of the outgoing message.
+ *
+ * - P_EVENT_CLOSE is sent when the user-space endpoint is closed. The
+     argument is always 0.
+ *
+ * - P_EVENT_NOBUF is sent when no memory is available from the kernel
+ * pool to hold the message currently sent from the user-space
+ * endpoint. The argument is the size of the failed allocation. Upon
+ * return from the handler, the caller will block and retry until
+ * enough space is available from the pool; during that process, the
+ * handler might be called multiple times, each time a new attempt to
+ * get the required memory fails.
+ *
+ * The P_EVENT_INPUT and P_EVENT_OUTPUT events are fired on behalf of
+ * a fully atomic context; therefore, care must be taken to keep their
+ * overhead low. In those cases, the Xenomai services that may be
+ * called from the handler are restricted to the set allowed to a
+ * real-time interrupt handler.
+ *
+ * @return Zero is returned upon success. Otherwise:
+ *
+ * - -EINVAL is returned if @a pipe is not a pipe descriptor.
+ *
+ * - -EIDRM is returned if @a pipe is a closed pipe descriptor.
+ *
+ * - -ENODEV or -EBADF are returned if @a pipe is scrambled.
+ *
+ * Environments:
+ *
+ * This service can be called from:
+ *
+ * - Kernel module initialization/cleanup code
+ * - Kernel-based task
+ *
+ * Rescheduling: never.
+ */
+
+int rt_pipe_monitor(RT_PIPE *pipe, int (*fn)(RT_PIPE *pipe, int event, long arg))
+{
+	int err;
+	spl_t s;
+
+	xnlock_get_irqsave(&nklock, s);
+
+	pipe = xeno_h2obj_validate(pipe, XENO_PIPE_MAGIC, RT_PIPE);
+
+	if (!pipe) {
+		err = xeno_handle_error(pipe, XENO_PIPE_MAGIC, RT_PIPE);
+		xnlock_put_irqrestore(&nklock, s);
+		return err;
+	}
+
+	pipe->monitor = fn;
+
+	xnlock_put_irqrestore(&nklock, s);
+
+	return 0;
+	
+}
+
 /*@}*/
 
 EXPORT_SYMBOL(rt_pipe_create);
@@ -1077,3 +1179,4 @@ EXPORT_SYMBOL(rt_pipe_stream);
 EXPORT_SYMBOL(rt_pipe_alloc);
 EXPORT_SYMBOL(rt_pipe_free);
 EXPORT_SYMBOL(rt_pipe_flush);
+EXPORT_SYMBOL(rt_pipe_monitor);

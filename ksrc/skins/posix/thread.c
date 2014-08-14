@@ -43,7 +43,7 @@ static unsigned pse51_get_magic(void)
 	return PSE51_SKIN_MAGIC;
 }
 
-static xnthrops_t pse51_thread_ops = {
+static struct xnthread_operations pse51_thread_ops = {
 	.get_magic = &pse51_get_magic,
 };
 
@@ -78,12 +78,6 @@ static void thread_delete_hook(xnthread_t *xnthread)
 	pse51_mark_deleted(thread);
 	pse51_signal_cleanup_thread(thread);
 	pse51_timer_cleanup_thread(thread);
-#ifdef CONFIG_XENO_OPT_POSIX_SELECT
-	if (thread->selector) {
-		xnselector_destroy(thread->selector);
-		thread->selector = NULL;
-	}
-#endif /* CONFIG_XENO_OPT_POSIX_SELECT */
 
 	switch (thread_getdetachstate(thread)) {
 	case PTHREAD_CREATE_DETACHED:
@@ -147,17 +141,39 @@ static void thread_delete_hook(xnthread_t *xnthread)
  * @see
  * <a href="http://www.opengroup.org/onlinepubs/000095399/functions/pthread_create.html">
  * Specification.</a>
- * 
+ *
+ * @note
+ *
+ * When creating or shadowing a Xenomai thread for the first time in
+ * user-space, Xenomai installs a handler for the SIGWINCH signal. If you had
+ * installed a handler before that, it will be automatically called by Xenomai
+ * for SIGWINCH signals that it has not sent.
+ *
+ * If, however, you install a signal handler for SIGWINCH after creating
+ * or shadowing the first Xenomai thread, you have to explicitly call the
+ * function xeno_sigwinch_handler at the beginning of your signal handler,
+ * using its return to know if the signal was in fact an internal signal of
+ * Xenomai (in which case it returns 1), or if you should handle the signal (in
+ * which case it returns 0). xeno_sigwinch_handler prototype is:
+ *
+ * <b>int xeno_sigwinch_handler(int sig, siginfo_t *si, void *ctxt);</b>
+ *
+ * Which means that you should register your handler with sigaction, using the
+ * SA_SIGINFO flag, and pass all the arguments you received to
+ * xeno_sigwinch_handler.
  */
 int pthread_create(pthread_t *tid,
 		   const pthread_attr_t * attr,
 		   void *(*start) (void *), void *arg)
 {
+	union xnsched_policy_param param;
+	struct xnthread_start_attr sattr;
+	struct xnthread_init_attr iattr;
 	pthread_t thread, cur;
 	xnflags_t flags = 0;
 	size_t stacksize;
 	const char *name;
-	int prio;
+	int prio, ret;
 	spl_t s;
 
 	if (attr && attr->magic != PSE51_THREAD_ATTR_MAGIC)
@@ -182,11 +198,11 @@ int pthread_create(pthread_t *tid,
 			return EINVAL;
 		}
 
-		pthread_getschedparam(cur, &thread->attr.policy,
-				      &thread->attr.schedparam);
+		pthread_getschedparam_ex(cur, &thread->attr.policy,
+					 &thread->attr.schedparam_ex);
 	}
 
-	prio = thread->attr.schedparam.sched_priority;
+	prio = thread->attr.schedparam_ex.sched_priority;
 	stacksize = thread->attr.stacksize;
 	name = thread->attr.name;
 
@@ -196,8 +212,15 @@ int pthread_create(pthread_t *tid,
 	if (!start)
 		flags |= XNSHADOW;	/* Note: no interrupt shield. */
 
-	if (xnpod_init_thread(&thread->threadbase, pse51_tbase,
-			      name, prio, flags, stacksize, &pse51_thread_ops) != 0) {
+	iattr.tbase = pse51_tbase;
+	iattr.name = name;
+	iattr.flags = flags;
+	iattr.ops = &pse51_thread_ops;
+	iattr.stacksize = stacksize;
+	param.rt.prio = prio;
+
+	if (xnpod_init_thread(&thread->threadbase,
+			      &iattr, &xnsched_class_rt, &param) != 0) {
 		xnfree(thread);
 		return EAGAIN;
 	}
@@ -209,20 +232,16 @@ int pthread_create(pthread_t *tid,
 	thread->magic = PSE51_THREAD_MAGIC;
 	thread->entry = start;
 	thread->arg = arg;
-	xnsynch_init(&thread->join_synch, XNSYNCH_PRIO);
+	xnsynch_init(&thread->join_synch, XNSYNCH_PRIO, NULL);
 	thread->nrt_joiners = 0;
 
 	pse51_cancel_init_thread(thread);
 	pse51_signal_init_thread(thread, cur);
 	pse51_tsd_init_thread(thread);
 	pse51_timer_init_thread(thread);
-	thread->selector = NULL;
 
-	if (thread->attr.policy == SCHED_RR) {
-		xnthread_time_slice(&thread->threadbase) = pse51_time_slice;
-		flags = XNRRB;
-	} else
-		flags = 0;
+	if (thread->attr.policy == SCHED_RR)
+		xnpod_set_thread_tslice(&thread->threadbase, pse51_time_slice);
 
 	xnlock_get_irqsave(&nklock, s);
 	thread->container = &pse51_kqueues(0)->threadq;
@@ -234,14 +253,26 @@ int pthread_create(pthread_t *tid,
 	thread->hkey.mm = NULL;
 #endif /* CONFIG_XENO_OPT_PERVASIVE */
 
+	/* We need an anonymous registry entry to obtain a handle for fast
+	   mutex locking. */
+	ret = xnthread_register(&thread->threadbase, "");
+	if (ret) {
+		thread_destroy(thread);
+		return ret;
+	}
+
 	*tid = thread;		/* Must be done before the thread is started. */
 
-	if (start)		/* Do not start shadow threads (i.e. start == NULL). */
-		xnpod_start_thread(&thread->threadbase,
-				   flags,
-				   0,
-				   thread->attr.affinity,
-				   thread_trampoline, thread);
+	/* Do not start shadow threads (i.e. start == NULL). */
+	if (start) {
+		sattr.mode = 0;
+		sattr.imask = 0;
+		sattr.affinity = thread->attr.affinity;
+		sattr.entry = thread_trampoline;
+		sattr.cookie = thread;
+		xnpod_start_thread(&thread->threadbase, &sattr);
+	}
+
 	return 0;
 }
 
@@ -610,9 +641,6 @@ int pthread_wait_np(unsigned long *overruns_r)
  * - PTHREAD_LOCK_SCHED, when set, locks the scheduler, which prevents the
  *   current thread from being switched out by the scheduler until the scheduler
  *   is unlocked;
- * - PTHREAD_SHIELD, when set, activates the interrupt shield, which improve the
- *   execution determinism of the current thread by blocking Linux interrupts
- *   when it runs in secondary mode;
  * - PTHREAD_RPIOFF, when set, prevents the root Linux thread from inheriting
  *   the priority of the calling thread, when this thread is running in
  *   secondary mode;
@@ -642,7 +670,7 @@ int pthread_set_mode_np(int clrmask, int setmask)
 
 #ifdef CONFIG_XENO_OPT_PERVASIVE
 	if (xnthread_test_state(cur, XNSHADOW))
-		valid_flags |= XNTHREAD_STATE_SPARE1 | XNSHIELD | XNTRAPSW | XNRPIOFF;
+		valid_flags |= XNTHREAD_STATE_SPARE1 | XNTRAPSW | XNRPIOFF;
 #endif /* CONFIG_XENO_OPT_PERVASIVE */
 
 	/* XNTHREAD_STATE_SPARE1 is used for primary mode switch. */

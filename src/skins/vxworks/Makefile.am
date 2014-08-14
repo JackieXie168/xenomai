@@ -1,6 +1,6 @@
 lib_LTLIBRARIES = libvxworks.la
 
-libvxworks_la_LDFLAGS = -version-info 1:0:0 -lpthread
+libvxworks_la_LDFLAGS = @XENO_DLOPEN_CONSTRAINT@ -version-info 1:0:0 -lpthread
 
 libvxworks_la_SOURCES = \
 	errnoLib.c \
@@ -20,3 +20,5 @@ libvxworks_la_SOURCES = \
 libvxworks_la_CPPFLAGS = \
 	@XENO_USER_CFLAGS@ \
 	-I$(top_srcdir)/include
+
+libvxworks_la_LIBADD = ../common/libxeno_common.la

@@ -75,7 +75,7 @@ am__base_list = \
   sed '$$!N;$$!N;$$!N;$$!N;s/\n/ /g'
 am__installdirs = "$(DESTDIR)$(libdir)"
 LTLIBRARIES = $(lib_LTLIBRARIES)
-librtai_la_LIBADD =
+librtai_la_DEPENDENCIES = ../common/libxeno_common.la
 am_librtai_la_OBJECTS = librtai_la-init.lo librtai_la-shm.lo
 librtai_la_OBJECTS = $(am_librtai_la_OBJECTS)
 librtai_la_LINK = $(LIBTOOL) --tag=CC $(AM_LIBTOOLFLAGS) \
@@ -188,6 +188,7 @@ SHELL = @SHELL@
 STRIP = @STRIP@
 VERSION = @VERSION@
 XENO_BUILD_STRING = @XENO_BUILD_STRING@
+XENO_DLOPEN_CONSTRAINT = @XENO_DLOPEN_CONSTRAINT@
 XENO_HOST_STRING = @XENO_HOST_STRING@
 XENO_LINUX_ALL_TARGETS = @XENO_LINUX_ALL_TARGETS@
 XENO_LINUX_ARCH = @XENO_LINUX_ARCH@
@@ -258,7 +259,7 @@ top_build_prefix = @top_build_prefix@
 top_builddir = @top_builddir@
 top_srcdir = @top_srcdir@
 lib_LTLIBRARIES = librtai.la
-librtai_la_LDFLAGS = -version-info 0:0:0
+librtai_la_LDFLAGS = @XENO_DLOPEN_CONSTRAINT@ -version-info 0:0:0
 librtai_la_SOURCES = init.c \
 	shm.c
 
@@ -266,6 +267,7 @@ librtai_la_CPPFLAGS = \
 	@XENO_USER_CFLAGS@ \
 	-I$(top_srcdir)/include
 
+librtai_la_LIBADD = ../common/libxeno_common.la
 all: all-am
 
 .SUFFIXES:

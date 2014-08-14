@@ -31,11 +31,11 @@
  */
 
 #include <linux/bitops.h>
+#include <linux/delay.h>
+#include <linux/mman.h>
 #include <asm/page.h>
 #include <asm/io.h>
 #include <asm/pgtable.h>
-#include <linux/delay.h>
-#include <linux/mman.h>
 #include <linux/highmem.h>
 
 #include <rtdm/rtdm_driver.h>
@@ -139,31 +139,50 @@ int rtdm_task_init(rtdm_task_t *task, const char *name,
 		   rtdm_task_proc_t task_proc, void *arg,
 		   int priority, nanosecs_rel_t period)
 {
-	int res;
+	union xnsched_policy_param param;
+	struct xnthread_start_attr sattr;
+	struct xnthread_init_attr iattr;
+	int err;
 
-	res = xnpod_init_thread(task, rtdm_tbase, name, priority, 0, 0, NULL);
-	if (res)
-		goto error_out;
+	iattr.tbase = rtdm_tbase;
+	iattr.name = name;
+	iattr.flags = 0;
+	iattr.ops = NULL;
+	iattr.stacksize = 0;
+	param.rt.prio = priority;
+
+	err = xnpod_init_thread(task, &iattr, &xnsched_class_rt, &param);
+	if (err)
+		return err;
+
+	/* We need an anonymous registry entry to obtain a handle for fast
+	   mutex locking. */
+	err = xnthread_register(task, "");
+	if (err)
+		goto cleanup_out;
 
 	if (period > 0) {
-		res = xnpod_set_thread_periodic(task, XN_INFINITE,
+		err = xnpod_set_thread_periodic(task, XN_INFINITE,
 						xntbase_ns2ticks_ceil
 						(rtdm_tbase,  period));
-		if (res)
+		if (err)
 			goto cleanup_out;
 	}
 
-	res = xnpod_start_thread(task, 0, 0, XNPOD_ALL_CPUS, task_proc, arg);
-	if (res)
+	sattr.mode = 0;
+	sattr.imask = 0;
+	sattr.affinity = XNPOD_ALL_CPUS;
+	sattr.entry = task_proc;
+	sattr.cookie = arg;
+	err = xnpod_start_thread(task, &sattr);
+	if (err)
 		goto cleanup_out;
 
-	return res;
+	return 0;
 
       cleanup_out:
 	xnpod_delete_thread(task);
-
-      error_out:
-	return res;
+	return err;
 }
 
 EXPORT_SYMBOL(rtdm_task_init);
@@ -750,12 +769,13 @@ void rtdm_event_init(rtdm_event_t *event, unsigned long pending)
 {
 	spl_t s;
 
-	trace_mark(xn_rtdm, event_init, "event %p pending %lu", event, pending);
+	trace_mark(xn_rtdm, event_init,
+		   "event %p pending %lu", event, pending);
 
 	/* Make atomic for re-initialisation support */
 	xnlock_get_irqsave(&nklock, s);
 
-	xnsynch_init(&event->synch_base, XNSYNCH_PRIO);
+	xnsynch_init(&event->synch_base, XNSYNCH_PRIO, NULL);
 	if (pending)
 		xnsynch_set_flags(&event->synch_base, RTDM_EVENT_PENDING);
 	xnselect_init(&event->select_block);
@@ -907,6 +927,9 @@ EXPORT_SYMBOL(rtdm_event_wait);
  *
  * - -EPERM @e may be returned if an illegal invocation environment is
  * detected.
+ *
+ * - -EWOULDBLOCK is returned if a negative @a timeout (i.e., non-blocking
+ * operation) has been specified.
  *
  * Environments:
  *
@@ -1103,7 +1126,7 @@ void rtdm_sem_init(rtdm_sem_t *sem, unsigned long value)
 	xnlock_get_irqsave(&nklock, s);
 
 	sem->value = value;
-	xnsynch_init(&sem->synch_base, XNSYNCH_PRIO);
+	xnsynch_init(&sem->synch_base, XNSYNCH_PRIO, NULL);
 	xnselect_init(&sem->select_block);
 
 	xnlock_put_irqrestore(&nklock, s);
@@ -1384,7 +1407,8 @@ void rtdm_mutex_init(rtdm_mutex_t *mutex)
 	/* Make atomic for re-initialisation support */
 	xnlock_get_irqsave(&nklock, s);
 
-	xnsynch_init(&mutex->synch_base, XNSYNCH_PRIO | XNSYNCH_PIP);
+	xnsynch_init(&mutex->synch_base,
+		     XNSYNCH_PRIO | XNSYNCH_PIP | XNSYNCH_OWNER, NULL);
 
 	xnlock_put_irqrestore(&nklock, s);
 }
@@ -1528,14 +1552,14 @@ int rtdm_mutex_timedlock(rtdm_mutex_t *mutex, nanosecs_rel_t timeout,
 restart:
 		if (timeout_seq && (timeout > 0)) {
 			/* timeout sequence */
-			xnsynch_sleep_on(&mutex->synch_base, *timeout_seq,
-					 XN_ABSOLUTE);
+			xnsynch_acquire(&mutex->synch_base, *timeout_seq,
+					XN_ABSOLUTE);
 		} else {
 			/* infinite or relative timeout */
-			xnsynch_sleep_on(&mutex->synch_base,
-					 xntbase_ns2ticks_ceil
-					 (xnthread_time_base(curr_thread),
-					  timeout), XN_RELATIVE);
+			xnsynch_acquire(&mutex->synch_base,
+					xntbase_ns2ticks_ceil
+					(xnthread_time_base(curr_thread),
+					 timeout), XN_RELATIVE);
 		}
 
 		if (unlikely(xnthread_test_info(curr_thread,
@@ -1765,7 +1789,7 @@ void rtdm_nrtsig_pend(rtdm_nrtsig_t *nrt_sig);
 #if defined(CONFIG_XENO_OPT_PERVASIVE) || defined(DOXYGEN_CPP)
 struct rtdm_mmap_data {
 	void *src_vaddr;
-	unsigned long src_paddr;
+	phys_addr_t src_paddr;
 	struct vm_operations_struct *vm_ops;
 	void *vm_private_data;
 };
@@ -1773,14 +1797,15 @@ struct rtdm_mmap_data {
 static int rtdm_mmap_buffer(struct file *filp, struct vm_area_struct *vma)
 {
 	struct rtdm_mmap_data *mmap_data = filp->private_data;
-	unsigned long vaddr, paddr, maddr, size;
+	unsigned long vaddr, maddr, size;
+	phys_addr_t paddr;
 	int ret;
 
 	vma->vm_ops = mmap_data->vm_ops;
 	vma->vm_private_data = mmap_data->vm_private_data;
 
 	vaddr = (unsigned long)mmap_data->src_vaddr;
-	paddr = (unsigned long)mmap_data->src_paddr;
+	paddr = mmap_data->src_paddr;
 	if (!paddr)
 		/* kmalloc memory */
 		paddr = virt_to_phys((void *)vaddr);
@@ -1982,7 +2007,7 @@ EXPORT_SYMBOL(rtdm_mmap_to_user);
  * Rescheduling: possible.
  */
 int rtdm_iomap_to_user(rtdm_user_info_t *user_info,
-		       unsigned long src_addr, size_t len,
+		       phys_addr_t src_addr, size_t len,
 		       int prot, void **pptr,
 		       struct vm_operations_struct *vm_ops,
 		       void *vm_private_data)

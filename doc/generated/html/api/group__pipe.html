@@ -61,6 +61,8 @@ Collaboration diagram for Message pipe services.:</div>
 <tr><td class="mdescLeft">&nbsp;</td><td class="mdescRight">Free a message pipe buffer.  <a href="#ga8face1c57df99cf43b029b3e3b6a05c6"></a><br/></td></tr>
 <tr><td class="memItemLeft" align="right" valign="top">int&nbsp;</td><td class="memItemRight" valign="bottom"><a class="el" href="group__pipe.html#gab4d85ecda7675a75611500070c28b22e">rt_pipe_flush</a> (RT_PIPE *pipe, int mode)</td></tr>
 <tr><td class="mdescLeft">&nbsp;</td><td class="mdescRight">Flush the i/o queues associated with the kernel endpoint of a message pipe.  <a href="#gab4d85ecda7675a75611500070c28b22e"></a><br/></td></tr>
+<tr><td class="memItemLeft" align="right" valign="top">int&nbsp;</td><td class="memItemRight" valign="bottom"><a class="el" href="group__pipe.html#ga944600f54dc78a77badeda77f3af732d">rt_pipe_monitor</a> (RT_PIPE *pipe, int(*fn)(RT_PIPE *pipe, int event, long arg))</td></tr>
+<tr><td class="mdescLeft">&nbsp;</td><td class="mdescRight">Monitor a message pipe asynchronously.  <a href="#ga944600f54dc78a77badeda77f3af732d"></a><br/></td></tr>
 </table>
 <hr/><a name="_details"></a><h2>Detailed Description</h2>
 <p>Message pipe services.</p>
@@ -111,9 +113,9 @@ Collaboration diagram for Message pipe services.:</div>
 </ul>
 <p>Rescheduling: never. </p>
 
-<p>References <a class="el" href="ksrc_2nucleus_2heap_8c_source.html#l00429">xnheap_alloc()</a>.</p>
+<p>References <a class="el" href="ksrc_2nucleus_2heap_8c_source.html#l00481">xnheap_alloc()</a>.</p>
 
-<p>Referenced by <a class="el" href="ksrc_2skins_2native_2pipe_8c_source.html#l00789">rt_pipe_write()</a>.</p>
+<p>Referenced by <a class="el" href="ksrc_2skins_2native_2pipe_8c_source.html#l00805">rt_pipe_write()</a>.</p>
 
 </div>
 </div>
@@ -197,7 +199,7 @@ Collaboration diagram for Message pipe services.:</div>
 </ul>
 <p>Rescheduling: possible. </p>
 
-<p>References <a class="el" href="src_2skins_2native_2pipe_8c_source.html#l00037">rt_pipe_delete()</a>, <a class="el" href="ksrc_2nucleus_2heap_8c_source.html#l00429">xnheap_alloc()</a>, <a class="el" href="ksrc_2nucleus_2heap_8c_source.html#l00270">xnheap_destroy()</a>, <a class="el" href="ksrc_2nucleus_2heap_8c_source.html#l00167">xnheap_init()</a>, and <a class="el" href="nucleus_2registry_8c_source.html#l00582">xnregistry_enter()</a>.</p>
+<p>References <a class="el" href="src_2skins_2native_2pipe_8c_source.html#l00037">rt_pipe_delete()</a>, <a class="el" href="ksrc_2nucleus_2heap_8c_source.html#l00481">xnheap_alloc()</a>, <a class="el" href="ksrc_2nucleus_2heap_8c_source.html#l00317">xnheap_destroy()</a>, <a class="el" href="ksrc_2nucleus_2heap_8c_source.html#l00167">xnheap_init()</a>, <a class="el" href="ksrc_2nucleus_2heap_8c_source.html#l00276">xnheap_set_label()</a>, and <a class="el" href="nucleus_2registry_8c_source.html#l00582">xnregistry_enter()</a>.</p>
 
 </div>
 </div>
@@ -247,9 +249,9 @@ Collaboration diagram for Message pipe services.:</div>
 </ul>
 <p>Rescheduling: possible. </p>
 
-<p>References <a class="el" href="nucleus_2registry_8c_source.html#l00809">xnregistry_remove()</a>.</p>
+<p>References <a class="el" href="nucleus_2registry_8c_source.html#l00818">xnregistry_remove()</a>.</p>
 
-<p>Referenced by <a class="el" href="ksrc_2skins_2native_2pipe_8c_source.html#l00226">rt_pipe_create()</a>.</p>
+<p>Referenced by <a class="el" href="ksrc_2skins_2native_2pipe_8c_source.html#l00252">rt_pipe_create()</a>.</p>
 
 </div>
 </div>
@@ -280,7 +282,6 @@ Collaboration diagram for Message pipe services.:</div>
 
 <p>Flush the i/o queues associated with the kernel endpoint of a message pipe. </p>
 <p>This service flushes all data pending for consumption by the remote side in user-space for the given message pipe. Upon success, no data remains to be read from the remote side of the connection.</p>
-<p>The user-space equivalent is a call to: ioctl(pipefd, XNPIPEIOC_FLUSH, 0).</p>
 <dl><dt><b>Parameters:</b></dt><dd>
   <table border="0" cellspacing="2" cellpadding="0">
     <tr><td valign="top"></td><td valign="top"><em>pipe</em>&nbsp;</td><td>The descriptor address of the pipe to flush.</td></tr>
@@ -289,10 +290,10 @@ Collaboration diagram for Message pipe services.:</div>
   </dd>
 </dl>
 <ul>
-<li>XNPIPE_IFLUSH causes the input queue to be flushed (i.e. data coming from user-space to the kernel endpoint will be discarded).</li>
+<li>XNPIPE_OFLUSH causes the output queue to be flushed (i.e. unread data sent from the real-time endpoint in kernel-space to the non real-time endpoint in user-space will be discarded). This is equivalent to calling ioctl(pipefd, XNPIPEIOC_OFLUSH, 0) from user-space.</li>
 </ul>
 <ul>
-<li>XNPIPE_OFLUSH causes the output queue to be flushed (i.e. data going to user-space from the kernel endpoint will be discarded).</li>
+<li>XNPIPE_IFLUSH causes the input queue to be flushed (i.e. unread data sent from the non real-time endpoint in user-space to the real-time endpoint in kernel-space will be discarded). This is equivalent to calling ioctl(pipefd, XNPIPEIOC_IFLUSH, 0) from user-space.</li>
 </ul>
 <dl class="return"><dt><b>Returns:</b></dt><dd>Zero is returned upon success. Otherwise:</dd></dl>
 <ul>
@@ -359,9 +360,76 @@ Collaboration diagram for Message pipe services.:</div>
 </ul>
 <p>Rescheduling: never. </p>
 
-<p>References <a class="el" href="ksrc_2nucleus_2heap_8c_source.html#l00788">xnheap_free()</a>.</p>
+<p>References <a class="el" href="ksrc_2nucleus_2heap_8c_source.html#l00842">xnheap_free()</a>.</p>
 
-<p>Referenced by <a class="el" href="ksrc_2skins_2native_2pipe_8c_source.html#l00608">rt_pipe_read()</a>, and <a class="el" href="ksrc_2skins_2native_2pipe_8c_source.html#l00789">rt_pipe_write()</a>.</p>
+<p>Referenced by <a class="el" href="ksrc_2skins_2native_2pipe_8c_source.html#l00624">rt_pipe_read()</a>, and <a class="el" href="ksrc_2skins_2native_2pipe_8c_source.html#l00805">rt_pipe_write()</a>.</p>
+
+</div>
+</div>
+<a class="anchor" id="ga944600f54dc78a77badeda77f3af732d"></a><!-- doxytag: member="pipe.c::rt_pipe_monitor" ref="ga944600f54dc78a77badeda77f3af732d" args="(RT_PIPE *pipe, int(*fn)(RT_PIPE *pipe, int event, long arg))" -->
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">int rt_pipe_monitor </td>
+          <td>(</td>
+          <td class="paramtype">RT_PIPE *&nbsp;</td>
+          <td class="paramname"> <em>pipe</em>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">int(*)(RT_PIPE *pipe, int event, long arg)&nbsp;</td>
+          <td class="paramname"> <em>fn</em></td><td>&nbsp;</td>
+        </tr>
+        <tr>
+          <td></td>
+          <td>)</td>
+          <td></td><td></td><td></td>
+        </tr>
+      </table>
+</div>
+<div class="memdoc">
+
+<p>Monitor a message pipe asynchronously. </p>
+<p>This service registers a notifier callback that will be called upon specific events occurring on the channel. <a class="el" href="group__pipe.html#ga944600f54dc78a77badeda77f3af732d" title="Monitor a message pipe asynchronously.">rt_pipe_monitor()</a> is particularly useful to monitor a channel asynchronously while performing other tasks.</p>
+<dl><dt><b>Parameters:</b></dt><dd>
+  <table border="0" cellspacing="2" cellpadding="0">
+    <tr><td valign="top"></td><td valign="top"><em>pipe</em>&nbsp;</td><td>The descriptor address of the pipe to monitor.</td></tr>
+    <tr><td valign="top"></td><td valign="top"><em>fn</em>&nbsp;</td><td>The notification handler. This user-provided routine will be passed the address of the message pipe descriptor receiving the event, the event code, and an optional argument. Four events are currently defined:</td></tr>
+  </table>
+  </dd>
+</dl>
+<ul>
+<li>P_EVENT_INPUT is sent when the user-space endpoint writes to the pipe, which means that some input is pending for the kernel-based endpoint. The argument is the size of the incoming message.</li>
+</ul>
+<ul>
+<li>P_EVENT_OUTPUT is sent when the user-space endpoint successfully reads a complete buffer from the pipe. The argument is the size of the outgoing message.</li>
+</ul>
+<ul>
+<li>P_EVENT_CLOSE is sent when the user-space endpoint is closed. The argument is always 0.</li>
+</ul>
+<ul>
+<li>P_EVENT_NOBUF is sent when no memory is available from the kernel pool to hold the message currently sent from the user-space endpoint. The argument is the size of the failed allocation. Upon return from the handler, the caller will block and retry until enough space is available from the pool; during that process, the handler might be called multiple times, each time a new attempt to get the required memory fails.</li>
+</ul>
+<p>The P_EVENT_INPUT and P_EVENT_OUTPUT events are fired on behalf of a fully atomic context; therefore, care must be taken to keep their overhead low. In those cases, the Xenomai services that may be called from the handler are restricted to the set allowed to a real-time interrupt handler.</p>
+<dl class="return"><dt><b>Returns:</b></dt><dd>Zero is returned upon success. Otherwise:</dd></dl>
+<ul>
+<li>-EINVAL is returned if <em>pipe</em> is not a pipe descriptor.</li>
+</ul>
+<ul>
+<li>-EIDRM is returned if <em>pipe</em> is a closed pipe descriptor.</li>
+</ul>
+<ul>
+<li>-ENODEV or -EBADF are returned if <em>pipe</em> is scrambled.</li>
+</ul>
+<p>Environments:</p>
+<p>This service can be called from:</p>
+<ul>
+<li>Kernel module initialization/cleanup code</li>
+<li>Kernel-based task</li>
+</ul>
+<p>Rescheduling: never. </p>
 
 </div>
 </div>
@@ -437,7 +505,7 @@ Collaboration diagram for Message pipe services.:</div>
 <li>-EINTR is returned if <a class="el" href="group__task.html#ga770281eeca009c0a08a7c4a9fd849ac1" title="Unblock a real-time task.">rt_task_unblock()</a> has been called for the waiting task before any data was available.</li>
 </ul>
 <ul>
-<li>-EPERM is returned if this service should block, but was called from a context which cannot sleep (e.g. interrupt, non-realtime or scheduler locked).</li>
+<li>-EPERM is returned if this service should block, but was called from a context which cannot sleep (e.g. interrupt, non-realtime context).</li>
 </ul>
 <ul>
 <li>-ENOBUFS is returned if <em>size</em> is not large enough to collect the message data.</li>
@@ -455,7 +523,7 @@ Collaboration diagram for Message pipe services.:</div>
 <p>Rescheduling: always unless the request is immediately satisfied or <em>timeout</em> specifies a non-blocking operation.</p>
 <dl class="note"><dt><b>Note:</b></dt><dd>The <em>timeout</em> value will be interpreted as jiffies if the native skin is bound to a periodic time base (see CONFIG_XENO_OPT_NATIVE_PERIOD), or nanoseconds otherwise. </dd></dl>
 
-<p>References <a class="el" href="ksrc_2skins_2native_2pipe_8c_source.html#l00998">rt_pipe_free()</a>, and <a class="el" href="ksrc_2skins_2native_2pipe_8c_source.html#l00492">rt_pipe_receive()</a>.</p>
+<p>References <a class="el" href="ksrc_2skins_2native_2pipe_8c_source.html#l01014">rt_pipe_free()</a>, and <a class="el" href="ksrc_2skins_2native_2pipe_8c_source.html#l00508">rt_pipe_receive()</a>.</p>
 
 </div>
 </div>
@@ -521,7 +589,7 @@ Collaboration diagram for Message pipe services.:</div>
 <li>-EINTR is returned if <a class="el" href="group__task.html#ga770281eeca009c0a08a7c4a9fd849ac1" title="Unblock a real-time task.">rt_task_unblock()</a> has been called for the waiting task before any data was available.</li>
 </ul>
 <ul>
-<li>-EPERM is returned if this service should block, but was called from a context which cannot sleep (e.g. interrupt, non-realtime or scheduler locked).</li>
+<li>-EPERM is returned if this service should block, but was called from a context which cannot sleep (e.g. interrupt, non-realtime context).</li>
 </ul>
 <p>Environments:</p>
 <p>This service can be called from:</p>
@@ -535,7 +603,7 @@ Collaboration diagram for Message pipe services.:</div>
 <p>Rescheduling: always unless the request is immediately satisfied or <em>timeout</em> specifies a non-blocking operation.</p>
 <dl class="note"><dt><b>Note:</b></dt><dd>The <em>timeout</em> value will be interpreted as jiffies if the native skin is bound to a periodic time base (see CONFIG_XENO_OPT_NATIVE_PERIOD), or nanoseconds otherwise. </dd></dl>
 
-<p>Referenced by <a class="el" href="ksrc_2skins_2native_2pipe_8c_source.html#l00608">rt_pipe_read()</a>.</p>
+<p>Referenced by <a class="el" href="ksrc_2skins_2native_2pipe_8c_source.html#l00624">rt_pipe_read()</a>.</p>
 
 </div>
 </div>
@@ -615,7 +683,7 @@ Collaboration diagram for Message pipe services.:</div>
 </ul>
 <p>Rescheduling: possible. </p>
 
-<p>Referenced by <a class="el" href="ksrc_2skins_2native_2pipe_8c_source.html#l00789">rt_pipe_write()</a>.</p>
+<p>Referenced by <a class="el" href="ksrc_2skins_2native_2pipe_8c_source.html#l00805">rt_pipe_write()</a>.</p>
 
 </div>
 </div>
@@ -769,12 +837,12 @@ Collaboration diagram for Message pipe services.:</div>
 </ul>
 <p>Rescheduling: possible. </p>
 
-<p>References <a class="el" href="ksrc_2skins_2native_2pipe_8c_source.html#l00958">rt_pipe_alloc()</a>, <a class="el" href="ksrc_2skins_2native_2pipe_8c_source.html#l00998">rt_pipe_free()</a>, and <a class="el" href="ksrc_2skins_2native_2pipe_8c_source.html#l00704">rt_pipe_send()</a>.</p>
+<p>References <a class="el" href="ksrc_2skins_2native_2pipe_8c_source.html#l00974">rt_pipe_alloc()</a>, <a class="el" href="ksrc_2skins_2native_2pipe_8c_source.html#l01014">rt_pipe_free()</a>, and <a class="el" href="ksrc_2skins_2native_2pipe_8c_source.html#l00720">rt_pipe_send()</a>.</p>
 
 </div>
 </div>
 </div>
-<hr size="1"/><address style="text-align: right;"><small>Generated on Tue Oct 27 19:18:54 2009 for Xenomai API by&nbsp;
+<hr size="1"/><address style="text-align: right;"><small>Generated on Fri Jan 1 10:45:17 2010 for Xenomai API by&nbsp;
 <a href="http://www.doxygen.org/index.html">
 <img class="footer" src="doxygen.png" alt="doxygen"/></a> 1.6.1 </small></address>
 </body>

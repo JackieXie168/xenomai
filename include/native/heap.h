@@ -53,6 +53,8 @@ typedef struct rt_heap_info {
 
     char name[XNOBJECT_NAME_LEN]; /* !< Symbolic name. */
 
+    unsigned long phys_addr;	/* !< Physical address. */
+
 } RT_HEAP_INFO;
 
 typedef struct rt_heap_placeholder {

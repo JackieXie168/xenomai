@@ -88,8 +88,8 @@ static inline void rthal_timer_program_shot(unsigned long delay)
 	if (likely(delay))
 		apic_write(APIC_TMICT,delay);
 	else
-		/* Kick the timer interrupt immediately. */
-		rthal_trigger_irq(RTHAL_APIC_TIMER_IPI);
+		/* Pend the timer interrupt. */
+		rthal_schedule_irq_head(RTHAL_APIC_TIMER_IPI);
 #ifndef CONFIG_XENO_OPT_PIPELINE_HEAD
 	rthal_local_irq_restore_hw(flags);
 #endif /* CONFIG_XENO_OPT_PIPELINE_HEAD */
@@ -125,9 +125,6 @@ static const char *const rthal_fault_labels[] = {
 #include <asm/mach_apic.h>
 #else
 #include <asm/apic.h>
-#if LINUX_VERSION_CODE < KERNEL_VERSION(2,6,30)
-#include <mach_ipi.h>
-#endif
 #endif
 
 static inline void rthal_setup_periodic_apic(int count, int vector)

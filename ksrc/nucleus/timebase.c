@@ -162,7 +162,7 @@ int xntbase_alloc(const char *name, u_long period, u_long flags,
 #ifdef CONFIG_XENO_OPT_STATS
 	initq(&base->timerq);
 #endif /* CONFIG_XENO_OPT_TIMING_PERIODIC */
-	xnpod_declare_tbase_proc(base);
+	xntbase_declare_proc(base);
 	xnlock_get_irqsave(&nklock, s);
 	appendq(&nktimebaseq, &base->link);
 	xnlock_put_irqrestore(&nklock, s);
@@ -171,6 +171,7 @@ int xntbase_alloc(const char *name, u_long period, u_long flags,
 
 	return 0;
 }
+EXPORT_SYMBOL_GPL(xntbase_alloc);
 
 /*!
  * \fn void xntbase_free(xntbase_t *base)
@@ -204,7 +205,7 @@ void xntbase_free(xntbase_t *base)
 		return;
 
 	xntslave_destroy(base2slave(base));
-	xnpod_discard_tbase_proc(base);
+	xntbase_remove_proc(base);
 
 	xnlock_get_irqsave(&nklock, s);
 	removeq(&nktimebaseq, &base->link);
@@ -212,6 +213,7 @@ void xntbase_free(xntbase_t *base)
 
 	xnarch_free_host_mem(base, sizeof(*base));
 }
+EXPORT_SYMBOL_GPL(xntbase_free);
 
 /*!
  * \fn int xntbase_update(xntbase_t *base, u_long period)
@@ -262,6 +264,7 @@ int xntbase_update(xntbase_t *base, u_long period)
 
 	return 0;
 }
+EXPORT_SYMBOL_GPL(xntbase_update);
 
 /*!
  * \fn int xntbase_switch(const char *name,u_long period,xntbase_t **basep)
@@ -344,6 +347,7 @@ int xntbase_switch(const char *name, u_long period, xntbase_t **basep)
 
 	return err;
 }
+EXPORT_SYMBOL_GPL(xntbase_switch);
 
 /*!
  * \fn void xntbase_start(xntbase_t *base)
@@ -400,6 +404,7 @@ void xntbase_start(xntbase_t *base)
 
 	xntslave_start(base2slave(base), start_date, base->tickvalue);
 }
+EXPORT_SYMBOL_GPL(xntbase_start);
 
 /*!
  * \fn void xntbase_stop(xntbase_t *base)
@@ -438,6 +443,7 @@ void xntbase_stop(xntbase_t *base)
 
 	trace_mark(xn_nucleus, tbase_stop, "base %s", base->name);
 }
+EXPORT_SYMBOL_GPL(xntbase_stop);
 
 /*!
  * \fn void xntbase_tick(xntbase_t *base)
@@ -484,21 +490,60 @@ void xntbase_tick(xntbase_t *base)
 
 	xnlock_put_irqrestore(&nklock, s);
 }
+EXPORT_SYMBOL_GPL(xntbase_tick);
 
 xnticks_t xntbase_ns2ticks_ceil(xntbase_t *base, xntime_t t)
 {
 	return xnarch_ulldiv(t + xntbase_get_tickval(base) - 1,
 			     xntbase_get_tickval(base), NULL);
 }
+EXPORT_SYMBOL_GPL(xntbase_ns2ticks_ceil);
 
-EXPORT_SYMBOL(xntbase_alloc);
-EXPORT_SYMBOL(xntbase_free);
-EXPORT_SYMBOL(xntbase_update);
-EXPORT_SYMBOL(xntbase_switch);
-EXPORT_SYMBOL(xntbase_start);
-EXPORT_SYMBOL(xntbase_stop);
-EXPORT_SYMBOL(xntbase_tick);
-EXPORT_SYMBOL(xntbase_ns2ticks_ceil);
+/*!
+ * \fn xnticks_t xntbase_convert(xntbase_t *srcbase,xnticks_t ticks,xntbase_t *dstbase)
+ * \brief Convert a clock value into another time base.
+ *
+ * @param srcbase The descriptor address of the source time base.
+
+ * @param ticks The clock value expressed in the source time base to
+ * convert to the destination time base.
+ *
+ * @param dstbase The descriptor address of the destination time base.
+
+ * @return The converted count of ticks in the destination time base
+ * is returned.
+ *
+ * Environments:
+ *
+ * This service can be called from:
+ *
+ * - Kernel module initialization code
+ * - Kernel-based task
+ * - User-space task
+ *
+ * Rescheduling: never.
+ */
+
+xnticks_t xntbase_convert(xntbase_t *srcbase, xnticks_t ticks, xntbase_t *dstbase)
+{
+	/* Twisted, but tries hard not to rescale to nanoseconds *
+	   before converting, so that we could save a 64bit multiply
+	   in the common cases (i.e. converting to/from master). */
+
+	if (dstbase->tickvalue == srcbase->tickvalue)
+		return ticks;
+
+	if (likely(xntbase_master_p(dstbase)))
+		return xntbase_ticks2ns(srcbase, ticks); /* Periodic to master base. */
+
+	if (xntbase_master_p(srcbase))
+		return xntbase_ns2ticks(dstbase, ticks); /* Master base to periodic. */
+
+	/* Periodic to periodic. */
+
+	return xntbase_ns2ticks(dstbase, xntbase_ticks2ns(srcbase, ticks));
+}
+EXPORT_SYMBOL_GPL(xntbase_convert);
 
 #endif /* CONFIG_XENO_OPT_TIMING_PERIODIC */
 
@@ -571,6 +616,264 @@ void xntbase_adjust_time(xntbase_t *base, xnsticks_t delta)
 	trace_mark(xn_nucleus, tbase_adjust, "base %s delta %Lu",
 		   base->name, delta);
 }
+EXPORT_SYMBOL_GPL(xntbase_adjust_time);
+
+#ifdef CONFIG_PROC_FS
+
+#include <linux/proc_fs.h>
+
+#ifdef CONFIG_XENO_OPT_STATS
+
+#include <linux/seq_file.h>
+
+static struct proc_dir_entry *tmstat_proc_root;
+
+struct tmstat_seq_iterator {
+	int nentries;
+	struct tmstat_seq_info {
+		int cpu;
+		unsigned int scheduled;
+		unsigned int fired;
+		xnticks_t timeout;
+		xnticks_t interval;
+		xnflags_t status;
+		char handler[12];
+		char name[XNOBJECT_NAME_LEN];
+	} stat_info[1];
+};
+
+static void *tmstat_seq_start(struct seq_file *seq, loff_t *pos)
+{
+	struct tmstat_seq_iterator *iter = seq->private;
+
+	if (*pos > iter->nentries)
+		return NULL;
+
+	if (*pos == 0)
+		return SEQ_START_TOKEN;
+
+	return iter->stat_info + *pos - 1;
+}
+
+static void *tmstat_seq_next(struct seq_file *seq, void *v, loff_t *pos)
+{
+	struct tmstat_seq_iterator *iter = seq->private;
+
+	++*pos;
+
+	if (*pos > iter->nentries)
+		return NULL;
+
+	return iter->stat_info + *pos - 1;
+}
+
+static int tmstat_seq_show(struct seq_file *seq, void *v)
+{
+	if (v == SEQ_START_TOKEN)
+		seq_printf(seq,
+			   "%-3s  %-10s  %-10s  %-10s  %-10s  %-11s  %-15s\n",
+			   "CPU", "SCHEDULED", "FIRED", "TIMEOUT",
+			   "INTERVAL", "HANDLER", "NAME");
+	else {
+		struct tmstat_seq_info *p = v;
+		char timeout_buf[21]  = "-         ";
+		char interval_buf[21] = "-         ";
+
+		if (!testbits(p->status, XNTIMER_DEQUEUED))
+			snprintf(timeout_buf, sizeof(timeout_buf), "%-10llu",
+				 p->timeout);
+		if (testbits(p->status, XNTIMER_PERIODIC))
+			snprintf(interval_buf, sizeof(interval_buf), "%-10llu",
+				 p->interval);
+		seq_printf(seq,
+			   "%-3u  %-10u  %-10u  %s  %s  %-11s  %-15s\n",
+			   p->cpu, p->scheduled, p->fired, timeout_buf,
+			   interval_buf, p->handler, p->name);
+	}
+
+	return 0;
+}
+
+static void tmstat_seq_stop(struct seq_file *seq, void *v)
+{
+}
+
+static struct seq_operations tmstat_op = {
+	.start = &tmstat_seq_start,
+	.next = &tmstat_seq_next,
+	.stop = &tmstat_seq_stop,
+	.show = &tmstat_seq_show
+};
+
+static int tmstat_seq_open(struct inode *inode, struct file *file)
+{
+	xntbase_t *base = PDE(inode)->data;
+	struct tmstat_seq_iterator *iter = NULL;
+	struct seq_file *seq;
+	xnholder_t *holder;
+	struct tmstat_seq_info *stat_info;
+	int err, count, tmq_rev;
+	spl_t s;
+
+	if (!xnpod_active_p())
+		return -ESRCH;
+
+	xnlock_get_irqsave(&nklock, s);
+
+      restart:
+	count = countq(&base->timerq);
+	holder = getheadq(&base->timerq);
+	tmq_rev = base->timerq_rev;
+
+	xnlock_put_irqrestore(&nklock, s);
+
+	if (iter)
+		kfree(iter);
+	iter = kmalloc(sizeof(*iter)
+		       + (count - 1) * sizeof(struct tmstat_seq_info),
+		       GFP_KERNEL);
+	if (!iter)
+		return -ENOMEM;
+
+	err = seq_open(file, &tmstat_op);
+
+	if (err) {
+		kfree(iter);
+		return err;
+	}
+
+	iter->nentries = 0;
+
+	/* Take a snapshot element-wise, restart if something changes
+	   underneath us. */
+
+	while (holder) {
+		xntimer_t *timer;
+
+		xnlock_get_irqsave(&nklock, s);
+
+		if (base->timerq_rev != tmq_rev)
+			goto restart;
+
+		timer = tblink2timer(holder);
+		/* Skip inactive timers */
+		if (xnstat_counter_get(&timer->scheduled) == 0)
+			goto skip;
+
+		stat_info = &iter->stat_info[iter->nentries++];
+
+		stat_info->cpu = xnsched_cpu(xntimer_sched(timer));
+		stat_info->scheduled = xnstat_counter_get(&timer->scheduled);
+		stat_info->fired = xnstat_counter_get(&timer->fired);
+		stat_info->timeout = xntimer_get_timeout(timer);
+		stat_info->interval = xntimer_get_interval(timer);
+		stat_info->status = timer->status;
+		memcpy(stat_info->handler, timer->handler_name,
+		       sizeof(stat_info->handler)-1);
+		stat_info->handler[sizeof(stat_info->handler)-1] = 0;
+		xnobject_copy_name(stat_info->name, timer->name);
+
+	      skip:
+		holder = nextq(&base->timerq, holder);
+
+		xnlock_put_irqrestore(&nklock, s);
+	}
+
+	seq = file->private_data;
+	seq->private = iter;
+
+	return 0;
+}
+
+static struct file_operations tmstat_seq_operations = {
+	.owner = THIS_MODULE,
+	.open = tmstat_seq_open,
+	.read = seq_read,
+	.llseek = seq_lseek,
+	.release = seq_release_private,
+};
+
+void xntbase_declare_proc(xntbase_t *base)
+{
+	struct proc_dir_entry *entry;
+
+	entry = rthal_add_proc_seq(base->name, &tmstat_seq_operations, 0,
+				   tmstat_proc_root);
+	if (entry)
+		entry->data = base;
+}
+
+void xntbase_remove_proc(xntbase_t *base)
+{
+	remove_proc_entry(base->name, tmstat_proc_root);
+}
+
+#endif /* CONFIG_XENO_OPT_STATS */
+
+static int timebase_read_proc(char *page,
+			      char **start,
+			      off_t off, int count, int *eof, void *data)
+{
+	xnholder_t *holder;
+	xntbase_t *tbase;
+	char *p = page;
+	int len = 0;
+
+	p += sprintf(p, "%-10s %10s  %10s   %s\n",
+		     "NAME", "RESOLUTION", "JIFFIES", "STATUS");
+
+	for (holder = getheadq(&nktimebaseq);
+	     holder != NULL; holder = nextq(&nktimebaseq, holder)) {
+		tbase = link2tbase(holder);
+		if (xntbase_periodic_p(tbase))
+			p += sprintf(p, "%-10s %10lu  %10Lu   %s%s%s\n",
+				     tbase->name,
+				     tbase->tickvalue,
+				     tbase->jiffies,
+				     xntbase_enabled_p(tbase) ? "enabled" : "disabled",
+				     xntbase_timeset_p(tbase) ? ",set" : ",unset",
+				     xntbase_isolated_p(tbase) ? ",isolated" : "");
+		else
+			p += sprintf(p, "%-10s %10s  %10s   %s\n",
+				     tbase->name,
+				     "1",
+				     "n/a",
+				     "enabled,set");
+	}
+
+	len = p - page - off;
+	if (len <= off + count)
+		*eof = 1;
+	*start = page + off;
+	if (len > count)
+		len = count;
+	if (len < 0)
+		len = 0;
+
+	return len;
+}
+
+void xntbase_init_proc(void)
+{
+#ifdef CONFIG_XENO_OPT_STATS
+	tmstat_proc_root =
+		create_proc_entry("timerstat", S_IFDIR, rthal_proc_root);
+#endif /* CONFIG_XENO_OPT_STATS */
+	rthal_add_proc_leaf("timebases", &timebase_read_proc, NULL, NULL,
+			    rthal_proc_root);
+}
+
+void xntbase_cleanup_proc(void)
+{
+	remove_proc_entry("timebases", rthal_proc_root);
+#ifdef CONFIG_XENO_OPT_STATS
+	/* All timebases must have been deregistered now. */
+	XENO_ASSERT(NUCLEUS, !getheadq(&nktimebaseq), ;);
+	remove_proc_entry("timerstat", rthal_proc_root);
+#endif /* CONFIG_XENO_OPT_STATS */
+}
+
+#endif /* CONFIG_PROC_FS */
 
 /* The master time base - the most precise one, aperiodic, always valid. */
 
@@ -587,8 +890,6 @@ xntbase_t nktbase = {
 	.timerq = XNQUEUE_INITIALIZER(nktbase.timerq),
 #endif /* CONFIG_XENO_OPT_STATS */
 };
-
-EXPORT_SYMBOL(xntbase_adjust_time);
-EXPORT_SYMBOL(nktbase);
+EXPORT_SYMBOL_GPL(nktbase);
 
 /*@}*/

@@ -30,13 +30,19 @@
 #include <linux/slab.h>
 #include <asm/io.h>
 
-#if LINUX_VERSION_CODE < KERNEL_VERSION(2,5,0)
+#if LINUX_VERSION_CODE < KERNEL_VERSION(2,6,0)
 
 #include <linux/wrapper.h>
 #include <linux/wait.h>
 #include <linux/sched.h>
 #include <linux/bitops.h>
+#include <linux/delay.h>
 #include <linux/moduleparam.h>	/* Use the backport. */
+#include <asm/atomic.h>
+
+#if BITS_PER_LONG != 32
+#error Upgrade to kernel 2.6!
+#endif
 
 /* Compiler */
 #ifndef __attribute_const__
@@ -101,6 +107,20 @@
 #define DEFINE_WAIT(w) DECLARE_WAITQUEUE(w, current)
 #define is_sync_wait(wait)  (!(wait) || ((wait)->task))
 
+static inline void prepare_to_wait(wait_queue_head_t *q,
+				   wait_queue_t *wait,
+				   int state)
+{
+	unsigned long flags;
+
+	wait->flags &= ~WQ_FLAG_EXCLUSIVE;
+	spin_lock_irqsave(&q->lock, flags);
+	__add_wait_queue(q, wait);
+	if (is_sync_wait(wait))
+		set_current_state(state);
+	spin_unlock_irqrestore(&q->lock, flags);
+}
+
 static inline void prepare_to_wait_exclusive(wait_queue_head_t *q,
 					     wait_queue_t *wait,
 					     int state)
@@ -127,6 +147,36 @@ static inline void finish_wait(wait_queue_head_t *q,
 		spin_unlock_irqrestore(&q->lock, flags);
 	}
 }
+
+#ifndef wait_event_interruptible_timeout
+#define __wait_event_interruptible_timeout(wq, condition, ret)		\
+do {									\
+	DEFINE_WAIT(__wait);						\
+									\
+	for (;;) {							\
+		prepare_to_wait(&wq, &__wait, TASK_INTERRUPTIBLE);	\
+		if (condition)						\
+			break;						\
+		if (!signal_pending(current)) {				\
+			ret = schedule_timeout(ret);			\
+			if (!ret)					\
+				break;					\
+			continue;					\
+		}							\
+		ret = -ERESTARTSYS;					\
+		break;							\
+	}								\
+	finish_wait(&wq, &__wait);					\
+} while (0)
+
+#define wait_event_interruptible_timeout(wq, condition, timeout)	\
+({									\
+	long __ret = timeout;						\
+	if (!(condition))						\
+		__wait_event_interruptible_timeout(wq, condition, __ret); \
+	__ret;								\
+})
+#endif
 
 /* Workqueues. Some 2.4 ports already provide for a limited emulation
    of workqueue calls in linux/workqueue.h, except DECLARE_WORK(), so
@@ -156,6 +206,44 @@ static inline void finish_wait(wait_queue_head_t *q,
 		set_current_state(TASK_INTERRUPTIBLE);	\
 		schedule_timeout(t);				\
 } while(0)
+
+#define DEFINE_SPINLOCK(x)	spinlock_t x = SPIN_LOCK_UNLOCKED
+
+#ifndef NSEC_PER_MSEC
+#define NSEC_PER_MSEC	1000000L
+#endif
+
+#ifndef USEC_PER_SEC
+#define USEC_PER_SEC	1000000L
+#endif
+
+#define MAX_JIFFY_OFFSET ((~0UL >> 1)-1)
+
+#if LINUX_VERSION_CODE < KERNEL_VERSION(2,4,28)
+static inline unsigned int jiffies_to_usecs(const unsigned long j)
+{
+#if HZ <= 1000 && !(1000 % HZ)
+	return (1000000 / HZ) * j;
+#elif HZ > 1000 && !(HZ % 1000)
+	return (j*1000 + (HZ - 1000))/(HZ / 1000);
+#else
+	return (j * 1000000) / HZ;
+#endif
+}
+#endif
+
+static inline unsigned long usecs_to_jiffies(const unsigned int u)
+{
+	if (u > jiffies_to_usecs(MAX_JIFFY_OFFSET))
+		return MAX_JIFFY_OFFSET;
+#if HZ <= USEC_PER_SEC && !(USEC_PER_SEC % HZ)
+	return (u + (USEC_PER_SEC / HZ) - 1) / (USEC_PER_SEC / HZ);
+#elif HZ > USEC_PER_SEC && !(HZ % USEC_PER_SEC)
+	return u * (HZ / USEC_PER_SEC);
+#else
+	return (u * HZ + USEC_PER_SEC - 1) / USEC_PER_SEC;
+#endif
+}
 
 #ifdef MODULE
 #define try_module_get(mod) try_inc_mod_count(mod)
@@ -192,7 +280,48 @@ void show_stack(struct task_struct *task,
 #define __GFP_BITS_SHIFT 20
 #define pgprot_noncached(p) (p)
 
-#else /* LINUX_VERSION_CODE >= KERNEL_VERSION(2,5,0) */
+typedef atomic_t atomic_long_t;
+
+static inline long atomic_long_read(atomic_long_t *l)
+{
+	atomic_t *v = (atomic_t *)l;
+
+	return (long)atomic_read(v);
+}
+
+static inline void atomic_long_set(atomic_long_t *l, long i)
+{
+	atomic_t *v = (atomic_t *)l;
+
+	atomic_set(v, i);
+}
+
+static inline void atomic_long_inc(atomic_long_t *l)
+{
+	atomic_t *v = (atomic_t *)l;
+
+	atomic_inc(v);
+}
+
+static inline void atomic_long_dec(atomic_long_t *l)
+{
+	atomic_t *v = (atomic_t *)l;
+
+	atomic_dec(v);
+}
+
+static inline unsigned long hweight_long(unsigned long w)
+{
+	return hweight32(w);
+}
+
+#define find_first_bit(addr, size) find_next_bit((addr), (size), 0)
+unsigned long find_next_bit(const unsigned long *addr,
+                            unsigned long size, unsigned long offset);
+
+#define mmiowb()	barrier()
+
+#else /* LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,0) */
 
 #define compat_module_param_array(name, type, count, perm) \
 	module_param_array(name, type, NULL, perm)
@@ -248,6 +377,12 @@ void show_stack(struct task_struct *task,
 #ifndef __GFP_BITS_SHIFT
 #define __GFP_BITS_SHIFT 20
 #endif
+
+#include <asm/pgtable.h>
+
+#ifndef pgprot_noncached
+#define pgprot_noncached(p) (p)
+#endif /* !pgprot_noncached */
 
 #define wrap_switch_mm(prev,next,task)	\
     switch_mm(prev,next,task)
@@ -306,7 +441,7 @@ void show_stack(struct task_struct *task,
 #define DECLARE_WORK_FUNC(f)		void f(struct work_struct *work)
 #endif /* >= 2.6.20 */
 
-#endif /* LINUX_VERSION_CODE < KERNEL_VERSION(2,5,0) */
+#endif /* LINUX_VERSION_CODE < KERNEL_VERSION(2,6,0) */
 
 #if LINUX_VERSION_CODE < KERNEL_VERSION(2,6,18)
 #define IRQF_SHARED			SA_SHIRQ
@@ -333,39 +468,50 @@ void show_stack(struct task_struct *task,
 
 #if LINUX_VERSION_CODE < KERNEL_VERSION(2,6,22)
 #define KMALLOC_MAX_SIZE 131072
-#endif /* !KMALLOC_MAX_SIZE */
-
-#if LINUX_VERSION_CODE < KERNEL_VERSION(2,6,0)
-static inline unsigned long hweight_long(unsigned long w)
-{
 #if BITS_PER_LONG == 64
-	return hweight64(w);
-#else /* 32 bits */
-	return hweight32(w);
-#endif /* 32 bits */
-}
-
-#define find_first_bit(addr, size) find_next_bit((addr), (size), 0)
-unsigned long find_next_bit(const unsigned long *addr,
-                            unsigned long size, unsigned long offset);
-#endif /* linux version < 2.6.0 */
+#define atomic_long_cmpxchg(l, old, new)	\
+	atomic_cmpxchg((atomic64_t *)(l), (old), (new))
+#define atomic_long_dec_and_test(l)		\
+	atomic_dec_and_test((atomic64_t *)l)
+#define atomic_long_inc_and_test(l)		\
+	atomic_inc_and_test((atomic64_t *)l)
+#else
+#define atomic_long_cmpxchg(l, old, new)	\
+	atomic_cmpxchg((atomic_t *)(l), (old), (new))
+#define atomic_long_dec_and_test(l)		\
+	atomic_dec_and_test((atomic_t *)l)
+#define atomic_long_inc_and_test(l)		\
+	atomic_inc_and_test((atomic_t *)l)
+#endif
+#endif
 
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,27)
 
 #include <linux/semaphore.h>
 #include <linux/pid.h>
 
-#define find_task_by_pid(nr)		\
-  find_task_by_pid_ns(nr, &init_pid_ns)
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,31)
+
+static inline struct task_struct *wrap_find_task_by_pid(pid_t nr)
+{
+	return pid_task(find_pid_ns(nr, &init_pid_ns), PIDTYPE_PID);
+}
+
+#else /* LINUX_VERSION_CODE < 2.6.31 */
+
+#define wrap_find_task_by_pid(nr)	\
+	find_task_by_pid_ns(nr, &init_pid_ns)
+
+#endif /* LINUX_VERSION_CODE < 2.6.31 */
+
 #define kill_proc(pid, sig, priv)	\
   kill_proc_info(sig, (priv) ? SEND_SIG_PRIV : SEND_SIG_NOINFO, pid)
 
 #else /* LINUX_VERSION_CODE < 2.6.27 */
 
 #include <asm/semaphore.h>
-#ifndef CONFIG_MMU
-#define pgprot_noncached(p) (p)
-#endif /* !CONFIG_MMU */
+
+#define wrap_find_task_by_pid(nr)  find_task_by_pid(nr)
 
 #endif /* LINUX_VERSION_CODE < 2.6.27 */
 
@@ -409,7 +555,7 @@ static inline void wrap_proc_dir_entry_owner(struct proc_dir_entry *entry)
     entry->owner = THIS_MODULE;
 }
 #else  /* LINUX_VERSION_CODE < KERNEL_VERSION(2,6,30) */
-#define wrap_proc_dir_entry_owner(entry)
+#define wrap_proc_dir_entry_owner(entry) do { (void)entry; } while(0)
 #endif /* LINUX_VERSION_CODE < KERNEL_VERSION(2,6,30) */
 #endif /* CONFIG_PROC_FS */
 

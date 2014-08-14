@@ -19,6 +19,8 @@
 #include <errno.h>
 #include <posix/syscall.h>
 #include <pthread.h>
+#include <posix/mutex.h>
+#include <posix/cb_lock.h>
 
 extern int __pse51_muxid;
 
@@ -87,21 +89,27 @@ struct pse51_cond_cleanup_t {
 static void __pthread_cond_cleanup(void *data)
 {
 	struct pse51_cond_cleanup_t *c = (struct pse51_cond_cleanup_t *) data;
+	int err;
 
-	XENOMAI_SKINCALL3(__pse51_muxid,
-			  __pse51_cond_wait_epilogue,
-			  &c->cond->shadow_cond,
-			  &c->mutex->shadow_mutex,
-			  c->count);
+	do {
+		err = -XENOMAI_SKINCALL3(__pse51_muxid,
+					__pse51_cond_wait_epilogue,
+					&c->cond->shadow_cond,
+					&c->mutex->shadow_mutex,
+					c->count);
+	} while (err == EINTR);
 }
 
-int __wrap_pthread_cond_wait(pthread_cond_t * cond, pthread_mutex_t * mutex)
+int __wrap_pthread_cond_wait(pthread_cond_t *cond, pthread_mutex_t *mutex)
 {
 	struct pse51_cond_cleanup_t c = {
 		.cond = (union __xeno_cond *)cond,
 		.mutex = (union __xeno_mutex *)mutex,
 	};
 	int err, oldtype;
+
+	if (cb_try_read_lock(&c.mutex->shadow_mutex.lock, s))
+		return EINVAL;
 
 	pthread_cleanup_push(&__pthread_cond_cleanup, &c);
 
@@ -111,21 +119,23 @@ int __wrap_pthread_cond_wait(pthread_cond_t * cond, pthread_mutex_t * mutex)
 				 __pse51_cond_wait_prologue,
 				 &c.cond->shadow_cond,
 				 &c.mutex->shadow_mutex, &c.count, 0, NULL);
-	if (err == EINTR)
-		err = 0;
 
 	pthread_setcanceltype(oldtype, NULL);
 
 	pthread_cleanup_pop(0);
 
-	if (err)
-		return err;
+	while (err == EINTR)
+		err = -XENOMAI_SKINCALL3(__pse51_muxid,
+					 __pse51_cond_wait_epilogue,
+					 &c.cond->shadow_cond,
+					 &c.mutex->shadow_mutex,
+					 c.count);
 
-	__pthread_cond_cleanup(&c);
+	cb_read_unlock(&c.mutex->shadow_mutex.lock, s);
 
 	pthread_testcancel();
 
-	return 0;
+	return err;
 }
 
 int __wrap_pthread_cond_timedwait(pthread_cond_t * cond,
@@ -138,6 +148,9 @@ int __wrap_pthread_cond_timedwait(pthread_cond_t * cond,
 	};
 	int err, oldtype;
 
+	if (cb_try_read_lock(&c.mutex->shadow_mutex.lock, s))
+		return EINVAL;
+
 	pthread_cleanup_push(&__pthread_cond_cleanup, &c);
 
 	pthread_setcanceltype(PTHREAD_CANCEL_ASYNCHRONOUS, &oldtype);
@@ -146,17 +159,18 @@ int __wrap_pthread_cond_timedwait(pthread_cond_t * cond,
 				 __pse51_cond_wait_prologue,
 				 &c.cond->shadow_cond,
 				 &c.mutex->shadow_mutex, &c.count, 1, abstime);
-	if (err == EINTR)
-		err = 0;
-
 	pthread_setcanceltype(oldtype, NULL);
 
 	pthread_cleanup_pop(0);
 
-	if (err && err != ETIMEDOUT)
-		return err;
+	while (err == EINTR)
+		err = -XENOMAI_SKINCALL3(__pse51_muxid,
+					 __pse51_cond_wait_epilogue,
+					 &c.cond->shadow_cond,
+					 &c.mutex->shadow_mutex,
+					 c.count);
 
-	__pthread_cond_cleanup(&c);
+	cb_read_unlock(&c.mutex->shadow_mutex.lock, s);
 
 	pthread_testcancel();
 

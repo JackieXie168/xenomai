@@ -13,9 +13,6 @@
 #undef CONFIG_XENO_ARM_EABI
 
 /* config */
-#undef CONFIG_XENO_ARM_HW_DIRECT_TSC
-
-/* config */
 #undef CONFIG_XENO_ARM_SA1100
 
 /* Build system alias */
@@ -24,8 +21,20 @@
 /* Compiler */
 #undef CONFIG_XENO_COMPILER
 
+/* config */
+#undef CONFIG_XENO_CPU_XSC3
+
+/* config */
+#undef CONFIG_XENO_DEFAULT_PERIOD
+
+/* config */
+#undef CONFIG_XENO_FASTSYNCH
+
 /* Host system alias */
 #undef CONFIG_XENO_HOST_STRING
+
+/* config */
+#undef CONFIG_XENO_LIBS_DLOPEN
 
 /* config */
 #undef CONFIG_XENO_POSIX_AUTO_MLOCKALL
@@ -71,6 +80,15 @@
 /* config */
 #undef HAVE_OLD_SETAFFINITY
 
+/* Define to 1 if you have the `pthread_condattr_setclock' function. */
+#undef HAVE_PTHREAD_CONDATTR_SETCLOCK
+
+/* Define to 1 if you have the `pthread_mutexattr_setprotocol' function. */
+#undef HAVE_PTHREAD_MUTEXATTR_SETPROTOCOL
+
+/* Define to 1 if you have the `pthread_spin_lock' function. */
+#undef HAVE_PTHREAD_SPIN_LOCK
+
 /* config */
 #undef HAVE_RECENT_SETAFFINITY
 
@@ -100,6 +118,9 @@
 
 /* Define to 1 if you have the <unistd.h> header file. */
 #undef HAVE_UNISTD_H
+
+/* config */
+#undef HAVE___THREAD
 
 /* Define to the sub-directory in which libtool stores uninstalled libraries.
    */
@@ -131,6 +152,9 @@
 
 /* Version number of package */
 #undef VERSION
+
+/* config */
+#undef XNARCH_ARM_TSC_TYPE
 
 /* Define to 1 if `lex' declares `yytext' as a `char *' by default, not a
    `char[]'. */

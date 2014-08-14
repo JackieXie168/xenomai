@@ -25,7 +25,7 @@ static xnmap_t *vrtx_mx_idmap;
 
 static xnqueue_t vrtx_mx_q;
 
-#ifdef CONFIG_XENO_EXPORT_REGISTRY
+#ifdef CONFIG_PROC_FS
 
 static int __mutex_read_proc(char *page,
 			     char **start,
@@ -87,23 +87,21 @@ static xnpnode_t __mutex_pnode = {
 	.root = &__vrtx_ptree,
 };
 
-#elif defined(CONFIG_XENO_OPT_REGISTRY)
+#else /* !CONFIG_PROC_FS */
 
 static xnpnode_t __mutex_pnode = {
 
 	.type = "mutexes"
 };
 
-#endif /* CONFIG_XENO_EXPORT_REGISTRY */
+#endif /* !CONFIG_PROC_FS */
 
 int mx_destroy_internal(vrtxmx_t *mx)
 {
 	int s = xnsynch_destroy(&mx->synchbase);
 	xnmap_remove(vrtx_mx_idmap, mx->mid);
 	removeq(&vrtx_mx_q, &mx->link);
-#ifdef CONFIG_XENO_OPT_REGISTRY
 	xnregistry_remove(mx->handle);
-#endif /* CONFIG_XENO_OPT_REGISTRY */
 	xnfree(mx);
 	return s;
 }
@@ -160,16 +158,15 @@ int sc_mcreate(unsigned int opt, int *errp)
 
 	inith(&mx->link);
 	mx->mid = mid;
-	xnsynch_init(&mx->synchbase, bflags | XNSYNCH_DREORD);
+	xnsynch_init(&mx->synchbase, bflags | XNSYNCH_DREORD | XNSYNCH_OWNER,
+		     NULL);
 
 	xnlock_get_irqsave(&nklock, s);
 	appendq(&vrtx_mx_q, &mx->link);
 	xnlock_put_irqrestore(&nklock, s);
 
-#ifdef CONFIG_XENO_OPT_REGISTRY
 	sprintf(mx->name, "mx%d", mid);
 	xnregistry_enter(mx->name, mx, &mx->handle, &__mutex_pnode);
-#endif /* CONFIG_XENO_OPT_REGISTRY */
 
 	*errp = RET_OK;
 
@@ -193,7 +190,7 @@ void sc_mpost(int mid, int *errp)
 
 	*errp = RET_OK;
 
-	if (xnsynch_wakeup_one_sleeper(&mx->synchbase))
+	if (xnsynch_release(&mx->synchbase))
 		xnpod_schedule();
 
       unlock_and_exit:
@@ -272,7 +269,7 @@ void sc_mpend(int mid, unsigned long timeout, int *errp)
 	if (timeout)
 		task->vrtxtcb.TCBSTAT |= TBSDELAY;
 
-	xnsynch_sleep_on(&mx->synchbase, timeout, XN_RELATIVE);
+	xnsynch_acquire(&mx->synchbase, timeout, XN_RELATIVE);
 
 	if (xnthread_test_info(cur, XNBREAK))
 		*errp = -EINTR;

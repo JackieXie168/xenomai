@@ -48,7 +48,7 @@
 #include <native/mutex.h>
 #include <native/cond.h>
 
-#ifdef CONFIG_XENO_EXPORT_REGISTRY
+#ifdef CONFIG_PROC_FS
 
 static int __cond_read_proc(char *page,
 			    char **start,
@@ -103,14 +103,14 @@ static xnpnode_t __cond_pnode = {
 	.root = &__native_ptree,
 };
 
-#elif defined(CONFIG_XENO_OPT_REGISTRY)
+#else /* !CONFIG_PROC_FS */
 
 static xnpnode_t __cond_pnode = {
 
 	.type = "condvars"
 };
 
-#endif /* CONFIG_XENO_EXPORT_REGISTRY */
+#endif /* !CONFIG_PROC_FS */
 
 /**
  * @fn int rt_cond_create(RT_COND *cond, const char *name)
@@ -160,7 +160,7 @@ int rt_cond_create(RT_COND *cond, const char *name)
 	if (xnpod_asynch_p())
 		return -EPERM;
 
-	xnsynch_init(&cond->synch_base, XNSYNCH_PRIO);
+	xnsynch_init(&cond->synch_base, XNSYNCH_PRIO, NULL);
 	cond->handle = 0;	/* i.e. (still) unregistered cond. */
 	cond->magic = XENO_COND_MAGIC;
 	xnobject_copy_name(cond->name, name);
@@ -174,29 +174,18 @@ int rt_cond_create(RT_COND *cond, const char *name)
 	cond->cpid = 0;
 #endif /* CONFIG_XENO_OPT_PERVASIVE */
 
-#ifdef CONFIG_XENO_OPT_REGISTRY
-	/* <!> Since xnregister_enter() may reschedule, only register
-	   complete objects, so that the registry cannot return handles to
-	   half-baked objects... */
-
+	/*
+	 * <!> Since xnregister_enter() may reschedule, only register
+	 * complete objects, so that the registry cannot return
+	 * handles to half-baked objects...
+	 */
 	if (name) {
-		xnpnode_t *pnode = &__cond_pnode;
-
-		if (!*name) {
-			/* Since this is an anonymous object (empty name on entry)
-			   from user-space, it gets registered under an unique
-			   internal name but is not exported through /proc. */
-			xnobject_create_name(cond->name, sizeof(cond->name),
-					     (void *)cond);
-			pnode = NULL;
-		}
-
-		err = xnregistry_enter(cond->name, cond, &cond->handle, pnode);
+		err = xnregistry_enter(cond->name, cond, &cond->handle,
+				       &__cond_pnode);
 
 		if (err)
 			rt_cond_delete(cond);
 	}
-#endif /* CONFIG_XENO_OPT_REGISTRY */
 
 	return err;
 }
@@ -256,10 +245,8 @@ int rt_cond_delete(RT_COND *cond)
 
 	rc = xnsynch_destroy(&cond->synch_base);
 
-#ifdef CONFIG_XENO_OPT_REGISTRY
 	if (cond->handle)
 		xnregistry_remove(cond->handle);
-#endif /* CONFIG_XENO_OPT_REGISTRY */
 
 	xeno_mark_deleted(cond);
 
@@ -385,6 +372,113 @@ int rt_cond_broadcast(RT_COND *cond)
 	return err;
 }
 
+int rt_cond_wait_prologue(RT_COND *cond, RT_MUTEX *mutex, unsigned *plockcnt,
+		       xntmode_t timeout_mode, RTIME timeout)
+{
+	xnthread_t *thread;
+	xnflags_t info;
+	spl_t s;
+	int err;
+
+	if (timeout == TM_NONBLOCK)
+		return -EWOULDBLOCK;
+
+	if (xnpod_unblockable_p())
+		return -EPERM;
+
+	xnlock_get_irqsave(&nklock, s);
+
+	cond = xeno_h2obj_validate(cond, XENO_COND_MAGIC, RT_COND);
+
+	if (!cond) {
+		err = xeno_handle_error(cond, XENO_COND_MAGIC, RT_COND);
+		goto unlock_and_exit;
+	}
+
+	mutex = xeno_h2obj_validate(mutex, XENO_MUTEX_MAGIC, RT_MUTEX);
+
+	if (!mutex) {
+		err = xeno_handle_error(mutex, XENO_MUTEX_MAGIC, RT_MUTEX);
+		goto unlock_and_exit;
+	}
+
+	thread = xnpod_current_thread();
+
+	err = xnsynch_owner_check(&mutex->synch_base, thread);
+
+	if (err)
+		goto unlock_and_exit;
+
+	/*
+	 * We can't use rt_mutex_release since that might reschedule
+	 * before enter xnsynch_sleep_on.
+	 */
+	*plockcnt = mutex->lockcnt; /* Leave even if mutex is nested */
+
+	mutex->lockcnt = 0;
+
+	xnsynch_release(&mutex->synch_base);
+	/* Scheduling deferred */
+
+	info = xnsynch_sleep_on(&cond->synch_base,
+				timeout, timeout_mode);
+	if (info & XNRMID)
+		err = -EIDRM;	/* Condvar deleted while pending. */
+	else if (info & XNTIMEO)
+		err = -ETIMEDOUT;	/* Timeout. */
+	else if (info & XNBREAK) {
+		err = -EINTR;	/* Unblocked. */
+	}
+
+      unlock_and_exit:
+
+	xnlock_put_irqrestore(&nklock, s);
+
+	return err;
+}
+
+int rt_cond_wait_epilogue(RT_MUTEX *mutex, unsigned lockcnt)
+{
+	int err;
+	spl_t s;
+
+	xnlock_get_irqsave(&nklock, s);
+
+	mutex = xeno_h2obj_validate(mutex, XENO_MUTEX_MAGIC, RT_MUTEX);
+
+	if (!mutex) {
+		err = xeno_handle_error(mutex, XENO_MUTEX_MAGIC, RT_MUTEX);
+		goto unlock_and_exit;
+	}
+
+	err = rt_mutex_acquire(mutex, TM_INFINITE);
+
+	if(!err) 
+		mutex->lockcnt = lockcnt; /* Adjust lockcnt */
+
+      unlock_and_exit:
+
+	xnlock_put_irqrestore(&nklock, s);
+
+	return err;
+}
+
+static int rt_cond_wait_inner(RT_COND *cond, RT_MUTEX *mutex,
+		       	      xntmode_t timeout_mode, RTIME timeout)
+{
+	unsigned lockcnt;
+	int err;
+
+	err = rt_cond_wait_prologue(cond, mutex, &lockcnt, 
+				    timeout_mode, timeout);
+
+	if(!err || err == -ETIMEDOUT || err == -EINTR)
+		do {
+			err = rt_cond_wait_epilogue(mutex, lockcnt);
+		} while (err == -EINTR);
+
+	return err;
+}
 /**
  * @fn int rt_cond_wait(RT_COND *cond, RT_MUTEX *mutex, RTIME timeout)
  * @brief Wait on a condition.
@@ -441,77 +535,67 @@ int rt_cond_broadcast(RT_COND *cond)
 
 int rt_cond_wait(RT_COND *cond, RT_MUTEX *mutex, RTIME timeout)
 {
-	int err = 0, kicked = 0;
-	xnthread_t *thread;
-	int lockcnt;
-	spl_t s;
+	return rt_cond_wait_inner(cond, mutex, XN_RELATIVE, timeout);
+}
 
-	if (timeout == TM_NONBLOCK)
-		return -EWOULDBLOCK;
+/**
+ * @fn int rt_cond_wait_until(RT_COND *cond, RT_MUTEX *mutex, RTIME timeout)
+ *
+ * @brief Wait on a condition (with absolute timeout date).
+ *
+ * This service atomically release the mutex and causes the calling
+ * task to block on the specified condition variable. The caller will
+ * be unblocked when the variable is signaled, and the mutex
+ * re-acquired before returning from this service.
 
-	if (xnpod_unblockable_p())
-		return -EPERM;
+ * Tasks pend on condition variables by priority order.
+ *
+ * @param cond The descriptor address of the affected condition
+ * variable.
+ *
+ * @param mutex The descriptor address of the mutex protecting the
+ * condition variable.
+ *
+ * @param timeout The absolute date specifying a time limit to wait
+ * for the condition variable to be signaled (see note). Passing
+ * TM_INFINITE causes the caller to block indefinitely until the
+ * condition variable is signaled.
+ *
+ * @return 0 is returned upon success. Otherwise:
+ *
+ * - -EINVAL is returned if @a mutex is not a mutex descriptor, or @a
+ * cond is not a condition variable descriptor.
+ *
+ * - -EIDRM is returned if @a mutex or @a cond is a deleted object
+ * descriptor, including if the deletion occurred while the caller was
+ * sleeping on the variable.
+ *
+ * - -ETIMEDOUT is returned if the absolute @a timeout date is reached
+ * before the condition variable is signaled.
+ *
+ * - -EINTR is returned if rt_task_unblock() has been called for the
+ * waiting task before the condition variable has been signaled.
+ *
+ * - -EWOULDBLOCK is returned if @a timeout equals TM_NONBLOCK.
+ *
+ * Environments:
+ *
+ * This service can be called from:
+ *
+ * - Kernel-based task
+ * - User-space task (switches to primary mode)
+ *
+ * Rescheduling: always unless the request is immediately satisfied or
+ * @a timeout specifies a non-blocking operation.
+ *
+ * @note The @a timeout value will be interpreted as jiffies if the
+ * native skin is bound to a periodic time base (see
+ * CONFIG_XENO_OPT_NATIVE_PERIOD), or nanoseconds otherwise.
+ */
 
-	xnlock_get_irqsave(&nklock, s);
-
-	cond = xeno_h2obj_validate(cond, XENO_COND_MAGIC, RT_COND);
-
-	if (!cond) {
-		err = xeno_handle_error(cond, XENO_COND_MAGIC, RT_COND);
-		goto unlock_and_exit;
-	}
-
-	mutex = xeno_h2obj_validate(mutex, XENO_MUTEX_MAGIC, RT_MUTEX);
-
-	if (!mutex) {
-		err = xeno_handle_error(mutex, XENO_MUTEX_MAGIC, RT_MUTEX);
-		goto unlock_and_exit;
-	}
-
-	thread = xnpod_current_thread();
-
-	if (thread != xnsynch_owner(&mutex->synch_base)) {
-		err = -EPERM;
-		goto unlock_and_exit;
-	}
-
-	/*
-	 * We can't use rt_mutex_release since that might reschedule
-	 * before enter xnsynch_sleep_on, hence most of the code is
-	 * duplicated here.
-	 */
-	lockcnt = mutex->lockcnt; /* Leave even if mutex is nested */
-
-	mutex->lockcnt = 0;
-
-	if (xnsynch_wakeup_one_sleeper(&mutex->synch_base)) {
-		mutex->lockcnt = 1;
-		/* Scheduling deferred */
-	}
-
-	xnsynch_sleep_on(&cond->synch_base, timeout, XN_RELATIVE);
-
-	if (xnthread_test_info(thread, XNRMID))
-		err = -EIDRM;	/* Condvar deleted while pending. */
-	else if (xnthread_test_info(thread, XNTIMEO))
-		err = -ETIMEDOUT;	/* Timeout. */
-	else if (xnthread_test_info(thread, XNBREAK)) {
-		err = -EINTR;	/* Unblocked. */
-		kicked = xnthread_test_info(thread, XNKICKED);
-	}
-
-	rt_mutex_acquire(mutex, TM_INFINITE);
-
-	mutex->lockcnt = lockcnt; /* Adjust lockcnt */
-
-	if (kicked)
-		xnthread_set_info(thread, XNKICKED);
-
-      unlock_and_exit:
-
-	xnlock_put_irqrestore(&nklock, s);
-
-	return err;
+int rt_cond_wait_until(RT_COND *cond, RT_MUTEX *mutex, RTIME timeout)
+{
+	return rt_cond_wait_inner(cond, mutex, XN_REALTIME, timeout);
 }
 
 /**
@@ -610,8 +694,8 @@ int rt_cond_inquire(RT_COND *cond, RT_COND_INFO *info)
  * the specified amount of time.
  *
  * - -EPERM is returned if this service should block, but was called
- * from a context which cannot sleep (e.g. interrupt, non-realtime or
- * scheduler locked).
+ * from a context which cannot sleep (e.g. interrupt, non-realtime
+ * context).
  *
  * Environments:
  *
@@ -665,4 +749,5 @@ EXPORT_SYMBOL(rt_cond_delete);
 EXPORT_SYMBOL(rt_cond_signal);
 EXPORT_SYMBOL(rt_cond_broadcast);
 EXPORT_SYMBOL(rt_cond_wait);
+EXPORT_SYMBOL(rt_cond_wait_until);
 EXPORT_SYMBOL(rt_cond_inquire);

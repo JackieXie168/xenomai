@@ -312,13 +312,13 @@ while : ; do
       linux_arch=powerpc
       xenomai_arch=powerpc
       ;;
-   ia64)
-      linux_arch=ia64
-      xenomai_arch=ia64
-      ;;
    bfin|bfinnommu|blackfin)
       linux_arch=blackfin
       xenomai_arch=blackfin
+      ;;
+   nios2)
+      linux_arch=nios2
+      xenomai_arch=nios2
       ;;
    arm)
       linux_arch=arm
@@ -403,15 +403,16 @@ else
 fi
 
 asm_ipipe_h=unknown
-if test -r $linux_tree/arch/$linux_arch/include/asm/ipipe.h; then
+if test -r $linux_tree/arch/$linux_arch/include/asm/ipipe.h \
+   && grep -q IPIPE $linux_tree/arch/$linux_arch/include/asm/ipipe.h; then
    linux_include_asm=arch/$linux_arch/include/asm
    asm_ipipe_h=$linux_tree/$linux_include_asm/ipipe.h
 else
    linux_include_asm=include/asm-$linux_arch
-   asm_ipipe_h=`ls $linux_tree/include/asm-{$linux_arch,$xenomai_arch}/ipipe.h 2>/dev/null|head -1`
+   asm_ipipe_h=`ls $linux_tree/include/asm-{$linux_arch,$xenomai_arch}/ipipe.h 2>/dev/null|head -n1`
 fi
 
-adeos_version=`grep '^#define.*IPIPE_ARCH_STRING.*"' $asm_ipipe_h 2>/dev/null|head -1|sed -e 's,.*"\(.*\)"$,\1,'`
+adeos_version=`grep '^#define.*IPIPE_ARCH_STRING.*"' $asm_ipipe_h 2>/dev/null|head -n1|sed -e 's,.*"\(.*\)"$,\1,'`
 
 if test \! "x$adeos_version" = x; then
    if test x$verbose = x1; then

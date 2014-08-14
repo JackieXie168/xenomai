@@ -32,6 +32,7 @@
 #include <sys/ioctl.h>
 #include <sys/mman.h>
 #include <sys/select.h>
+#include <xeno_config.h>
 
 #undef __real_ftruncate
 #undef __real_mmap
@@ -245,17 +246,21 @@ int __real_shutdown(int fd, int how)
 }
 
 /* shm */
+#ifdef HAVE_SHM_OPEN
 __attribute__ ((weak))
 int __real_shm_open(const char *name, int oflag, mode_t mode)
 {
 	return shm_open(name, oflag, mode);
 }
+#endif
 
+#ifdef HAVE_SHM_UNLINK
 __attribute__ ((weak))
 int __real_shm_unlink(const char *name)
 {
 	return shm_unlink(name);
 }
+#endif
 
 __attribute__ ((weak))
 int __real_ftruncate(int fildes, long length)

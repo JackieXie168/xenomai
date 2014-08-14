@@ -28,6 +28,8 @@ static u_long vrtx_default_stacksz;
 
 static TCB vrtx_idle_tcb;
 
+static xnticks_t rrperiod;
+
 static int vrtx_get_denormalized_prio(xnthread_t *thread, int coreprio)
 {
 	return vrtx_denormalized_prio(coreprio);
@@ -38,7 +40,7 @@ static unsigned vrtx_get_magic(void)
 	return VRTX_SKIN_MAGIC;
 }
 
-static xnthrops_t vrtxtask_ops = {
+static struct xnthread_operations vrtxtask_ops = {
 	.get_denormalized_prio = &vrtx_get_denormalized_prio,
 	.get_magic = &vrtx_get_magic,
 };
@@ -113,6 +115,9 @@ int sc_tecreate_inner(vrtxtask_t *task,
 		      u_long user,
 		      u_long sys, char *paddr, u_long psize, int *errp)
 {
+	union xnsched_policy_param param;
+	struct xnthread_start_attr sattr;
+	struct xnthread_init_attr iattr;
 	xnflags_t bmode = 0, bflags = 0;
 	char *_paddr = NULL;
 	char name[16];
@@ -158,11 +163,15 @@ int sc_tecreate_inner(vrtxtask_t *task,
 	if (!(mode & 0x8))
 		bflags |= XNFPU;
 
+	iattr.tbase = vrtx_tbase;
+	iattr.name = name;
+	iattr.flags = bflags;
+	iattr.ops = &vrtxtask_ops;
+	iattr.stacksize = user + sys;
+	param.rt.prio = vrtx_normalized_prio(prio);
+
 	if (xnpod_init_thread(&task->threadbase,
-			      vrtx_tbase,
-			      name,
-			      vrtx_normalized_prio(prio),
-			      bflags, user + sys, &vrtxtask_ops) != 0) {
+			      &iattr, &xnsched_class_rt, &param) != 0) {
 		if (_paddr)
 			xnfree(_paddr);
 
@@ -186,18 +195,36 @@ int sc_tecreate_inner(vrtxtask_t *task,
 		bmode |= XNLOCK;
 
 	if (mode & 0x10)
-		bmode |= XNRRB;
-
-	*errp = RET_OK;
+		xnpod_set_thread_tslice(&task->threadbase, rrperiod);
 
 	xnlock_get_irqsave(&nklock, s);
 	appendq(&vrtx_task_q, &task->link);
 	xnlock_put_irqrestore(&nklock, s);
 
-	if ((bflags & XNSHADOW) == 0) /* Defer shadow thread startup. */
-		xnpod_start_thread(&task->threadbase,
-				   bmode, 0, XNPOD_ALL_CPUS, &vrtxtask_trampoline,
-				   task);
+#ifdef CONFIG_XENO_FASTSEM
+	/* We need an anonymous registry entry to obtain a handle for fast
+	   mutex locking. */
+	{
+		int err = xnthread_register(&task->threadbase, "");
+		if (err) {
+			xnpod_abort_thread(&task->threadbase);
+			*errp = ER_MEM;
+			return -1;
+		}
+	}
+#endif /* CONFIG_XENO_FASTSEM */
+
+	*errp = RET_OK;
+
+ 	if ((bflags & XNSHADOW) == 0) { /* Defer shadow thread startup. */
+		sattr.mode = bmode;
+		sattr.imask = 0;
+		sattr.affinity = XNPOD_ALL_CPUS;
+		sattr.entry = vrtxtask_trampoline;
+		sattr.cookie = task;
+		xnpod_start_thread(&task->threadbase, &sattr);
+	}
+
 	return tid;
 }
 
@@ -300,6 +327,7 @@ void sc_tdelete(int tid, int opt, int *errp)
 
 void sc_tpriority(int tid, int prio, int *errp)
 {
+	union xnsched_policy_param param;
 	vrtxtask_t *task;
 	spl_t s;
 
@@ -327,9 +355,10 @@ void sc_tpriority(int tid, int prio, int *errp)
 		if (!xnthread_test_state(&task->threadbase, XNBOOST))
 			/* ...unless the thread is PIP-boosted. */
 			xnpod_resume_thread(&task->threadbase, 0);
-	} else
-		xnpod_renice_thread(&task->threadbase,
-				    vrtx_normalized_prio(prio));
+	} else {
+		param.rt.prio = vrtx_normalized_prio(prio);
+		xnpod_set_thread_schedparam(&task->threadbase, &xnsched_class_rt, &param);
+	}
 
 	*errp = RET_OK;
 
@@ -490,10 +519,20 @@ void sc_tsuspend(int tid, int opt, int *errp)
 
 void sc_tslice(u_short ticks)
 {
-	if (ticks == 0)
-		xnpod_deactivate_rr();
-	else
-		xnpod_activate_rr(ticks);
+	vrtxtask_t *task;
+	xnholder_t *h;
+	spl_t s;
+
+	xnlock_get_irqsave(&nklock, s);
+
+	rrperiod = ticks;
+
+	for (h = getheadq(&vrtx_task_q); h; h = nextq(&vrtx_task_q, h)) {
+		task = link2vrtxtask(h);
+		xnpod_set_thread_tslice(&task->threadbase, ticks);
+	}
+
+	xnlock_put_irqrestore(&nklock, s);
 }
 
 void sc_lock(void)

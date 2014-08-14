@@ -26,10 +26,20 @@
 #include <signal.h>
 #include <errno.h>
 #include <limits.h>
+#include <nucleus/sched.h>
 #include <vxworks/vxworks.h>
+#include <asm-generic/bits/sigshadow.h>
+#include <asm-generic/bits/current.h>
 #include "wrappers.h"
 
+#ifdef HAVE___THREAD
+__thread WIND_TCB
+__vxworks_self __attribute__ ((tls_model ("initial-exec"))) = {
+	.handle = XN_NO_HANDLE
+};
+#else /* !HAVE___THREAD */
 extern pthread_key_t __vxworks_tskey;
+#endif /* !HAVE___THREAD */
 
 extern int __vxworks_muxid;
 
@@ -54,17 +64,6 @@ struct wind_task_iargs {
 	xncompletion_t *completionp;
 };
 
-static void (*old_sigharden_handler)(int sig);
-
-static void wind_task_sigharden(int sig)
-{
-	if (old_sigharden_handler &&
-	    old_sigharden_handler != &wind_task_sigharden)
-		old_sigharden_handler(sig);
-
-	XENOMAI_SYSCALL1(__xn_sys_migrate, XENOMAI_XENO_DOMAIN);
-}
-
 static int wind_task_set_posix_priority(int prio, struct sched_param *param)
 {
 	int maxpprio, pprio;
@@ -87,35 +86,39 @@ static void *wind_task_trampoline(void *cookie)
 	struct wind_task_iargs *iargs =
 	    (struct wind_task_iargs *)cookie, _iargs;
 	struct wind_arg_bulk bulk;
-	struct sched_param param;
-	int policy;
+	WIND_TCB *pTcb;
 	long err;
 
 	/* Backup the arg struct, it might vanish after completion. */
 	memcpy(&_iargs, iargs, sizeof(_iargs));
 
-	/*
-	 * Apply sched params here as some libpthread implementations
-	 * fail doing this properly via pthread_create.
-	 */
-	policy = wind_task_set_posix_priority(iargs->prio, &param);
-	__real_pthread_setschedparam(pthread_self(), policy, &param);
-
 	/* wind_task_delete requires asynchronous cancellation */
 	pthread_setcanceltype(PTHREAD_CANCEL_ASYNCHRONOUS, NULL);
-
-	old_sigharden_handler = signal(SIGHARDEN, &wind_task_sigharden);
+	sigshadow_install_once();
 
 	bulk.a1 = (u_long)iargs->name;
 	bulk.a2 = (u_long)iargs->prio;
 	bulk.a3 = (u_long)iargs->flags;
 	bulk.a4 = (u_long)pthread_self();
+	bulk.a5 = (u_long)xeno_init_current_mode();
+	pTcb = iargs->pTcb;
+
+	if (!bulk.a5) {
+		err = -ENOMEM;
+		goto fail;
+	}
 
 	err = XENOMAI_SKINCALL3(__vxworks_muxid,
 				__vxworks_task_init,
-				&bulk, iargs->pTcb, iargs->completionp);
+				&bulk, pTcb, iargs->completionp);
 	if (err)
 		goto fail;
+
+	xeno_set_current();
+
+#ifdef HAVE___THREAD
+	__vxworks_self = *pTcb;
+#endif /* HAVE___THREAD */
 
 	/* Wait on the barrier for the task to be started. The barrier
 	   could be released in order to process Linux signals while the
@@ -306,8 +309,14 @@ STATUS taskResume(TASK_ID task_id)
 
 TASK_ID taskIdSelf(void)
 {
-	WIND_TCB *self = (WIND_TCB *)pthread_getspecific(__vxworks_tskey);
+#ifdef HAVE___THREAD
+	return __vxworks_self.handle;
+
+#else /* !HAVE___THREAD */
+	WIND_TCB *self;
 	int err;
+
+	self = (WIND_TCB *)pthread_getspecific(__vxworks_tskey);
 
 	if (self)
 		return self->handle;
@@ -329,6 +338,7 @@ TASK_ID taskIdSelf(void)
 	pthread_setspecific(__vxworks_tskey, self);
 
 	return self->handle;
+#endif /* !HAVE___THREAD */
 }
 
 STATUS taskPrioritySet(TASK_ID task_id, int prio)
@@ -434,19 +444,4 @@ TASK_ID taskNameToId(const char *name)
 void taskExit(int code)
 {
 	pthread_exit((void *)(long) code);
-}
-
-STATUS taskSetMode(int clrmask, int setmask, int *rmask)
-{
-	int err = XENOMAI_SKINCALL3(__vxworks_muxid,
-				    __vxworks_task_setmode,
-				    clrmask,
-				    setmask,
-				    rmask);
-	if (err) {
-		errno = abs(err);
-		return ERROR;
-	}
-
-	return OK;
 }

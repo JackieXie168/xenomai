@@ -222,14 +222,16 @@ int __rt_dev_open(rtdm_user_info_t *user_info, const char *path, int oflag)
 		ret = device->open_rt(context, user_info, oflag);
 	}
 
-	XENO_ASSERT(RTDM, !rthal_local_irq_test(), rthal_local_irq_enable(););
+	XENO_ASSERT(RTDM, !rthal_local_irq_disabled(),
+		    rthal_local_irq_enable(););
 
 	if (unlikely(ret < 0))
 		goto cleanup_out;
 
 	fildes->context = context;
 
-	trace_mark(xn_rtdm, fd_created, "device %p fd %d", device, context->fd);
+	trace_mark(xn_rtdm, fd_created,
+		   "device %p fd %d", device, context->fd);
 
 	return context->fd;
 
@@ -273,14 +275,16 @@ int __rt_dev_socket(rtdm_user_info_t *user_info, int protocol_family,
 		ret = device->socket_rt(context, user_info, protocol);
 	}
 
-	XENO_ASSERT(RTDM, !rthal_local_irq_test(), rthal_local_irq_enable(););
+	XENO_ASSERT(RTDM, !rthal_local_irq_disabled(),
+		    rthal_local_irq_enable(););
 
 	if (unlikely(ret < 0))
 		goto cleanup_out;
 
 	fildes->context = context;
 
-	trace_mark(xn_rtdm, fd_created, "device %p fd %d", device, context->fd);
+	trace_mark(xn_rtdm, fd_created,
+		   "device %p fd %d", device, context->fd);
 
 	return context->fd;
 
@@ -334,7 +338,8 @@ again:
 		ret = context->ops->close_rt(context, user_info);
 	}
 
-	XENO_ASSERT(RTDM, !rthal_local_irq_test(), rthal_local_irq_enable(););
+	XENO_ASSERT(RTDM, !rthal_local_irq_disabled(),
+		    rthal_local_irq_enable(););
 
 	if (unlikely(ret == -EAGAIN) && nrt_mode) {
 		rtdm_context_unlock(context);
@@ -420,7 +425,8 @@ do {									\
 	else								\
 		ret = ops->operation##_nrt(context, user_info, args);	\
 									\
-	XENO_ASSERT(RTDM, !rthal_local_irq_test(), rthal_local_irq_enable();)
+	XENO_ASSERT(RTDM, !rthal_local_irq_disabled(),			\
+		    rthal_local_irq_enable();)
 
 #define MAJOR_FUNCTION_WRAPPER_BH()					\
 	rtdm_context_unlock(context);					\
@@ -505,7 +511,7 @@ EXPORT_SYMBOL(__rt_dev_recvmsg);
 ssize_t __rt_dev_sendmsg(rtdm_user_info_t *user_info, int fd,
 			 const struct msghdr *msg, int flags)
 {
-	trace_mark(xn_rtdm, recvmsg, "user_info %p fd %d msg_name %p "
+	trace_mark(xn_rtdm, sendmsg, "user_info %p fd %d msg_name %p "
 		   "msg_namelen %u msg_iov %p msg_iovlen %zu "
 		   "msg_control %p msg_controllen %zu msg_flags %d",
 		   user_info, fd, msg->msg_name, msg->msg_namelen,
@@ -562,7 +568,8 @@ int rtdm_select_bind(int fd, rtdm_selector_t *selector,
 
 	ret = ops->select_bind(context, selector, type, fd_index);
 
-	XENO_ASSERT(RTDM, !rthal_local_irq_test(), rthal_local_irq_enable(););
+	XENO_ASSERT(RTDM, !rthal_local_irq_disabled(),
+		    rthal_local_irq_enable(););
 
 	rtdm_context_unlock(context);
 

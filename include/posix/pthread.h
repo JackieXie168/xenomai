@@ -82,9 +82,9 @@ typedef struct pse51_threadattr {
 	size_t stacksize;
 	int inheritsched;
 	int policy;
-	struct sched_param schedparam;
 
 	/* Non portable */
+	struct sched_param_ex schedparam_ex;
 	char *name;
 	int fp;
 	xnarch_cpumask_t affinity;
@@ -93,19 +93,6 @@ typedef struct pse51_threadattr {
 
 /* pthread_mutexattr_t and pthread_condattr_t fit on 32 bits, for compatibility
    with libc. */
-typedef struct pse51_mutexattr {
-	unsigned magic: 24;
-	unsigned type: 2;
-	unsigned protocol: 2;
-	unsigned pshared: 1;
-} pthread_mutexattr_t;
-
-typedef struct pse51_condattr {
-	unsigned magic: 24;
-	unsigned clock: 2;
-	unsigned pshared: 1;
-} pthread_condattr_t;
-
 struct pse51_key;
 typedef struct pse51_key *pthread_key_t;
 
@@ -153,11 +140,16 @@ struct timespec;
 
 #endif /* __KERNEL__ || __XENO_SIM__ */
 
+#ifndef PTHREAD_PRIO_NONE
 #define PTHREAD_PRIO_NONE    0
+#endif /* !PTHREAD_PRIO_NONE */
+#ifndef PTHREAD_PRIO_INHERIT
 #define PTHREAD_PRIO_INHERIT 1
+#endif /* !PTHREAD_PRIO_INHERIT */
+#ifndef PTHREAD_PRIO_PROTECT
 #define PTHREAD_PRIO_PROTECT 2
+#endif /* !PTHREAD_PRIO_PROTECT */
 
-#define PTHREAD_SHIELD     XNSHIELD
 #define PTHREAD_WARNSW     XNTRAPSW
 #define PTHREAD_LOCK_SCHED XNLOCK
 #define PTHREAD_RPIOFF     XNRPIOFF
@@ -169,24 +161,27 @@ struct timespec;
 #define PTHREAD_IENABLE     0
 #define PTHREAD_IDISABLE    1
 
-struct pse51_mutex;
+struct pse51_mutexattr {
+	unsigned magic: 24;
+	unsigned type: 2;
+	unsigned protocol: 2;
+	unsigned pshared: 1;
+};
 
-union __xeno_mutex {
-    pthread_mutex_t native_mutex;
-    struct __shadow_mutex {
-	unsigned magic;
-	struct pse51_mutex *mutex;
-    } shadow_mutex;
+struct pse51_condattr {
+	unsigned magic: 24;
+	unsigned clock: 2;
+	unsigned pshared: 1;
 };
 
 struct pse51_cond;
 
 union __xeno_cond {
-    pthread_cond_t native_cond;
-    struct __shadow_cond {
-	unsigned magic;
-	struct pse51_cond *cond;
-    } shadow_cond;
+	pthread_cond_t native_cond;
+	struct __shadow_cond {
+		unsigned magic;
+		struct pse51_cond *cond;
+	} shadow_cond;
 };
 
 struct pse51_interrupt;
@@ -194,6 +189,9 @@ struct pse51_interrupt;
 typedef struct pse51_interrupt *pthread_intr_t;
 
 #if defined(__KERNEL__) || defined(__XENO_SIM__)
+typedef struct pse51_mutexattr pthread_mutexattr_t;
+
+typedef struct pse51_condattr pthread_condattr_t;
 
 #ifdef __cplusplus
 extern "C" {
@@ -236,8 +234,14 @@ int pthread_attr_setschedpolicy(pthread_attr_t *attr,
 int pthread_attr_getschedparam(const pthread_attr_t *attr,
 			       struct sched_param *par);
 
+int pthread_attr_getschedparam_ex(const pthread_attr_t *attr,
+				  struct sched_param_ex *par);
+
 int pthread_attr_setschedparam(pthread_attr_t *attr,
 			       const struct sched_param *par);
+
+int pthread_attr_setschedparam_ex(pthread_attr_t *attr,
+				  const struct sched_param_ex *par);
 
 int pthread_attr_getscope(const pthread_attr_t *attr,
 			  int *scope);
@@ -266,7 +270,7 @@ int pthread_attr_setaffinity_np (pthread_attr_t *attr,
 int pthread_create(pthread_t *tid,
 		   const pthread_attr_t *attr,
 		   void *(*start) (void *),
-		   void *arg );
+		   void *arg ) __deprecated_in_kernel__;
 
 int pthread_detach(pthread_t thread);
 
@@ -284,9 +288,17 @@ int pthread_getschedparam(pthread_t tid,
 			  int *pol,
 			  struct sched_param *par);
 
+int pthread_getschedparam_ex(pthread_t tid,
+			     int *pol,
+			     struct sched_param_ex *par);
+
 int pthread_setschedparam(pthread_t tid,
 			  int pol,
 			  const struct sched_param *par);
+
+int pthread_setschedparam_ex(pthread_t tid,
+			     int pol,
+			     const struct sched_param_ex *par);
 
 int pthread_mutexattr_init(pthread_mutexattr_t *attr);
 
@@ -412,17 +424,21 @@ int pthread_intr_control_np(pthread_intr_t intr,
 extern "C" {
 #endif
 
+#ifndef HAVE_PTHREAD_MUTEXATTR_SETPROTOCOL
 int pthread_mutexattr_getprotocol(const pthread_mutexattr_t *attr,
 				  int *proto);
 
 int pthread_mutexattr_setprotocol(pthread_mutexattr_t *attr,
 				  int proto);
+#endif
 
+#ifndef HAVE_PTHREAD_CONDATTR_SETCLOCK
 int pthread_condattr_getclock(const pthread_condattr_t *attr,
 			      clockid_t *clk_id);
 
 int pthread_condattr_setclock(pthread_condattr_t *attr,
 			      clockid_t clk_id);
+#endif
 
 int pthread_make_periodic_np(pthread_t thread,
 			     struct timespec *starttp,
@@ -464,6 +480,29 @@ int __real_pthread_setschedparam(pthread_t thread,
 				 const struct sched_param *param);
 int __real_pthread_yield(void);
 
+int __real_pthread_mutexattr_init(pthread_mutexattr_t *attr);
+
+int __real_pthread_mutexattr_destroy(pthread_mutexattr_t *attr);
+
+int __real_pthread_mutexattr_gettype(const pthread_mutexattr_t *attr,
+				     int *type);
+
+int __real_pthread_mutexattr_settype(pthread_mutexattr_t *attr, int type);
+
+#ifdef HAVE_PTHREAD_MUTEXATTR_SETPROTOCOL
+int __real_pthread_mutexattr_getprotocol(const pthread_mutexattr_t *attr,
+					 int *proto);
+
+int __real_pthread_mutexattr_setprotocol(pthread_mutexattr_t *attr,
+					 int proto);
+#endif
+
+int __real_pthread_mutexattr_getpshared(const pthread_mutexattr_t *attr,
+					int *pshared);
+
+int __real_pthread_mutexattr_setpshared(pthread_mutexattr_t *attr,
+					int pshared);
+
 int __real_pthread_mutex_init(pthread_mutex_t *mutex,
 			      const pthread_mutexattr_t *attr);
 
@@ -477,6 +516,21 @@ int __real_pthread_mutex_timedlock(pthread_mutex_t *mutex,
 int __real_pthread_mutex_trylock(pthread_mutex_t *mutex);
 
 int __real_pthread_mutex_unlock(pthread_mutex_t *mutex);
+
+int __real_pthread_condattr_init(pthread_condattr_t *attr);
+
+int __real_pthread_condattr_destroy(pthread_condattr_t *attr);
+
+int __real_pthread_condattr_getclock(const pthread_condattr_t *attr,
+				     clockid_t *clk_id);
+
+int __real_pthread_condattr_setclock(pthread_condattr_t *attr,
+			      clockid_t clk_id);
+
+int __real_pthread_condattr_getpshared(const pthread_condattr_t *attr,
+				       int *pshared);
+
+int __real_pthread_condattr_setpshared(pthread_condattr_t *attr, int pshared);
 
 int __real_pthread_cond_init (pthread_cond_t *cond,
 			      const pthread_condattr_t *attr);

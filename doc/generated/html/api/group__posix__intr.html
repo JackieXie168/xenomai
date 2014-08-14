@@ -109,8 +109,8 @@ Collaboration diagram for Interruptions management services.:</div>
 <p><b>int pthread_intr_attach_np (pthread_intr_t *intrp, unsigned irq, int mode);</b></p>
 <p>This service causes the installation of a default interrupt handler which unblocks any Xenomai user-space interrupt server thread blocked in a call to <a class="el" href="group__posix__intr.html#ga6b6286b729876ba65abb999260639fb3" title="Wait for the next interruption.">pthread_intr_wait_np()</a>, and returns a value depending on the <em>mode</em> parameter.</p>
 <dl class="user"><dt><b>Parameters:</b></dt><dd><em>intrp</em> and <em>irq</em> have the same meaning as in kernel-space; <em>mode</em> is a bitwise OR of the following values:<ul>
-<li>PTHREAD_IPROPAGATE, meaning that the interrupt should be propagated to lower priority domains;</li>
 <li>PTHREAD_INOAUTOENA, meaning that the interrupt should not be automatically re-enabled.</li>
+<li>PTHREAD_IPROPAGATE, meaning that the interrupt should be propagated to lower priority domains. In effect, PTHREAD_IPROPAGATE implies PTHREAD_INOAUTOENA since it would make no sense to re-enable the interrupt channel before the next domain down the pipeline has had a chance to process the propagated interrupt.</li>
 </ul>
 </dd></dl>
 <p>This service is intended to be used in conjunction with the <a class="el" href="group__posix__intr.html#ga6b6286b729876ba65abb999260639fb3" title="Wait for the next interruption.">pthread_intr_wait_np()</a> service.</p>
@@ -130,7 +130,7 @@ Collaboration diagram for Interruptions management services.:</div>
   </dd>
 </dl>
 
-<p>References <a class="el" href="ksrc_2skins_2posix_2intr_8c_source.html#l00200">pthread_intr_detach_np()</a>, <a class="el" href="ksrc_2nucleus_2intr_8c_source.html#l00697">xnintr_attach()</a>, <a class="el" href="ksrc_2nucleus_2intr_8c_source.html#l00610">xnintr_init()</a>, and <a class="el" href="synch_8c_source.html#l00087">xnsynch_init()</a>.</p>
+<p>References <a class="el" href="ksrc_2skins_2posix_2intr_8c_source.html#l00203">pthread_intr_detach_np()</a>, <a class="el" href="ksrc_2nucleus_2intr_8c_source.html#l00719">xnintr_attach()</a>, <a class="el" href="ksrc_2nucleus_2intr_8c_source.html#l00630">xnintr_init()</a>, and <a class="el" href="synch_8c_source.html#l00106">xnsynch_init()</a>.</p>
 
 </div>
 </div>
@@ -183,7 +183,7 @@ Collaboration diagram for Interruptions management services.:</div>
   </dd>
 </dl>
 
-<p>References <a class="el" href="ksrc_2nucleus_2intr_8c_source.html#l00830">xnintr_disable()</a>, and <a class="el" href="ksrc_2nucleus_2intr_8c_source.html#l00799">xnintr_enable()</a>.</p>
+<p>References <a class="el" href="ksrc_2nucleus_2intr_8c_source.html#l00855">xnintr_disable()</a>, and <a class="el" href="ksrc_2nucleus_2intr_8c_source.html#l00823">xnintr_enable()</a>.</p>
 
 </div>
 </div>
@@ -227,7 +227,7 @@ Collaboration diagram for Interruptions management services.:</div>
   </dd>
 </dl>
 
-<p>Referenced by <a class="el" href="ksrc_2skins_2posix_2intr_8c_source.html#l00099">pthread_intr_attach_np()</a>.</p>
+<p>Referenced by <a class="el" href="ksrc_2skins_2posix_2intr_8c_source.html#l00102">pthread_intr_attach_np()</a>.</p>
 
 </div>
 </div>
@@ -281,7 +281,7 @@ Collaboration diagram for Interruptions management services.:</div>
 </div>
 </div>
 </div>
-<hr size="1"/><address style="text-align: right;"><small>Generated on Tue Oct 27 19:18:55 2009 for Xenomai API by&nbsp;
+<hr size="1"/><address style="text-align: right;"><small>Generated on Fri Jan 1 10:45:19 2010 for Xenomai API by&nbsp;
 <a href="http://www.doxygen.org/index.html">
 <img class="footer" src="doxygen.png" alt="doxygen"/></a> 1.6.1 </small></address>
 </body>

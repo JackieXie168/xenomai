@@ -75,7 +75,7 @@ am__base_list = \
   sed '$$!N;$$!N;$$!N;$$!N;s/\n/ /g'
 am__installdirs = "$(DESTDIR)$(libdir)"
 LTLIBRARIES = $(lib_LTLIBRARIES)
-libvrtx_la_LIBADD =
+libvrtx_la_DEPENDENCIES = ../common/libxeno_common.la
 am_libvrtx_la_OBJECTS = libvrtx_la-event.lo libvrtx_la-heap.lo \
 	libvrtx_la-init.lo libvrtx_la-mb.lo libvrtx_la-mx.lo \
 	libvrtx_la-pt.lo libvrtx_la-queue.lo libvrtx_la-sem.lo \
@@ -191,6 +191,7 @@ SHELL = @SHELL@
 STRIP = @STRIP@
 VERSION = @VERSION@
 XENO_BUILD_STRING = @XENO_BUILD_STRING@
+XENO_DLOPEN_CONSTRAINT = @XENO_DLOPEN_CONSTRAINT@
 XENO_HOST_STRING = @XENO_HOST_STRING@
 XENO_LINUX_ALL_TARGETS = @XENO_LINUX_ALL_TARGETS@
 XENO_LINUX_ARCH = @XENO_LINUX_ARCH@
@@ -261,7 +262,7 @@ top_build_prefix = @top_build_prefix@
 top_builddir = @top_builddir@
 top_srcdir = @top_srcdir@
 lib_LTLIBRARIES = libvrtx.la
-libvrtx_la_LDFLAGS = -version-info 0:0:0 -lpthread
+libvrtx_la_LDFLAGS = @XENO_DLOPEN_CONSTRAINT@ -version-info 0:0:0 -lpthread
 libvrtx_la_SOURCES = \
 	event.c \
 	heap.c \
@@ -280,6 +281,7 @@ libvrtx_la_CPPFLAGS = \
 	@XENO_USER_CFLAGS@ \
 	-I$(top_srcdir)/include
 
+libvrtx_la_LIBADD = ../common/libxeno_common.la
 all: all-am
 
 .SUFFIXES:

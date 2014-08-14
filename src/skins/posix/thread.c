@@ -17,6 +17,7 @@
  */
 
 #include <stddef.h>
+#include <stdlib.h>
 #include <string.h>
 #include <errno.h>
 #include <signal.h>
@@ -25,40 +26,90 @@
 #include <sys/types.h>
 #include <semaphore.h>
 #include <posix/syscall.h>
+#include <asm-generic/bits/current.h>
+#include <asm-generic/bits/sigshadow.h>
 
 extern int __pse51_muxid;
 
 static pthread_attr_t default_attr;
 static int linuxthreads;
 
-static void (*old_sigharden_handler)(int sig);
-
-static void __pthread_sigharden_handler(int sig)
-{
-	if (old_sigharden_handler &&
-	    old_sigharden_handler != &__pthread_sigharden_handler)
-		old_sigharden_handler(sig);
-
-	XENOMAI_SYSCALL1(__xn_sys_migrate, XENOMAI_XENO_DOMAIN);
-}
-
 int __wrap_pthread_setschedparam(pthread_t thread,
 				 int policy, const struct sched_param *param)
 {
 	pthread_t myself = pthread_self();
+	unsigned long *mode_buf = NULL;
 	int err, promoted;
+
+	if (thread == myself) {
+#ifdef HAVE___THREAD
+		mode_buf = xeno_init_current_mode();
+#else /* !HAVE___THREAD */
+		mode_buf = pthread_getspecific(xeno_current_mode_key);
+		if (!mode_buf) {
+			mode_buf = malloc(sizeof(*mode_buf));
+
+			if (!mode_buf)
+				return ENOMEM;
+
+			pthread_setspecific(xeno_current_mode_key, mode_buf);
+		}
+#endif /* !HAVE___THREAD */
+	}
 
 	err = -XENOMAI_SKINCALL5(__pse51_muxid,
 				 __pse51_thread_setschedparam,
-				 thread, policy, param, myself, &promoted);
+				 thread, policy, param, mode_buf, &promoted);
 
 	if (err == EPERM)
 		return __real_pthread_setschedparam(thread, policy, param);
-	else
-		__real_pthread_setschedparam(thread, policy, param);
 
 	if (!err && promoted) {
-		old_sigharden_handler = signal(SIGHARDEN, &__pthread_sigharden_handler);
+		sigshadow_install_once();
+		xeno_set_current();
+		if (policy != SCHED_OTHER)
+			XENOMAI_SYSCALL1(__xn_sys_migrate, XENOMAI_XENO_DOMAIN);
+	}
+
+	return err;
+}
+
+int pthread_setschedparam_ex(pthread_t thread,
+			     int policy, const struct sched_param_ex *param)
+{
+	pthread_t myself = pthread_self();
+	struct sched_param short_param;
+	unsigned long *mode_buf = NULL;
+	int err, promoted;
+
+	if (thread == myself) {
+#ifdef HAVE___THREAD
+		mode_buf = xeno_init_current_mode();
+#else /* !HAVE___THREAD */
+		mode_buf = pthread_getspecific(xeno_current_mode_key);
+		if (!mode_buf) {
+			mode_buf = malloc(sizeof(*mode_buf));
+
+			if (!mode_buf)
+				return ENOMEM;
+
+			pthread_setspecific(xeno_current_mode_key, mode_buf);
+		}
+#endif /* !HAVE___THREAD */
+	}
+
+	err = -XENOMAI_SKINCALL5(__pse51_muxid,
+				 __pse51_thread_setschedparam_ex,
+				 thread, policy, param, mode_buf, &promoted);
+
+	if (err == EPERM) {
+		short_param.sched_priority = param->sched_priority;
+		return __real_pthread_setschedparam(thread, policy, &short_param);
+	}
+
+	if (!err && promoted) {
+		sigshadow_install_once();
+		xeno_set_current();
 		if (policy != SCHED_OTHER)
 			XENOMAI_SYSCALL1(__xn_sys_migrate, XENOMAI_XENO_DOMAIN);
 	}
@@ -78,6 +129,26 @@ int __wrap_pthread_getschedparam(pthread_t thread,
 
 	if (err == ESRCH)
 		return __real_pthread_getschedparam(thread, policy, param);
+
+	return err;
+}
+
+int pthread_getschedparam_ex(pthread_t thread,
+			     int *__restrict__ policy,
+			     struct sched_param_ex *__restrict__ param)
+{
+	struct sched_param short_param;
+	int err;
+
+	err = -XENOMAI_SKINCALL3(__pse51_muxid,
+				 __pse51_thread_getschedparam_ex,
+				 thread, policy, param);
+
+	if (err == ESRCH) {
+		err = __real_pthread_getschedparam(thread, policy, &short_param);
+		if (err == 0)
+			param->sched_priority = short_param.sched_priority;
+	}
 
 	return err;
 }
@@ -116,17 +187,26 @@ static void *__pthread_trampoline(void *arg)
 	struct sched_param param;
 	void *status = NULL;
 	int parent_prio, policy;
+	unsigned long *mode_buf;
 	long err;
 
-	old_sigharden_handler = signal(SIGHARDEN, &__pthread_sigharden_handler);
+	sigshadow_install_once();
 
 	param.sched_priority = iargs->prio;
 	policy = iargs->policy;
 	parent_prio = iargs->parent_prio;
+	mode_buf = xeno_init_current_mode();
+
+	if (!mode_buf) {
+		status = (void *)ENOMEM;
+		iargs->ret = ENOMEM;
+		goto out;
+	}
 
 	/* Do _not_ inline the call to pthread_self() in the syscall
 	   macro: this trashes the syscall regs on some archs. */
-	err = XENOMAI_SKINCALL1(__pse51_muxid, __pse51_thread_create, tid);
+	err = XENOMAI_SKINCALL4(__pse51_muxid, __pse51_thread_create, tid,
+				iargs->policy, iargs->prio, mode_buf);
 	iargs->ret = -err;
 
 	/* We must save anything we'll need to use from *iargs on our own
@@ -137,14 +217,12 @@ static void *__pthread_trampoline(void *arg)
 	start = iargs->start;
 	cookie = iargs->arg;
 
+	if (!err)
+		xeno_set_current();
+
 	__real_sem_post(&iargs->sync);
 
 	if (!err) {
-		/* Broken pthread libs ignore some of the thread attribute specs
-		   passed to pthread_create(3), so we force the scheduling policy
-		   once again here. */
-		__real_pthread_setschedparam(tid, policy, &param);
-
 		/* If the thread running pthread_create runs with the same
 		   priority as us, we should leave it running, as if there never
 		   was a synchronization with a semaphore. */
@@ -157,6 +235,7 @@ static void *__pthread_trampoline(void *arg)
 	} else
 		status = (void *)-err;
 
+out:
 	pthread_exit(status);
 }
 

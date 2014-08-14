@@ -75,7 +75,7 @@ am__base_list = \
   sed '$$!N;$$!N;$$!N;$$!N;s/\n/ /g'
 am__installdirs = "$(DESTDIR)$(libdir)"
 LTLIBRARIES = $(lib_LTLIBRARIES)
-libvxworks_la_LIBADD =
+libvxworks_la_DEPENDENCIES = ../common/libxeno_common.la
 am_libvxworks_la_OBJECTS = libvxworks_la-errnoLib.lo \
 	libvxworks_la-intLib.lo libvxworks_la-msgQLib.lo \
 	libvxworks_la-kernelLib.lo libvxworks_la-semLib.lo \
@@ -194,6 +194,7 @@ SHELL = @SHELL@
 STRIP = @STRIP@
 VERSION = @VERSION@
 XENO_BUILD_STRING = @XENO_BUILD_STRING@
+XENO_DLOPEN_CONSTRAINT = @XENO_DLOPEN_CONSTRAINT@
 XENO_HOST_STRING = @XENO_HOST_STRING@
 XENO_LINUX_ALL_TARGETS = @XENO_LINUX_ALL_TARGETS@
 XENO_LINUX_ARCH = @XENO_LINUX_ARCH@
@@ -264,7 +265,7 @@ top_build_prefix = @top_build_prefix@
 top_builddir = @top_builddir@
 top_srcdir = @top_srcdir@
 lib_LTLIBRARIES = libvxworks.la
-libvxworks_la_LDFLAGS = -version-info 1:0:0 -lpthread
+libvxworks_la_LDFLAGS = @XENO_DLOPEN_CONSTRAINT@ -version-info 1:0:0 -lpthread
 libvxworks_la_SOURCES = \
 	errnoLib.c \
 	intLib.c \
@@ -284,6 +285,7 @@ libvxworks_la_CPPFLAGS = \
 	@XENO_USER_CFLAGS@ \
 	-I$(top_srcdir)/include
 
+libvxworks_la_LIBADD = ../common/libxeno_common.la
 all: all-am
 
 .SUFFIXES:

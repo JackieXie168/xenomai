@@ -24,7 +24,10 @@
 #include <errno.h>
 #include <limits.h>
 #include <memory.h>
+#include <string.h>
 #include <psos+/psos.h>
+#include <asm-generic/bits/sigshadow.h>
+#include <asm-generic/bits/current.h>
 
 extern int __psos_muxid;
 
@@ -36,17 +39,6 @@ struct psos_task_iargs {
 	u_long *tid_r;
 	xncompletion_t *completionp;
 };
-
-static void (*old_sigharden_handler)(int sig);
-
-static void psos_task_sigharden(int sig)
-{
-	if (old_sigharden_handler &&
-	    old_sigharden_handler != &psos_task_sigharden)
-		old_sigharden_handler(sig);
-
-	XENOMAI_SYSCALL1(__xn_sys_migrate, XENOMAI_XENO_DOMAIN);
-}
 
 static int psos_task_set_posix_priority(int prio, struct sched_param *param)
 {
@@ -70,23 +62,30 @@ static void *psos_task_trampoline(void *cookie)
 	struct psos_task_iargs *iargs = (struct psos_task_iargs *)cookie;
 	void (*entry)(u_long, u_long, u_long, u_long);
 	u_long dummy_args[4] = { 0, 0, 0, 0 }, *targs;
-	struct sched_param param;
-	int policy;
+	struct psos_arg_bulk bulk;
 	long err;
 
-	policy = psos_task_set_posix_priority(iargs->prio, &param);
-	pthread_setschedparam(pthread_self(), policy, &param);
-
 	pthread_setcanceltype(PTHREAD_CANCEL_ASYNCHRONOUS, NULL);
+	sigshadow_install_once();
 
-	old_sigharden_handler = signal(SIGHARDEN, &psos_task_sigharden);
+	bulk.a1 = (u_long)iargs->name;
+	bulk.a2 = (u_long)iargs->prio;
+	bulk.a3 = (u_long)iargs->flags;
+	bulk.a4 = (u_long)xeno_init_current_mode();
+	bulk.a5 = (u_long)pthread_self();
 
-	err = XENOMAI_SKINCALL5(__psos_muxid,
+	if (!bulk.a4) {
+		err = -ENOMEM;
+		goto fail;
+	}
+
+	err = XENOMAI_SKINCALL3(__psos_muxid,
 				__psos_t_create,
-				iargs->name, iargs->prio, iargs->flags,
-				iargs->tid_r, iargs->completionp);
+				&bulk, iargs->tid_r, iargs->completionp);
 	if (err)
 		goto fail;
+
+	xeno_set_current();
 
 	/* Wait on the barrier for the task to be started. The barrier
 	   could be released in order to process Linux signals while the
@@ -172,14 +171,23 @@ u_long t_shadow(const char *name, /* Xenomai extension. */
 		u_long flags,
 		u_long *tid_r)
 {
+	struct psos_arg_bulk bulk;
+	int ret;
+
 	pthread_setcanceltype(PTHREAD_CANCEL_ASYNCHRONOUS, NULL);
+	sigshadow_install_once();
 
-	old_sigharden_handler = signal(SIGHARDEN, &psos_task_sigharden);
+	bulk.a1 = (u_long)name;
+	bulk.a2 = (u_long)prio;
+	bulk.a3 = (u_long)flags;
+	bulk.a4 = (u_long)tid_r;
+	bulk.a5 = (u_long)pthread_self();
 
-	return XENOMAI_SKINCALL5(__psos_muxid,
-				 __psos_t_create,
-				 name, prio, flags,
-				 tid_r, NULL);
+	ret = XENOMAI_SKINCALL2(__psos_muxid, __psos_t_create, &bulk, NULL);
+	if (!ret)
+		xeno_set_current();
+
+	return ret;
 }
 
 u_long t_start(u_long tid,
@@ -196,7 +204,36 @@ u_long t_start(u_long tid,
 
 u_long t_delete(u_long tid)
 {
-	return XENOMAI_SKINCALL1(__psos_muxid, __psos_t_delete, tid);
+	u_long ptid;
+	long err;
+
+	if (tid == 0)
+		goto self_delete;
+
+	err = XENOMAI_SKINCALL2(__psos_muxid, __psos_t_getpth, tid, &ptid);
+	if (err)
+		return err;
+
+	if ((pthread_t)ptid == pthread_self())
+		goto self_delete;
+
+	err = pthread_cancel((pthread_t)ptid);
+	if (err)
+		return -err; /* differentiate from pSOS codes */
+
+	err = XENOMAI_SKINCALL1(__psos_muxid, __psos_t_delete, tid);
+	if (err == ERR_OBJID)
+		return SUCCESS;
+
+	return err;
+
+self_delete:
+
+	 /* Silently migrate to avoid raising SIGXCPU. */
+	XENOMAI_SYSCALL1(__xn_sys_migrate, XENOMAI_LINUX_DOMAIN);
+	pthread_exit(NULL);
+
+	return SUCCESS; /* not reached */
 }
 
 u_long t_suspend(u_long tid)

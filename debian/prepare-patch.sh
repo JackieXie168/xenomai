@@ -166,9 +166,6 @@ while read f ; do
         i386)
             march=i386
         ;;
-        ia64)
-            march=ia64
-        ;;
         ppc|ppc64|powerpc)
             march=powerpc
         ;;

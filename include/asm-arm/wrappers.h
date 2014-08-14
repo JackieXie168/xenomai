@@ -28,14 +28,8 @@
 #include <linux/interrupt.h>
 
 #define wrap_phys_mem_prot(filp,pfn,size,prot)	(prot)
-
-#define wrap_range_ok(task,addr,size) ({ \
-	unsigned long flag, sum; \
-	__asm__("adds %1, %2, %3; sbcccs %1, %1, %0; movcc %0, #0" \
-		: "=&r" (flag), "=&r" (sum) \
-		: "r" (addr), "Ir" (size), "0" (task_thread_info(task)->addr_limit) \
-		: "cc"); \
-	(flag == 0); })
+ 
+#define wrap_strncpy_from_user(dstP, srcP, n)	__strncpy_from_user(dstP, srcP, n)
 
 #define rthal_irq_descp(irq)	(&irq_desc[(irq)])
 #define rthal_irq_desc_status(irq)	(rthal_irq_descp(irq)->status)
@@ -72,8 +66,8 @@ typedef irqreturn_t (*rthal_irq_host_handler_t)(int irq,
 extern void (*fp_init)(union fp_state *);
 #else /* >= 2.6.19 */
 #define rthal_irq_desc_lock(irq) (&rthal_irq_descp(irq)->lock)
-#define rthal_irq_chip_enable(irq)   ({ rthal_irq_descp(irq)->chip->enable(irq); 0; })
-#define rthal_irq_chip_disable(irq)  ({ rthal_irq_descp(irq)->chip->disable(irq); 0; })
+#define rthal_irq_chip_enable(irq)   ({ rthal_irq_descp(irq)->chip->unmask(irq); 0; })
+#define rthal_irq_chip_disable(irq)  ({ rthal_irq_descp(irq)->chip->mask(irq); 0; })
 #define rthal_irq_chip_end(irq)      ({ rthal_irq_descp(irq)->ipipe_end(irq, rthal_irq_descp(irq)); 0; })
 typedef irq_handler_t rthal_irq_host_handler_t;
 #define rthal_mark_irq_disabled(irq) do {              \
@@ -100,6 +94,15 @@ static inline void fp_init(union fp_state *state)
 
 #if LINUX_VERSION_CODE < KERNEL_VERSION(2, 6, 23)
 #define FPEXC_EN FPEXC_ENABLE
+#endif
+
+#if !defined(__IPIPE_FEATURE_UNMASKED_CONTEXT_SWITCH) && defined(TIF_MMSWITCH_INT)
+/*
+ * Legacy ARM patches might provide unmasked context switch support
+ * without defining the common config option; force this support in.
+ */
+#define CONFIG_IPIPE_UNMASKED_CONTEXT_SWITCH	1
+#define CONFIG_XENO_HW_UNLOCKED_SWITCH		1
 #endif
 
 #endif /* _XENO_ASM_ARM_WRAPPERS_H */

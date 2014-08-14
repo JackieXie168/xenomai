@@ -28,6 +28,8 @@
 #include <asm-generic/xenomai/wrappers.h> /* Read the generic portion. */
 #include <linux/interrupt.h>
 
+#define wrap_strncpy_from_user(dstP, srcP, n)	rthal_strncpy_from_user(dstP, srcP, n)
+
 #define wrap_phys_mem_prot(filp,pfn,size,prot)  (prot)
 
 #define rthal_irq_descp(irq)		(irq_desc + irq)

@@ -127,7 +127,7 @@ Collaboration diagram for Memory heap services.:</div>
 <li>-EINTR is returned if <a class="el" href="group__task.html#ga770281eeca009c0a08a7c4a9fd849ac1" title="Unblock a real-time task.">rt_task_unblock()</a> has been called for the waiting task before any block was available.</li>
 </ul>
 <ul>
-<li>-EPERM is returned if this service should block but was called from a context which cannot sleep (e.g. interrupt, non-realtime or scheduler locked).</li>
+<li>-EPERM is returned if this service should block but was called from a context which cannot sleep (e.g. interrupt, non-realtime context).</li>
 </ul>
 <p>Environments:</p>
 <p>This service can be called from:</p>
@@ -142,7 +142,7 @@ Collaboration diagram for Memory heap services.:</div>
 <p>Rescheduling: always unless the request is immediately satisfied or <em>timeout</em> specifies a non-blocking operation. Operations on single-block heaps never start the rescheduling procedure.</p>
 <dl class="note"><dt><b>Note:</b></dt><dd>The <em>timeout</em> value will be interpreted as jiffies if the native skin is bound to a periodic time base (see CONFIG_XENO_OPT_NATIVE_PERIOD), or nanoseconds otherwise. </dd></dl>
 
-<p>References <a class="el" href="include_2nucleus_2thread_8h_source.html#l00112">XNBREAK</a>, <a class="el" href="ksrc_2nucleus_2heap_8c_source.html#l00429">xnheap_alloc()</a>, <a class="el" href="include_2nucleus_2thread_8h_source.html#l00111">XNRMID</a>, <a class="el" href="synch_8c_source.html#l00168">xnsynch_sleep_on()</a>, and <a class="el" href="include_2nucleus_2thread_8h_source.html#l00110">XNTIMEO</a>.</p>
+<p>References <a class="el" href="include_2nucleus_2thread_8h_source.html#l00110">XNBREAK</a>, <a class="el" href="ksrc_2nucleus_2heap_8c_source.html#l00481">xnheap_alloc()</a>, <a class="el" href="include_2nucleus_2thread_8h_source.html#l00109">XNRMID</a>, <a class="el" href="synch_8c_source.html#l00175">xnsynch_sleep_on()</a>, and <a class="el" href="include_2nucleus_2thread_8h_source.html#l00108">XNTIMEO</a>.</p>
 
 </div>
 </div>
@@ -201,7 +201,7 @@ Collaboration diagram for Memory heap services.:</div>
 <li>-ETIMEDOUT is returned if the object cannot be retrieved within the specified amount of time.</li>
 </ul>
 <ul>
-<li>-EPERM is returned if this service should block, but was called from a context which cannot sleep (e.g. interrupt, non-realtime or scheduler locked).</li>
+<li>-EPERM is returned if this service should block, but was called from a context which cannot sleep (e.g. interrupt, non-realtime context).</li>
 </ul>
 <ul>
 <li>-ENOENT is returned if the special file /dev/rtheap (character-mode, major 10, minor 254) is not available from the filesystem. This device is needed to map the shared heap memory into the caller's address space. udev-based systems should not need manual creation of such device entry. Environments:</li>
@@ -263,7 +263,7 @@ Collaboration diagram for Memory heap services.:</div>
   <table border="0" cellspacing="2" cellpadding="0">
     <tr><td valign="top"></td><td valign="top"><em>heap</em>&nbsp;</td><td>The address of a heap descriptor Xenomai will use to store the heap-related data. This descriptor must always be valid while the heap is active therefore it must be allocated in permanent memory.</td></tr>
     <tr><td valign="top"></td><td valign="top"><em>name</em>&nbsp;</td><td>An ASCII string standing for the symbolic name of the heap. When non-NULL and non-empty, this string is copied to a safe place into the descriptor, and passed to the registry package if enabled for indexing the created heap. Mappable heaps must be given a valid name.</td></tr>
-    <tr><td valign="top"></td><td valign="top"><em>heapsize</em>&nbsp;</td><td>The size (in bytes) of the block pool which is going to be pre-allocated to the heap. Memory blocks will be claimed and released to this pool. The block pool is not extensible, so this value must be compatible with the highest memory pressure that could be expected. A minimum of 2 * PAGE_SIZE will be enforced for mappable heaps, 2 * XNCORE_PAGE_SIZE otherwise.</td></tr>
+    <tr><td valign="top"></td><td valign="top"><em>heapsize</em>&nbsp;</td><td>The size (in bytes) of the block pool which is going to be pre-allocated to the heap. Memory blocks will be claimed and released to this pool. The block pool is not extensible, so this value must be compatible with the highest memory pressure that could be expected. A minimum of 2 * PAGE_SIZE will be enforced for mappable heaps, 2 * XNHEAP_PAGE_SIZE otherwise.</td></tr>
     <tr><td valign="top"></td><td valign="top"><em>mode</em>&nbsp;</td><td>The heap creation mode. The following flags can be OR'ed into this bitmask, each of them affecting the new heap:</td></tr>
   </table>
   </dd>
@@ -284,7 +284,7 @@ Collaboration diagram for Memory heap services.:</div>
 <li>H_SHARED is a shorthand for H_MAPPABLE|H_SINGLE, creating a global shared memory segment accessible from both the kernel and user-space contexts.</li>
 </ul>
 <ul>
-<li>H_DMA causes the block pool associated to the heap to be allocated in physically contiguous memory, suitable for DMA operations with I/O devices. <em>heapsize</em> beyond 128KiB will be rounded up to a two expononent allocation.</li>
+<li>H_DMA causes the block pool associated to the heap to be allocated in physically contiguous memory, suitable for DMA operations with I/O devices. The physical address of the heap can be obtained by a call to <a class="el" href="group__native__heap.html#ga6af669528e1bcae4f1ed15b292bda08e" title="Inquire about a heap.">rt_heap_inquire()</a>.</li>
 </ul>
 <ul>
 <li>H_NONCACHED causes the heap not to be cached. This is necessary on platforms such as ARM to share a heap between kernel and user-space. Note that this flag is not compatible with the H_DMA flag.</li>
@@ -313,7 +313,7 @@ Collaboration diagram for Memory heap services.:</div>
 </ul>
 <p>Rescheduling: possible. </p>
 
-<p>References <a class="el" href="src_2skins_2native_2heap_8c_source.html#l00113">rt_heap_delete()</a>, <a class="el" href="ksrc_2nucleus_2heap_8c_source.html#l00167">xnheap_init()</a>, <a class="el" href="nucleus_2registry_8c_source.html#l00582">xnregistry_enter()</a>, and <a class="el" href="synch_8c_source.html#l00087">xnsynch_init()</a>.</p>
+<p>References <a class="el" href="src_2skins_2native_2heap_8c_source.html#l00112">rt_heap_delete()</a>, <a class="el" href="ksrc_2nucleus_2heap_8c_source.html#l00167">xnheap_init()</a>, <a class="el" href="ksrc_2nucleus_2heap_8c_source.html#l00276">xnheap_set_label()</a>, <a class="el" href="nucleus_2registry_8c_source.html#l00582">xnregistry_enter()</a>, and <a class="el" href="synch_8c_source.html#l00106">xnsynch_init()</a>.</p>
 
 </div>
 </div>
@@ -342,9 +342,6 @@ Collaboration diagram for Memory heap services.:</div>
   </dd>
 </dl>
 <dl class="return"><dt><b>Returns:</b></dt><dd>0 is returned upon success. Otherwise:</dd></dl>
-<ul>
-<li>-EBUSY is returned if <em>heap</em> is in use by another process and the descriptor is not destroyed.</li>
-</ul>
 <ul>
 <li>-EINVAL is returned if <em>heap</em> is not a heap descriptor.</li>
 </ul>
@@ -412,7 +409,7 @@ Collaboration diagram for Memory heap services.:</div>
 </ul>
 <p>Rescheduling: possible. </p>
 
-<p>References <a class="el" href="ksrc_2nucleus_2heap_8c_source.html#l00429">xnheap_alloc()</a>, <a class="el" href="ksrc_2nucleus_2heap_8c_source.html#l00788">xnheap_free()</a>, <a class="el" href="pod_8c_source.html#l02379">xnpod_schedule()</a>, and <a class="el" href="synch_8c_source.html#l00491">xnsynch_wakeup_this_sleeper()</a>.</p>
+<p>References <a class="el" href="ksrc_2nucleus_2heap_8c_source.html#l00481">xnheap_alloc()</a>, <a class="el" href="ksrc_2nucleus_2heap_8c_source.html#l00842">xnheap_free()</a>, <a class="el" href="pod_8h_source.html#l00251">xnpod_schedule()</a>, and <a class="el" href="synch_8c_source.html#l00313">xnsynch_wakeup_this_sleeper()</a>.</p>
 
 </div>
 </div>
@@ -505,7 +502,7 @@ Collaboration diagram for Memory heap services.:</div>
 </div>
 </div>
 </div>
-<hr size="1"/><address style="text-align: right;"><small>Generated on Tue Oct 27 19:18:54 2009 for Xenomai API by&nbsp;
+<hr size="1"/><address style="text-align: right;"><small>Generated on Fri Jan 1 10:45:17 2010 for Xenomai API by&nbsp;
 <a href="http://www.doxygen.org/index.html">
 <img class="footer" src="doxygen.png" alt="doxygen"/></a> 1.6.1 </small></address>
 </body>

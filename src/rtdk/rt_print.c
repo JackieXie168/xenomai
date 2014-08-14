@@ -25,6 +25,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
+#include <syslog.h>
 
 #include <rtdk.h>
 #include <asm/xenomai/system.h>
@@ -37,9 +38,12 @@
 
 #define RT_PRINT_LINE_BREAK		256
 
+#define RT_PRINT_SYSLOG_STREAM		NULL
+
 struct entry_head {
 	FILE *dest;
 	uint32_t seq_no;
+	int priority;
 	char text[1];
 } __attribute__((packed));
 
@@ -60,23 +64,26 @@ struct print_buffer {
 	off_t read_pos;
 };
 
-static struct print_buffer *__first_buffer;
-static uint32_t __seq_no;
-static size_t __default_buffer_size;
-static struct timespec __print_period;
-static int __auto_init;
-static pthread_mutex_t __buffer_lock;
-static pthread_key_t __buffer_key;
-static pthread_t __printer_thread;
+static struct print_buffer *first_buffer;
+static int buffers;
+static uint32_t seq_no;
+static size_t default_buffer_size;
+static struct timespec print_period;
+static int auto_init;
+static pthread_mutex_t buffer_lock;
+static pthread_cond_t printer_wakeup;
+static pthread_key_t buffer_key;
+static pthread_t printer_thread;
 
 static void cleanup_buffer(struct print_buffer *buffer);
 static void print_buffers(void);
 
 /* *** rt_print API *** */
 
-int rt_vfprintf(FILE *stream, const char *format, va_list args)
+static int print_to_buffer(FILE *stream, int priority, const char *format,
+			   va_list args)
 {
-	struct print_buffer *buffer = pthread_getspecific(__buffer_key);
+	struct print_buffer *buffer = pthread_getspecific(buffer_key);
 	off_t write_pos, read_pos;
 	struct entry_head *head;
 	int len;
@@ -84,7 +91,7 @@ int rt_vfprintf(FILE *stream, const char *format, va_list args)
 
 	if (!buffer) {
 		res = 0;
-		if (__auto_init)
+		if (auto_init)
 			res = rt_print_init(0, NULL);
 		else
 			res = EIO;
@@ -93,7 +100,7 @@ int rt_vfprintf(FILE *stream, const char *format, va_list args)
 			errno = res;
 			return -1;
 		}
-		buffer = pthread_getspecific(__buffer_key);
+		buffer = pthread_getspecific(buffer_key);
 	}
 
 	/* Take a snapshot of the ring buffer state */
@@ -112,7 +119,8 @@ int rt_vfprintf(FILE *stream, const char *format, va_list args)
 		if (len == 0 && read_pos > sizeof(struct entry_head)) {
 			/* Write out empty entry */
 			head = buffer->ring + write_pos;
-			head->seq_no = __seq_no;
+			head->seq_no = seq_no;
+			head->priority = 0;
 			head->text[0] = 0;
 
 			/* Forward to the ring buffer start */
@@ -145,7 +153,8 @@ int rt_vfprintf(FILE *stream, const char *format, va_list args)
 
 	/* If we were able to write some text, finalise the entry */
 	if (len > 0) {
-		head->seq_no = ++__seq_no;
+		head->seq_no = ++seq_no;
+		head->priority = priority;
 		head->dest = stream;
 
 		/* Move forward by text and head length */
@@ -157,7 +166,8 @@ int rt_vfprintf(FILE *stream, const char *format, va_list args)
 	    read_pos <= write_pos && read_pos > buffer->size - write_pos) {
 		/* An empty entry marks the wrap-around */
 		head = buffer->ring + write_pos;
-		head->seq_no = __seq_no;
+		head->seq_no = seq_no;
+		head->priority = priority;
 		head->text[0] = 0;
 
 		write_pos = 0;
@@ -169,6 +179,11 @@ int rt_vfprintf(FILE *stream, const char *format, va_list args)
 	buffer->write_pos = write_pos;
 
 	return res;
+}
+
+int rt_vfprintf(FILE *stream, const char *format, va_list args)
+{
+	return print_to_buffer(stream, 0, format, args);
 }
 
 int rt_vprintf(const char *format, va_list args)
@@ -200,6 +215,20 @@ int rt_printf(const char *format, ...)
 	return n;
 }
 
+void rt_syslog(int priority, char *format, ...)
+{
+	va_list args;
+
+	va_start(args, format);
+	print_to_buffer(RT_PRINT_SYSLOG_STREAM, priority, format, args);
+	va_end(args);
+}
+
+void rt_vsyslog(int priority, char *format, va_list args)
+{
+	print_to_buffer(RT_PRINT_SYSLOG_STREAM, priority, format, args);
+}
+
 static void set_buffer_name(struct print_buffer *buffer, const char *name)
 {
 	int n;
@@ -214,11 +243,11 @@ static void set_buffer_name(struct print_buffer *buffer, const char *name)
 
 int rt_print_init(size_t buffer_size, const char *buffer_name)
 {
-	struct print_buffer *buffer = pthread_getspecific(__buffer_key);
+	struct print_buffer *buffer = pthread_getspecific(buffer_key);
 	size_t size = buffer_size;
 
 	if (!size)
-		size = __default_buffer_size;
+		size = default_buffer_size;
 	else if (size < RT_PRINT_LINE_BREAK)
 		return EINVAL;
 
@@ -251,61 +280,63 @@ int rt_print_init(size_t buffer_size, const char *buffer_name)
 
 	buffer->prev = NULL;
 
-	pthread_mutex_lock(&__buffer_lock);
+	pthread_mutex_lock(&buffer_lock);
 
-	buffer->next = __first_buffer;
-	if (__first_buffer)
-		__first_buffer->prev = buffer;
-	__first_buffer = buffer;
+	buffer->next = first_buffer;
+	if (first_buffer)
+		first_buffer->prev = buffer;
+	first_buffer = buffer;
 
-	pthread_mutex_unlock(&__buffer_lock);
+	buffers++;
+	pthread_cond_signal(&printer_wakeup);
 
-	pthread_setspecific(__buffer_key, buffer);
+	pthread_mutex_unlock(&buffer_lock);
+
+	pthread_setspecific(buffer_key, buffer);
 
 	return 0;
 }
 
 void rt_print_auto_init(int enable)
 {
-	__auto_init = enable;
+	auto_init = enable;
 }
 
 void rt_print_cleanup(void)
 {
-	struct print_buffer *buffer = pthread_getspecific(__buffer_key);
+	struct print_buffer *buffer = pthread_getspecific(buffer_key);
 
 	if (buffer)
 		cleanup_buffer(buffer);
 	else {
-		pthread_mutex_lock(&__buffer_lock);
+		pthread_mutex_lock(&buffer_lock);
 
 		print_buffers();
 
-		pthread_mutex_unlock(&__buffer_lock);
+		pthread_mutex_unlock(&buffer_lock);
 	}
 
-	pthread_cancel(__printer_thread);
+	pthread_cancel(printer_thread);
 }
 
 const char *rt_print_buffer_name(void)
 {
-	struct print_buffer *buffer = pthread_getspecific(__buffer_key);
+	struct print_buffer *buffer = pthread_getspecific(buffer_key);
 
 	if (!buffer) {
 		int res = -1;
 
-		if (__auto_init)
+		if (auto_init)
 			res = rt_print_init(0, NULL);
 
 		if (res)
 			return NULL;
 
-		buffer = pthread_getspecific(__buffer_key);
+		buffer = pthread_getspecific(buffer_key);
 	}
 
 	return buffer->name;
 }
-
 
 /* *** Deferred Output Management *** */
 
@@ -313,9 +344,9 @@ static void cleanup_buffer(struct print_buffer *buffer)
 {
 	struct print_buffer *prev, *next;
 
-	pthread_setspecific(__buffer_key, NULL);
+	pthread_setspecific(buffer_key, NULL);
 
-	pthread_mutex_lock(&__buffer_lock);
+	pthread_mutex_lock(&buffer_lock);
 
 	print_buffers();
 
@@ -325,11 +356,13 @@ static void cleanup_buffer(struct print_buffer *buffer)
 	if (prev)
 		prev->next = next;
 	else
-		__first_buffer = next;
+		first_buffer = next;
 	if (next)
 		next->prev = prev;
 
-	pthread_mutex_unlock(&__buffer_lock);
+	buffers--;
+
+	pthread_mutex_unlock(&buffer_lock);
 
 	free(buffer->ring);
 	free(buffer);
@@ -343,7 +376,7 @@ static inline uint32_t get_next_seq_no(struct print_buffer *buffer)
 
 static struct print_buffer *get_next_buffer(void)
 {
-	struct print_buffer *pos = __first_buffer;
+	struct print_buffer *pos = first_buffer;
 	struct print_buffer *buffer = NULL;
 	uint32_t next_seq_no = 0; /* silence gcc... */
 
@@ -377,7 +410,14 @@ static void print_buffers(void)
 
 		if (len) {
 			/* Print out non-empty entry and proceed */
-			fprintf(head->dest, "%s", head->text);
+			/* Check if output goes to syslog */
+			if (head->dest == RT_PRINT_SYSLOG_STREAM) {
+				syslog(head->priority, "%s", head->text);
+			} else {
+				/* Output goes to specified stream */
+				fprintf(head->dest, "%s", head->text);
+			}
+
 			read_pos += sizeof(*head) + len;
 		} else {
 			/* Emptry entries mark the wrap-around */
@@ -397,32 +437,61 @@ static void print_buffers(void)
 static void *printer_loop(void *arg)
 {
 	while (1) {
-		nanosleep(&__print_period, NULL);
+		pthread_mutex_lock(&buffer_lock);
 
-		pthread_mutex_lock(&__buffer_lock);
+		while (buffers == 0)
+			pthread_cond_wait(&printer_wakeup, &buffer_lock);
 
 		print_buffers();
 
-		pthread_mutex_unlock(&__buffer_lock);
+		pthread_mutex_unlock(&buffer_lock);
+
+		nanosleep(&print_period, NULL);
 	}
+}
+
+static void spawn_printer_thread(void)
+{
+	pthread_attr_t thattr;
+
+	pthread_attr_init(&thattr);
+	pthread_attr_setstacksize(&thattr, PTHREAD_STACK_MIN);
+	pthread_create(&printer_thread, &thattr, printer_loop, NULL);
+}
+
+static void forked_child_init(void)
+{
+	struct print_buffer *my_buffer = pthread_getspecific(buffer_key);
+	struct print_buffer **pbuffer = &first_buffer;
+
+	/* re-init to avoid finding it locked by some parent thread */
+	pthread_mutex_init(&buffer_lock, NULL);
+
+	while (*pbuffer) {
+		if (*pbuffer == my_buffer)
+			pbuffer = &(*pbuffer)->next;
+		else
+			cleanup_buffer(*pbuffer);
+	}
+
+	spawn_printer_thread();
 }
 
 void __rt_print_init(void)
 {
-	pthread_attr_t thattr;
 	const char *value_str;
 	unsigned long long period;
 
-	__first_buffer = NULL;
-	__seq_no = 0;
-	__auto_init = 0;
+	first_buffer = NULL;
+	seq_no = 0;
+	auto_init = 0;
 
-	__default_buffer_size = RT_PRINT_DEFAULT_BUFFER;
+	default_buffer_size = RT_PRINT_DEFAULT_BUFFER;
 	value_str = getenv(RT_PRINT_BUFFER_ENV);
 	if (value_str) {
 		errno = 0;
-		__default_buffer_size = strtol(value_str, NULL, 10);
-		if (errno || __default_buffer_size < RT_PRINT_LINE_BREAK) {
+		default_buffer_size = strtol(value_str, NULL, 10);
+		if (errno || default_buffer_size < RT_PRINT_LINE_BREAK) {
 			fprintf(stderr, "Invalid %s\n", RT_PRINT_BUFFER_ENV);
 			exit(1);
 		}
@@ -438,13 +507,14 @@ void __rt_print_init(void)
 			exit(1);
 		}
 	}
-	__print_period.tv_sec  = period / 1000;
-	__print_period.tv_nsec = (period % 1000) * 1000000;
+	print_period.tv_sec  = period / 1000;
+	print_period.tv_nsec = (period % 1000) * 1000000;
 
-	pthread_mutex_init(&__buffer_lock, NULL);
-	pthread_key_create(&__buffer_key, (void (*)(void*))cleanup_buffer);
+	pthread_mutex_init(&buffer_lock, NULL);
+	pthread_key_create(&buffer_key, (void (*)(void*))cleanup_buffer);
 
-	pthread_attr_init(&thattr);
-	pthread_attr_setstacksize(&thattr, PTHREAD_STACK_MIN);
-	pthread_create(&__printer_thread, &thattr, printer_loop, NULL);
+	pthread_cond_init(&printer_wakeup, NULL);
+
+	spawn_printer_thread();
+	pthread_atfork(NULL, NULL, forked_child_init);
 }

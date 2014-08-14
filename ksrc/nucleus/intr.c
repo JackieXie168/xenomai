@@ -42,9 +42,9 @@
 DEFINE_PRIVATE_XNLOCK(intrlock);
 
 #ifdef CONFIG_XENO_OPT_STATS
-xnintr_t nkclock;	/* Only for statistics */
-int xnintr_count = 1;	/* Number of attached xnintr objects + nkclock */
-int xnintr_list_rev;	/* Modification counter of xnintr list */
+xnintr_t nkclock;	     /* Only for statistics */
+static int xnintr_count = 1; /* Number of attached xnintr objects + nkclock */
+static int xnintr_list_rev;  /* Modification counter of xnintr list */
 
 /* Both functions update xnintr_list_rev at the very end.
  * This guarantees that module.c::stat_seq_open() won't get
@@ -69,8 +69,7 @@ static inline void xnintr_sync_stat_references(xnintr_t *intr)
 	int cpu;
 
 	for_each_online_cpu(cpu) {
-		xnsched_t *sched = xnpod_sched_slot(cpu);
-
+		struct xnsched *sched = xnpod_sched_slot(cpu);
 		/* Synchronize on all dangling references to go away. */
 		while (sched->current_account == &intr->stat[cpu].account)
 			cpu_relax();
@@ -94,7 +93,7 @@ void xnintr_host_tick(struct xnsched *sched) /* Interrupts off. */
 
 void xnintr_clock_handler(void)
 {
-	xnsched_t *sched = xnpod_current_sched();
+	struct xnsched *sched = xnpod_current_sched();
 	xnstat_exectime_t *prev;
 	xnticks_t start;
 
@@ -107,6 +106,7 @@ void xnintr_clock_handler(void)
 	trace_mark(xn_nucleus, tbase_tick, "base %s", nktbase.name);
 
 	++sched->inesting;
+	__setbits(sched->status, XNINIRQ);
 
 	xnlock_get(&nklock);
 	xntimer_tick_aperiodic();
@@ -116,8 +116,10 @@ void xnintr_clock_handler(void)
 	xnstat_exectime_lazy_switch(sched,
 		&nkclock.stat[xnsched_cpu(sched)].account, start);
 
-	if (--sched->inesting == 0 && xnsched_resched_p())
+	if (--sched->inesting == 0) {
+		__clrbits(sched->status, XNINIRQ);
 		xnpod_schedule();
+	}
 	/*
 	 * If the clock interrupt preempted a real-time thread, any
 	 * transition to the root thread has already triggered a host
@@ -126,7 +128,7 @@ void xnintr_clock_handler(void)
 	 * interrupt preempted the root thread.
 	 */
 	if (testbits(sched->status, XNHTICK) &&
-	    xnthread_test_state(sched->runthread, XNROOT))
+	    xnthread_test_state(sched->curr, XNROOT))
 		xnintr_host_tick(sched);
 
 	trace_mark(xn_nucleus, irq_exit, "irq %u", XNARCH_TIMER_IRQ);
@@ -164,25 +166,28 @@ static inline xnintr_t *xnintr_shirq_next(xnintr_t *prev)
  */
 static void xnintr_shirq_handler(unsigned irq, void *cookie)
 {
-	xnsched_t *sched = xnpod_current_sched();
+	struct xnsched *sched = xnpod_current_sched();
+	xnintr_irq_t *shirq = &xnirqs[irq];
 	xnstat_exectime_t *prev;
 	xnticks_t start;
-	xnintr_irq_t *shirq = &xnirqs[irq];
 	xnintr_t *intr;
-	int s = 0;
+	int s = 0, ret;
 
 	prev  = xnstat_exectime_get_current(sched);
 	start = xnstat_exectime_now();
 	trace_mark(xn_nucleus, irq_enter, "irq %u", irq);
 
 	++sched->inesting;
+	__setbits(sched->status, XNINIRQ);
 
 	xnlock_get(&shirq->lock);
 	intr = shirq->handlers;
 
 	while (intr) {
-		int ret;
-
+		/*
+		 * NOTE: We assume that no CPU migration will occur
+		 * while running the interrupt service routine.
+		 */
 		ret = intr->isr(intr);
 		s |= ret;
 
@@ -214,8 +219,10 @@ static void xnintr_shirq_handler(unsigned irq, void *cookie)
 	else if (!(s & XN_ISR_NOENABLE))
 		xnarch_end_irq(irq);
 
-	if (--sched->inesting == 0 && xnsched_resched_p())
+	if (--sched->inesting == 0) {
+		__clrbits(sched->status, XNINIRQ);
 		xnpod_schedule();
+	}
 
 	trace_mark(xn_nucleus, irq_exit, "irq %u", irq);
 	xnstat_exectime_switch(sched, prev);
@@ -228,29 +235,30 @@ static void xnintr_shirq_handler(unsigned irq, void *cookie)
 static void xnintr_edge_shirq_handler(unsigned irq, void *cookie)
 {
 	const int MAX_EDGEIRQ_COUNTER = 128;
-
-	xnsched_t *sched = xnpod_current_sched();
+	struct xnsched *sched = xnpod_current_sched();
+	xnintr_irq_t *shirq = &xnirqs[irq];
+	int s = 0, counter = 0, ret, code;
+	struct xnintr *intr, *end = NULL;
 	xnstat_exectime_t *prev;
 	xnticks_t start;
-	xnintr_irq_t *shirq = &xnirqs[irq];
-	xnintr_t *intr, *end = NULL;
-	int s = 0, counter = 0;
 
 	prev  = xnstat_exectime_get_current(sched);
 	start = xnstat_exectime_now();
 	trace_mark(xn_nucleus, irq_enter, "irq %u", irq);
 
 	++sched->inesting;
+	__setbits(sched->status, XNINIRQ);
 
 	xnlock_get(&shirq->lock);
 	intr = shirq->handlers;
 
 	while (intr != end) {
-		int ret, code;
-
 		xnstat_exectime_switch(sched,
 			&intr->stat[xnsched_cpu(sched)].account);
-
+		/*
+		 * NOTE: We assume that no CPU migration will occur
+		 * while running the interrupt service routine.
+		 */
 		ret = intr->isr(intr);
 		code = ret & ~XN_ISR_BITMASK;
 		s |= ret;
@@ -294,9 +302,10 @@ static void xnintr_edge_shirq_handler(unsigned irq, void *cookie)
 	else if (!(s & XN_ISR_NOENABLE))
 		xnarch_end_irq(irq);
 
-	if (--sched->inesting == 0 && xnsched_resched_p())
+	if (--sched->inesting == 0) {
+		__clrbits(sched->status, XNINIRQ);
 		xnpod_schedule();
-
+	}
 	trace_mark(xn_nucleus, irq_exit, "irq %u", irq);
 	xnstat_exectime_switch(sched, prev);
 }
@@ -442,9 +451,9 @@ static inline int xnintr_irq_detach(xnintr_t *intr)
  */
 static void xnintr_irq_handler(unsigned irq, void *cookie)
 {
-	xnsched_t *sched = xnpod_current_sched();
-	xnintr_t *intr;
+	struct xnsched *sched = xnpod_current_sched();
 	xnstat_exectime_t *prev;
+	struct xnintr *intr;
 	xnticks_t start;
 	int s;
 
@@ -453,12 +462,18 @@ static void xnintr_irq_handler(unsigned irq, void *cookie)
 	trace_mark(xn_nucleus, irq_enter, "irq %u", irq);
 
 	++sched->inesting;
+	__setbits(sched->status, XNINIRQ);
 
 	xnlock_get(&xnirqs[irq].lock);
 
 #ifdef CONFIG_SMP
-	/* In SMP case, we have to reload the cookie under the per-IRQ lock
-	   to avoid racing with xnintr_detach. */
+	/*
+	 * In SMP case, we have to reload the cookie under the per-IRQ
+	 * lock to avoid racing with xnintr_detach.  However, we
+	 * assume that no CPU migration will occur while running the
+	 * interrupt service routine, so the scheduler pointer will
+	 * remain valid throughout this function.
+	 */
 	intr = xnarch_get_irq_cookie(irq);
 	if (unlikely(!intr)) {
 		s = 0;
@@ -469,7 +484,6 @@ static void xnintr_irq_handler(unsigned irq, void *cookie)
 	intr = cookie;
 #endif
 	s = intr->isr(intr);
-
 	if (unlikely(s == XN_ISR_NONE)) {
 		if (++intr->unhandled == XNINTR_MAX_UNHANDLED) {
 			xnlogerr("%s: IRQ%d not handled. Disabling IRQ "
@@ -494,8 +508,10 @@ static void xnintr_irq_handler(unsigned irq, void *cookie)
 	else if (!(s & XN_ISR_NOENABLE))
 		xnarch_end_irq(irq);
 
-	if (--sched->inesting == 0 && xnsched_resched_p())
+	if (--sched->inesting == 0) {
+		__clrbits(sched->status, XNINIRQ);
 		xnpod_schedule();
+	}
 
 	trace_mark(xn_nucleus, irq_exit, "irq %u", irq);
 	xnstat_exectime_switch(sched, prev);
@@ -539,15 +555,19 @@ int __init xnintr_mount(void)
  * The ISR is not encouraged to use these bits in case it shares the IRQ line
  * with other ISRs in the real-time domain.
  *
- * - XN_ISR_PROPAGATE tells the nucleus to require the real-time control
- * layer to forward the IRQ. For instance, this would cause the Adeos
- * control layer to propagate the interrupt down the interrupt
- * pipeline to other Adeos domains, such as Linux. This is the regular
- * way to share interrupts between the nucleus and the host system.
- *
  * - XN_ISR_NOENABLE causes the nucleus to ask the real-time control
  * layer _not_ to re-enable the IRQ line (read the following section).
  * xnarch_end_irq() must be called to re-enable the IRQ line later.
+ *
+ * - XN_ISR_PROPAGATE tells the nucleus to require the real-time
+ * control layer to forward the IRQ. For instance, this would cause
+ * the Adeos control layer to propagate the interrupt down the
+ * interrupt pipeline to other Adeos domains, such as Linux. This is
+ * the regular way to share interrupts between the nucleus and the
+ * host system. In effect, XN_ISR_PROPAGATE implies XN_ISR_NOENABLE
+ * since it would make no sense to re-enable the interrupt channel
+ * before the next domain down the pipeline has had a chance to
+ * process the propagated interrupt.
  *
  * The nucleus re-enables the IRQ line by default. Over some real-time
  * control layers which mask and acknowledge IRQs, this operation is
@@ -625,6 +645,7 @@ int xnintr_init(xnintr_t *intr,
 
 	return 0;
 }
+EXPORT_SYMBOL_GPL(xnintr_init);
 
 /*!
  * \fn int xnintr_destroy (xnintr_t *intr)
@@ -657,6 +678,7 @@ int xnintr_destroy(xnintr_t *intr)
 	xnintr_detach(intr);
 	return 0;
 }
+EXPORT_SYMBOL_GPL(xnintr_destroy);
 
 /*!
  * \fn int xnintr_attach (xnintr_t *intr, void *cookie);
@@ -720,6 +742,7 @@ int xnintr_attach(xnintr_t *intr, void *cookie)
 
 	return err;
 }
+EXPORT_SYMBOL_GPL(xnintr_attach);
 
 /*!
  * \fn int xnintr_detach (xnintr_t *intr)
@@ -770,6 +793,7 @@ int xnintr_detach(xnintr_t *intr)
 
 	return err;
 }
+EXPORT_SYMBOL_GPL(xnintr_detach);
 
 /*!
  * \fn int xnintr_enable (xnintr_t *intr)
@@ -802,6 +826,7 @@ int xnintr_enable(xnintr_t *intr)
 
 	return xnarch_enable_irq(intr->irq);
 }
+EXPORT_SYMBOL_GPL(xnintr_enable);
 
 /*!
  * \fn int xnintr_disable (xnintr_t *intr)
@@ -833,6 +858,7 @@ int xnintr_disable(xnintr_t *intr)
 
 	return xnarch_disable_irq(intr->irq);
 }
+EXPORT_SYMBOL_GPL(xnintr_disable);
 
 /*!
  * \fn xnarch_cpumask_t xnintr_affinity (xnintr_t *intr, xnarch_cpumask_t cpumask)
@@ -860,9 +886,96 @@ xnarch_cpumask_t xnintr_affinity(xnintr_t *intr, xnarch_cpumask_t cpumask)
 
 	return xnarch_set_irq_affinity(intr->irq, cpumask);
 }
+EXPORT_SYMBOL_GPL(xnintr_affinity);
+
+#ifdef CONFIG_XENO_OPT_STATS
+int xnintr_query_init(xnintr_iterator_t *iterator)
+{
+	iterator->cpu = -1;
+	iterator->prev = NULL;
+
+	/* The order is important here: first xnintr_list_rev then
+	 * xnintr_count.  On the other hand, xnintr_attach/detach()
+	 * update xnintr_count first and then xnintr_list_rev.  This
+	 * should guarantee that we can't get an up-to-date
+	 * xnintr_list_rev and old xnintr_count here. The other way
+	 * around is not a problem as xnintr_query() will notice this
+	 * fact later.  Should xnintr_list_rev change later,
+	 * xnintr_query() will trigger an appropriate error below. */
+
+	iterator->list_rev = xnintr_list_rev;
+	xnarch_memory_barrier();
+
+	return xnintr_count;
+}
+
+int xnintr_query_next(int irq, xnintr_iterator_t *iterator, char *name_buf)
+{
+	xnintr_t *intr;
+	xnticks_t last_switch;
+	int cpu_no = iterator->cpu + 1;
+	int err = 0;
+	spl_t s;
+
+	if (cpu_no == xnarch_num_online_cpus())
+		cpu_no = 0;
+	iterator->cpu = cpu_no;
+
+	xnlock_get_irqsave(&intrlock, s);
+
+	if (iterator->list_rev != xnintr_list_rev) {
+		err = -EAGAIN;
+		goto unlock_and_exit;
+	}
+
+	if (!iterator->prev) {
+		if (irq == XNARCH_TIMER_IRQ)
+			intr = &nkclock;
+		else
+			intr = xnintr_shirq_first(irq);
+	} else
+		intr = xnintr_shirq_next(iterator->prev);
+
+	if (!intr) {
+		cpu_no = -1;
+		iterator->prev = NULL;
+		err = -ENODEV;
+		goto unlock_and_exit;
+	}
+
+	snprintf(name_buf, XNOBJECT_NAME_LEN, "IRQ%d: %s", irq, intr->name);
+
+	iterator->hits = xnstat_counter_get(&intr->stat[cpu_no].hits);
+
+	last_switch = xnpod_sched_slot(cpu_no)->last_account_switch;
+
+	iterator->exectime_period = intr->stat[cpu_no].account.total;
+	iterator->account_period =
+		last_switch - intr->stat[cpu_no].account.start;
+	intr->stat[cpu_no].sum.total += iterator->exectime_period;
+	iterator->exectime_total = intr->stat[cpu_no].sum.total;
+
+	intr->stat[cpu_no].account.total = 0;
+	intr->stat[cpu_no].account.start = last_switch;
+
+	/* Proceed to next entry in shared IRQ chain when all CPUs
+	 * have been visited for this one. */
+	if (cpu_no + 1 == xnarch_num_online_cpus())
+		iterator->prev = intr;
+
+     unlock_and_exit:
+	xnlock_put_irqrestore(&intrlock, s);
+
+	return err;
+}
+#endif /* CONFIG_XENO_OPT_STATS */
 
 #ifdef CONFIG_PROC_FS
-int xnintr_irq_proc(unsigned int irq, char *str)
+
+#include <linux/proc_fs.h>
+#include <linux/ctype.h>
+
+static int format_irq_proc(unsigned int irq, char *str)
 {
 	xnintr_t *intr;
 	char *p = str;
@@ -902,72 +1015,122 @@ int xnintr_irq_proc(unsigned int irq, char *str)
 
 	return p - str;
 }
-#endif /* CONFIG_PROC_FS */
 
-#ifdef CONFIG_XENO_OPT_STATS
-int xnintr_query(int irq, int *cpu, xnintr_t **prev, int revision, char *name,
-		 unsigned long *hits, xnticks_t *exectime,
-		 xnticks_t *account_period)
+static int irq_read_proc(char *page,
+			 char **start,
+			 off_t off, int count, int *eof, void *data)
 {
-	xnintr_t *intr;
-	xnticks_t last_switch;
-	int head;
-	int cpu_no = *cpu;
-	int err = 0;
-	spl_t s;
+	int len = 0, cpu, irq;
+	char *p = page;
 
-	xnlock_get_irqsave(&intrlock, s);
+	p += sprintf(p, "IRQ ");
 
-	if (revision != xnintr_list_rev) {
-		err = -EAGAIN;
-		goto unlock_and_exit;
+	for_each_online_cpu(cpu) {
+		p += sprintf(p, "        CPU%d", cpu);
 	}
 
-	if (*prev)
-		intr = xnintr_shirq_next(*prev);
-	else if (irq == XNARCH_TIMER_IRQ)
-		intr = &nkclock;
-	else
-		intr = xnintr_shirq_first(irq);
+	for (irq = 0; irq < XNARCH_NR_IRQS; irq++) {
+		if (rthal_irq_handler(&rthal_domain, irq) == NULL)
+			continue;
 
-	if (!intr) {
-		err = -ENODEV;
-		goto unlock_and_exit;
+		p += sprintf(p, "\n%3d:", irq);
+
+		for_each_online_cpu(cpu) {
+			p += sprintf(p, "%12lu",
+				     rthal_cpudata_irq_hits(&rthal_domain, cpu,
+							    irq));
+		}
+
+		p += format_irq_proc(irq, p);
 	}
 
-	head = snprintf(name, XNOBJECT_NAME_LEN, "IRQ%d: ", irq);
-	name += head;
-	strncpy(name, intr->name, XNOBJECT_NAME_LEN-head);
+	p += sprintf(p, "\n");
 
-	*hits = xnstat_counter_get(&intr->stat[cpu_no].hits);
+	len = p - page - off;
+	if (len <= off + count)
+		*eof = 1;
+	*start = page + off;
+	if (len > count)
+		len = count;
+	if (len < 0)
+		len = 0;
 
-	last_switch = xnpod_sched_slot(cpu_no)->last_account_switch;
-
-	*exectime       = intr->stat[cpu_no].account.total;
-	*account_period = last_switch - intr->stat[cpu_no].account.start;
-
-	intr->stat[cpu_no].account.total  = 0;
-	intr->stat[cpu_no].account.start = last_switch;
-
-	if (++cpu_no == xnarch_num_online_cpus()) {
-		cpu_no = 0;
-		*prev  = intr;
-	}
-	*cpu = cpu_no;
-
-     unlock_and_exit:
-	xnlock_put_irqrestore(&intrlock, s);
-
-	return err;
+	return len;
 }
-#endif /* CONFIG_XENO_OPT_STATS */
 
-EXPORT_SYMBOL(xnintr_attach);
-EXPORT_SYMBOL(xnintr_destroy);
-EXPORT_SYMBOL(xnintr_detach);
-EXPORT_SYMBOL(xnintr_disable);
-EXPORT_SYMBOL(xnintr_enable);
-EXPORT_SYMBOL(xnintr_affinity);
-EXPORT_SYMBOL(xnintr_init);
+#ifdef CONFIG_SMP
+static int affinity_read_proc(char *page,
+			      char **start,
+			      off_t off, int count, int *eof, void *data)
+{
+	unsigned long val = 0;
+	int len, cpu;
+
+	for (cpu = 0; cpu < sizeof(val) * 8; cpu++)
+		if (xnarch_cpu_isset(cpu, nkaffinity))
+			val |= (1 << cpu);
+
+	len = sprintf(page, "%08lx\n", val);
+	len -= off;
+	if (len <= off + count)
+		*eof = 1;
+	*start = page + off;
+	if (len > count)
+		len = count;
+	if (len < 0)
+		len = 0;
+
+	return len;
+}
+
+static int affinity_write_proc(struct file *file,
+			       const char __user * buffer,
+			       unsigned long count, void *data)
+{
+	char *end, buf[16];
+	unsigned long val;
+	xnarch_cpumask_t new_affinity;
+	int n, cpu;
+
+	n = count > sizeof(buf) - 1 ? sizeof(buf) - 1 : count;
+
+	if (copy_from_user(buf, buffer, n))
+		return -EFAULT;
+
+	buf[n] = '\0';
+	val = simple_strtol(buf, &end, 0);
+
+	if (*end != '\0' && !isspace(*end))
+		return -EINVAL;
+
+	xnarch_cpus_clear(new_affinity);
+	for (cpu = 0; cpu < sizeof(val) * 8; cpu++, val >>= 1)
+		if (val & 1)
+			xnarch_cpu_set(cpu, new_affinity);
+	xnarch_cpus_and(nkaffinity, new_affinity, xnarch_supported_cpus);
+
+	return count;
+}
+#endif /* CONFIG_SMP */
+
+void xnintr_init_proc(void)
+{
+	rthal_add_proc_leaf("irq", &irq_read_proc, NULL, NULL,
+			    rthal_proc_root);
+#ifdef CONFIG_SMP
+	rthal_add_proc_leaf("affinity", &affinity_read_proc,
+			    &affinity_write_proc, NULL, rthal_proc_root);
+#endif /* CONFIG_SMP */
+}
+
+void xnintr_cleanup_proc(void)
+{
+#ifdef CONFIG_SMP
+	remove_proc_entry("affinity", rthal_proc_root);
+#endif /* CONFIG_SMP */
+	remove_proc_entry("irq", rthal_proc_root);
+}
+
+#endif /* CONFIG_PROC_FS */
 
 /*@}*/

@@ -49,8 +49,10 @@ Collaboration diagram for xnpod:</div>
 <tr><td class="memItemLeft" align="right" valign="top">xnqueue_t&nbsp;</td><td class="memItemRight" valign="bottom"><a class="el" href="structxnpod.html#a1bb945357ab40191bbd55252dc2218dc">tstartq</a></td></tr>
 <tr><td class="memItemLeft" align="right" valign="top">xnqueue_t&nbsp;</td><td class="memItemRight" valign="bottom"><a class="el" href="structxnpod.html#afbd1d126d1d74f3d433d164e404a0d2f">tswitchq</a></td></tr>
 <tr><td class="memItemLeft" align="right" valign="top">xnqueue_t&nbsp;</td><td class="memItemRight" valign="bottom"><a class="el" href="structxnpod.html#a20ab294c2e3b46322f11260ad8b44f4d">tdeleteq</a></td></tr>
-<tr><td class="memItemLeft" align="right" valign="top">int&nbsp;</td><td class="memItemRight" valign="bottom"><a class="el" href="structxnpod.html#a26e8700e411f5292fa5372aa2faa28f6">refcnt</a></td></tr>
 <tr><td class="memItemLeft" align="right" valign="top">atomic_counter_t&nbsp;</td><td class="memItemRight" valign="bottom"><a class="el" href="structxnpod.html#a9a61219dd75a7b26024a79a73bce6540">timerlck</a></td></tr>
+<tr><td class="memItemLeft" align="right" valign="top">xntimer_t&nbsp;</td><td class="memItemRight" valign="bottom"><a class="el" href="structxnpod.html#a86acf95fd43b98008659bfdd38c6af9b">tslicer</a></td></tr>
+<tr><td class="memItemLeft" align="right" valign="top">int&nbsp;</td><td class="memItemRight" valign="bottom"><a class="el" href="structxnpod.html#af29706fbb96466d41e15421454bdb53c">tsliced</a></td></tr>
+<tr><td class="memItemLeft" align="right" valign="top">int&nbsp;</td><td class="memItemRight" valign="bottom"><a class="el" href="structxnpod.html#a26e8700e411f5292fa5372aa2faa28f6">refcnt</a></td></tr>
 </table>
 <hr/><a name="_details"></a><h2>Detailed Description</h2>
 <p>Real-time pod descriptor. </p>
@@ -68,7 +70,7 @@ Collaboration diagram for xnpod:</div>
 <div class="memdoc">
 <p>Reference count. </p>
 
-<p>Referenced by <a class="el" href="pod_8c_source.html#l00241">xnpod_init()</a>.</p>
+<p>Referenced by <a class="el" href="pod_8c_source.html#l00343">xnpod_init()</a>.</p>
 
 </div>
 </div>
@@ -84,7 +86,7 @@ Collaboration diagram for xnpod:</div>
 <div class="memdoc">
 <p>Per-cpu scheduler slots. </p>
 
-<p>Referenced by <a class="el" href="pod_8c_source.html#l00241">xnpod_init()</a>.</p>
+<p>Referenced by <a class="el" href="pod_8c_source.html#l00343">xnpod_init()</a>.</p>
 
 </div>
 </div>
@@ -100,7 +102,7 @@ Collaboration diagram for xnpod:</div>
 <div class="memdoc">
 <p>Status bitmask. </p>
 
-<p>Referenced by <a class="el" href="pod_8c_source.html#l00241">xnpod_init()</a>.</p>
+<p>Referenced by <a class="el" href="pod_8c_source.html#l00343">xnpod_init()</a>.</p>
 
 </div>
 </div>
@@ -116,7 +118,7 @@ Collaboration diagram for xnpod:</div>
 <div class="memdoc">
 <p>Thread delete hook queue. </p>
 
-<p>Referenced by <a class="el" href="pod_8c_source.html#l00241">xnpod_init()</a>.</p>
+<p>Referenced by <a class="el" href="pod_8c_source.html#l00343">xnpod_init()</a>.</p>
 
 </div>
 </div>
@@ -132,7 +134,7 @@ Collaboration diagram for xnpod:</div>
 <div class="memdoc">
 <p>All existing threads. </p>
 
-<p>Referenced by <a class="el" href="pod_8c_source.html#l00241">xnpod_init()</a>.</p>
+<p>Referenced by <a class="el" href="pod_8c_source.html#l00343">xnpod_init()</a>.</p>
 
 </div>
 </div>
@@ -162,7 +164,39 @@ Collaboration diagram for xnpod:</div>
 <div class="memdoc">
 <p>Timer lock depth. </p>
 
-<p>Referenced by <a class="el" href="pod_8c_source.html#l00241">xnpod_init()</a>.</p>
+<p>Referenced by <a class="el" href="pod_8c_source.html#l00343">xnpod_init()</a>.</p>
+
+</div>
+</div>
+<a class="anchor" id="af29706fbb96466d41e15421454bdb53c"></a><!-- doxytag: member="xnpod::tsliced" ref="af29706fbb96466d41e15421454bdb53c" args="" -->
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">int <a class="el" href="structxnpod.html#af29706fbb96466d41e15421454bdb53c">xnpod::tsliced</a></td>
+        </tr>
+      </table>
+</div>
+<div class="memdoc">
+<p>Number of threads using the slicer </p>
+
+<p>Referenced by <a class="el" href="pod_8c_source.html#l00343">xnpod_init()</a>.</p>
+
+</div>
+</div>
+<a class="anchor" id="a86acf95fd43b98008659bfdd38c6af9b"></a><!-- doxytag: member="xnpod::tslicer" ref="a86acf95fd43b98008659bfdd38c6af9b" args="" -->
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">xntimer_t <a class="el" href="structxnpod.html#a86acf95fd43b98008659bfdd38c6af9b">xnpod::tslicer</a></td>
+        </tr>
+      </table>
+</div>
+<div class="memdoc">
+<p>Time-slicing timer for aperiodic mode </p>
+
+<p>Referenced by <a class="el" href="pod_8c_source.html#l00343">xnpod_init()</a>.</p>
 
 </div>
 </div>
@@ -178,7 +212,7 @@ Collaboration diagram for xnpod:</div>
 <div class="memdoc">
 <p>Thread start hook queue. </p>
 
-<p>Referenced by <a class="el" href="pod_8c_source.html#l00241">xnpod_init()</a>.</p>
+<p>Referenced by <a class="el" href="pod_8c_source.html#l00343">xnpod_init()</a>.</p>
 
 </div>
 </div>
@@ -194,7 +228,7 @@ Collaboration diagram for xnpod:</div>
 <div class="memdoc">
 <p>Thread switch hook queue. </p>
 
-<p>Referenced by <a class="el" href="pod_8c_source.html#l00241">xnpod_init()</a>.</p>
+<p>Referenced by <a class="el" href="pod_8c_source.html#l00343">xnpod_init()</a>.</p>
 
 </div>
 </div>
@@ -202,7 +236,7 @@ Collaboration diagram for xnpod:</div>
 <li>include/nucleus/<a class="el" href="pod_8h_source.html">pod.h</a></li>
 </ul>
 </div>
-<hr size="1"/><address style="text-align: right;"><small>Generated on Tue Oct 27 19:18:55 2009 for Xenomai API by&nbsp;
+<hr size="1"/><address style="text-align: right;"><small>Generated on Fri Jan 1 10:45:20 2010 for Xenomai API by&nbsp;
 <a href="http://www.doxygen.org/index.html">
 <img class="footer" src="doxygen.png" alt="doxygen"/></a> 1.6.1 </small></address>
 </body>

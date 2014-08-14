@@ -31,6 +31,7 @@
 #include <limits.h>
 #include <unistd.h>
 #include <xeno_config.h>
+#include <asm/xenomai/atomic.h>
 
 struct xnthread;
 struct xnsynch;
@@ -64,7 +65,9 @@ typedef int spl_t;
 #define splhigh(x)  ((x) = mvm_set_irqmask(-1))
 #define splexit(x)  mvm_set_irqmask(x)
 #define splnone()   mvm_set_irqmask(0)
+#define spltest()   (mvm_get_irqmask() != 0)
 #define splget(x)   ((x) = mvm_get_irqmask())
+#define irqs_disabled_hw() spltest()
 
 typedef unsigned long xnlock_t;
 
@@ -96,7 +99,6 @@ typedef unsigned long xnlock_t;
 #define XNARCH_TIMER_IRQ	    1
 
 #define XNARCH_THREAD_STACKSZ 0 /* Let the simulator choose. */
-#define XNARCH_ROOT_STACKSZ   0	/* Only a placeholder -- no stack */
 
 #define XNARCH_PROMPT "Xenomai/sim: "
 #define xnarch_loginfo(fmt,args...)  fprintf(stdout, XNARCH_PROMPT fmt , ##args)
@@ -118,6 +120,9 @@ typedef unsigned long xnarch_cpumask_t;
 #define xnarch_cpumask_of_cpu(cpu)       (1 << (cpu))
 #define xnarch_first_cpu(mask)           (ffnz(mask))
 #define XNARCH_CPU_MASK_ALL              (~0UL)
+
+#define xnarch_supported_cpus            (~0UL)
+#define xnarch_cpu_supported(cpu)        1
 
 #define xnarch_ullmod(ull,uld,rem)   ((*rem) = ((ull) % (uld)))
 #define xnarch_uldivrem(ull,uld,rem) ((u_long)xnarch_ulldiv((ull),(uld),(rem)))
@@ -182,7 +187,11 @@ static inline unsigned long long xnarch_ulldiv(unsigned long long ull,
 
 static inline unsigned long ffnz(unsigned long word)
 {
+#if __WORDSIZE == 32
+  return ffs((int)word) - 1;
+#else
     return ffsl(word) - 1;
+#endif
 }
 
 #define xnarch_stack_size(tcb)    0
@@ -191,6 +200,8 @@ static inline unsigned long ffnz(unsigned long word)
 #define xnarch_fpu_ptr(tcb)       NULL
 #define xnarch_user_task(tcb)     NULL
 #define xnarch_user_pid(tcb)      0
+
+#define __user
 
 /* Under the MVM, preemption only occurs at the C-source line level,
    so we just need plain C bitops and counter support. */
@@ -258,13 +269,15 @@ xnarch_read_environ (const char *name, const char **ptype, void *pvar)
 
 /* Nullify other kernel macros */
 #define EXPORT_SYMBOL(sym);
+#define EXPORT_SYMBOL_GPL(sym);
 #define module_init(sym);
 #define module_exit(sym);
 #define __init
 #define __exit
+#define __initcall(fn);
 
 /* Kernel markers */
-#define trace_mark(...);
+#define trace_mark(tag, args...) do { } while(0)
 
 #define container_of(ptr, type, member) ({                      \
         const typeof( ((type *)0)->member ) *__mptr = (ptr);    \
@@ -406,6 +419,15 @@ static inline unsigned long long xnarch_ns_to_tsc (unsigned long long ns)
     return ns;
 }
 
+static unsigned long long xnarch_divrem_billion(unsigned long long value,
+						unsigned long *rem)
+{
+	unsigned long long r;
+	r = value / 1000000000ULL;
+	*rem = value - (r * 1000000000ULL);
+	return r;
+}
+
 static inline unsigned long long xnarch_get_cpu_time (void)
 {
     return mvm_get_cpu_time();
@@ -438,6 +460,12 @@ static inline void xnarch_free_host_mem (void *chunk, u_long bytes)
 {
     memset(chunk, 0xdb, bytes);
     free(chunk);
+}
+
+static inline void xnarch_finalize_no_switch(xnarchtcb_t *dead_tcb)
+{
+    if (dead_tcb->vmthread)	/* Might be unstarted. */
+	mvm_finalize_thread(dead_tcb->vmthread);
 }
 
 #define xnarch_current_cpu()  0

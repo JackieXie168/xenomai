@@ -38,25 +38,6 @@ static inline void xnarch_switch_to (xnarchtcb_t *out_tcb,
     __mvm_breakable(mvm_switch_threads)(out_tcb->vmthread,in_tcb->vmthread);
 }
 
-static inline void xnarch_finalize_and_switch (xnarchtcb_t *dead_tcb,
-					       xnarchtcb_t *next_tcb)
-{
-    mvm_finalize_switch_threads(dead_tcb->vmthread,next_tcb->vmthread);
-}
-
-static inline void xnarch_finalize_no_switch (xnarchtcb_t *dead_tcb)
-{
-    if (dead_tcb->vmthread)	/* Might be unstarted. */
-	mvm_finalize_thread(dead_tcb->vmthread);
-}
-
-static inline void xnarch_init_root_tcb (xnarchtcb_t *tcb,
-					 struct xnthread *thread,
-					 const char *name)
-{
-    tcb->vmthread = mvm_thread_self();
-}
-
 static inline void xnarch_init_thread (xnarchtcb_t *tcb,
 				       void (*entry)(void *),
 				       void *cookie,
@@ -118,10 +99,9 @@ static inline int xnarch_release_ipi (void)
     return 0;
 }
 
-static inline void xnarch_escalate (void)
+static inline int xnarch_escalate (void)
 {
-    void xnpod_schedule_handler(void);
-    xnpod_schedule_handler();
+    return 0;
 }
 
 #define xnarch_notify_ready()    mvm_finalize_init()

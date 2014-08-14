@@ -37,6 +37,7 @@
 #include <posix/thread.h>	/* errno. */
 #include <posix/sig.h>		/* pse51_siginfo_t. */
 #ifdef __KERNEL__
+#include <linux/fs.h>		/* Make sure ERR_PTR is defined for all kernel versions */
 #include <posix/apc.h>
 #endif /* __KERNEL__ */
 
@@ -129,8 +130,8 @@ static int pse51_mq_init(pse51_mq_t * mq, const struct mq_attr *attr)
 
 	mq->memsize = memsize;
 	initpq(&mq->queued);
-	xnsynch_init(&mq->receivers, XNSYNCH_PRIO | XNSYNCH_NOPIP);
-	xnsynch_init(&mq->senders, XNSYNCH_PRIO | XNSYNCH_NOPIP);
+	xnsynch_init(&mq->receivers, XNSYNCH_PRIO | XNSYNCH_NOPIP, NULL);
+	xnsynch_init(&mq->senders, XNSYNCH_PRIO | XNSYNCH_NOPIP, NULL);
 	mq->mem = mem;
 
 	/* Fill the pool. */

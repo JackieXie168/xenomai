@@ -28,12 +28,6 @@
  *
  */
 
-#include <nucleus/pod.h>
-#include <nucleus/registry.h>
-#ifdef __KERNEL__
-#include <linux/init.h>
-#include <native/syscall.h>
-#endif /* __KERNEL__ */
 #include <native/task.h>
 #include <native/timer.h>
 #include <native/sem.h>
@@ -46,6 +40,7 @@
 #include <native/alarm.h>
 #include <native/intr.h>
 #include <native/misc.h>
+#include <native/syscall.h>
 
 MODULE_DESCRIPTION("Native skin");
 MODULE_AUTHOR("rpm@xenomai.org");
@@ -59,14 +54,14 @@ xntbase_t *__native_tbase;
 
 xeno_rholder_t __native_global_rholder;
 
-#ifdef CONFIG_XENO_EXPORT_REGISTRY
+#ifdef CONFIG_PROC_FS
 xnptree_t __native_ptree = {
 
 	.dir = NULL,
 	.name = "native",
 	.entries = 0,
 };
-#endif /* CONFIG_XENO_EXPORT_REGISTRY */
+#endif /* CONFIG_PROC_FS */
 
 int SKIN_INIT(native)
 {
@@ -82,6 +77,7 @@ int SKIN_INIT(native)
 	initq(&__native_global_rholder.queueq);
 	initq(&__native_global_rholder.semq);
 	initq(&__native_global_rholder.ioregionq);
+	initq(&__native_global_rholder.bufferq);
 
 	err = xnpod_init();
 

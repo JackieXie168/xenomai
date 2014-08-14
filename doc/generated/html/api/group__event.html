@@ -49,6 +49,8 @@ Collaboration diagram for Event flag group services.:</div>
 <tr><td class="mdescLeft">&nbsp;</td><td class="mdescRight">Post an event group.  <a href="#gafda4c544f2429005c4b15de3a7ffc902"></a><br/></td></tr>
 <tr><td class="memItemLeft" align="right" valign="top">int&nbsp;</td><td class="memItemRight" valign="bottom"><a class="el" href="group__event.html#ga6e9f775275661d9258f8b1eb02fe4681">rt_event_wait</a> (RT_EVENT *event, unsigned long mask, unsigned long *mask_r, int mode, RTIME timeout)</td></tr>
 <tr><td class="mdescLeft">&nbsp;</td><td class="mdescRight">Pend on an event group.  <a href="#ga6e9f775275661d9258f8b1eb02fe4681"></a><br/></td></tr>
+<tr><td class="memItemLeft" align="right" valign="top">int&nbsp;</td><td class="memItemRight" valign="bottom"><a class="el" href="group__event.html#ga81e2c7a3346b2364a153a24be291b204">rt_event_wait_until</a> (RT_EVENT *event, unsigned long mask, unsigned long *mask_r, int mode, RTIME timeout)</td></tr>
+<tr><td class="mdescLeft">&nbsp;</td><td class="mdescRight">Pend on an event group (with absolute timeout date).  <a href="#ga81e2c7a3346b2364a153a24be291b204"></a><br/></td></tr>
 <tr><td class="memItemLeft" align="right" valign="top">int&nbsp;</td><td class="memItemRight" valign="bottom"><a class="el" href="group__event.html#ga448889bcfd01ed892d97a0b00fdaf553">rt_event_clear</a> (RT_EVENT *event, unsigned long mask, unsigned long *mask_r)</td></tr>
 <tr><td class="mdescLeft">&nbsp;</td><td class="mdescRight">Clear an event group.  <a href="#ga448889bcfd01ed892d97a0b00fdaf553"></a><br/></td></tr>
 <tr><td class="memItemLeft" align="right" valign="top">int&nbsp;</td><td class="memItemRight" valign="bottom"><a class="el" href="group__event.html#gabecddf3846622df42bf95f94871f8e62">rt_event_inquire</a> (RT_EVENT *event, RT_EVENT_INFO *info)</td></tr>
@@ -116,7 +118,7 @@ Collaboration diagram for Event flag group services.:</div>
 <li>-ETIMEDOUT is returned if the object cannot be retrieved within the specified amount of time.</li>
 </ul>
 <ul>
-<li>-EPERM is returned if this service should block, but was called from a context which cannot sleep (e.g. interrupt, non-realtime or scheduler locked).</li>
+<li>-EPERM is returned if this service should block, but was called from a context which cannot sleep (e.g. interrupt, non-realtime context).</li>
 </ul>
 <p>Environments:</p>
 <p>This service can be called from:</p>
@@ -262,7 +264,7 @@ Collaboration diagram for Event flag group services.:</div>
 </ul>
 <p>Rescheduling: possible. </p>
 
-<p>References <a class="el" href="src_2skins_2native_2event_8c_source.html#l00038">rt_event_delete()</a>, <a class="el" href="nucleus_2registry_8c_source.html#l00582">xnregistry_enter()</a>, and <a class="el" href="synch_8c_source.html#l00087">xnsynch_init()</a>.</p>
+<p>References <a class="el" href="src_2skins_2native_2event_8c_source.html#l00038">rt_event_delete()</a>, <a class="el" href="nucleus_2registry_8c_source.html#l00582">xnregistry_enter()</a>, and <a class="el" href="synch_8c_source.html#l00106">xnsynch_init()</a>.</p>
 
 </div>
 </div>
@@ -309,7 +311,7 @@ Collaboration diagram for Event flag group services.:</div>
 </ul>
 <p>Rescheduling: possible. </p>
 
-<p>References <a class="el" href="pod_8c_source.html#l02379">xnpod_schedule()</a>, and <a class="el" href="nucleus_2registry_8c_source.html#l00809">xnregistry_remove()</a>.</p>
+<p>References <a class="el" href="pod_8h_source.html#l00251">xnpod_schedule()</a>, and <a class="el" href="nucleus_2registry_8c_source.html#l00818">xnregistry_remove()</a>.</p>
 
 <p>Referenced by <a class="el" href="ksrc_2skins_2native_2event_8c_source.html#l00177">rt_event_create()</a>.</p>
 
@@ -419,7 +421,7 @@ Collaboration diagram for Event flag group services.:</div>
 </ul>
 <p>Rescheduling: possible. </p>
 
-<p>References <a class="el" href="pod_8c_source.html#l02379">xnpod_schedule()</a>, and <a class="el" href="synch_8c_source.html#l00491">xnsynch_wakeup_this_sleeper()</a>.</p>
+<p>References <a class="el" href="pod_8h_source.html#l00251">xnpod_schedule()</a>, and <a class="el" href="synch_8c_source.html#l00313">xnsynch_wakeup_this_sleeper()</a>.</p>
 
 </div>
 </div>
@@ -540,7 +542,7 @@ Collaboration diagram for Event flag group services.:</div>
 <li>-ETIMEDOUT is returned if the request has not been satisfied within the specified amount of time.</li>
 </ul>
 <ul>
-<li>-EPERM is returned if this service should block, but was called from a context which cannot sleep (e.g. interrupt, non-realtime or scheduler locked).</li>
+<li>-EPERM is returned if this service should block, but was called from a context which cannot sleep (e.g. interrupt, non-realtime context).</li>
 </ul>
 <p>Environments:</p>
 <p>This service can be called from:</p>
@@ -552,12 +554,108 @@ Collaboration diagram for Event flag group services.:</div>
 <p>Rescheduling: always unless the request is immediately satisfied or <em>timeout</em> specifies a non-blocking operation.</p>
 <dl class="note"><dt><b>Note:</b></dt><dd>The <em>timeout</em> value will be interpreted as jiffies if the native skin is bound to a periodic time base (see CONFIG_XENO_OPT_NATIVE_PERIOD), or nanoseconds otherwise. </dd></dl>
 
-<p>References <a class="el" href="include_2nucleus_2thread_8h_source.html#l00112">XNBREAK</a>, <a class="el" href="include_2nucleus_2thread_8h_source.html#l00111">XNRMID</a>, <a class="el" href="synch_8c_source.html#l00168">xnsynch_sleep_on()</a>, and <a class="el" href="include_2nucleus_2thread_8h_source.html#l00110">XNTIMEO</a>.</p>
+</div>
+</div>
+<a class="anchor" id="ga81e2c7a3346b2364a153a24be291b204"></a><!-- doxytag: member="event.c::rt_event_wait_until" ref="ga81e2c7a3346b2364a153a24be291b204" args="(RT_EVENT *event, unsigned long mask, unsigned long *mask_r, int mode, RTIME timeout)" -->
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">int rt_event_wait_until </td>
+          <td>(</td>
+          <td class="paramtype">RT_EVENT *&nbsp;</td>
+          <td class="paramname"> <em>event</em>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">unsigned long&nbsp;</td>
+          <td class="paramname"> <em>mask</em>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">unsigned long *&nbsp;</td>
+          <td class="paramname"> <em>mask_r</em>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">int&nbsp;</td>
+          <td class="paramname"> <em>mode</em>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">RTIME&nbsp;</td>
+          <td class="paramname"> <em>timeout</em></td><td>&nbsp;</td>
+        </tr>
+        <tr>
+          <td></td>
+          <td>)</td>
+          <td></td><td></td><td></td>
+        </tr>
+      </table>
+</div>
+<div class="memdoc">
+
+<p>Pend on an event group (with absolute timeout date). </p>
+<p>Waits for one or more events on the specified event group, either in conjunctive or disjunctive mode.</p>
+<p>If the specified set of bits is not set, the calling task is blocked. The task is not resumed until the request is fulfilled. The event bits are NOT cleared from the event group when a request is satisfied; <a class="el" href="group__event.html#ga6e9f775275661d9258f8b1eb02fe4681" title="Pend on an event group.">rt_event_wait()</a> will return immediately with success for the same event mask until <a class="el" href="group__event.html#ga448889bcfd01ed892d97a0b00fdaf553" title="Clear an event group.">rt_event_clear()</a> is called to clear those bits.</p>
+<dl><dt><b>Parameters:</b></dt><dd>
+  <table border="0" cellspacing="2" cellpadding="0">
+    <tr><td valign="top"></td><td valign="top"><em>event</em>&nbsp;</td><td>The descriptor address of the affected event group.</td></tr>
+    <tr><td valign="top"></td><td valign="top"><em>mask</em>&nbsp;</td><td>The set of bits to wait for. Passing zero causes this service to return immediately with a success value; the current value of the event mask is also copied to <em>mask_r</em>.</td></tr>
+    <tr><td valign="top"></td><td valign="top"><em>mask_r</em>&nbsp;</td><td>The value of the event mask at the time the task was readied.</td></tr>
+    <tr><td valign="top"></td><td valign="top"><em>mode</em>&nbsp;</td><td>The pend mode. The following flags can be OR'ed into this bitmask, each of them affecting the operation:</td></tr>
+  </table>
+  </dd>
+</dl>
+<ul>
+<li>EV_ANY makes the task pend in disjunctive mode (i.e. OR); this means that the request is fulfilled when at least one bit set into <em>mask</em> is set in the current event mask.</li>
+</ul>
+<ul>
+<li>EV_ALL makes the task pend in conjunctive mode (i.e. AND); this means that the request is fulfilled when at all bits set into <em>mask</em> are set in the current event mask.</li>
+</ul>
+<dl><dt><b>Parameters:</b></dt><dd>
+  <table border="0" cellspacing="2" cellpadding="0">
+    <tr><td valign="top"></td><td valign="top"><em>timeout</em>&nbsp;</td><td>The absolute date specifying a time limit to wait for fulfilling the request (see note). Passing TM_INFINITE causes the caller to block indefinitely until the request is fulfilled. Passing TM_NONBLOCK causes the service to return immediately without waiting if the request cannot be satisfied immediately.</td></tr>
+  </table>
+  </dd>
+</dl>
+<dl class="return"><dt><b>Returns:</b></dt><dd>0 is returned upon success. Otherwise:</dd></dl>
+<ul>
+<li>-EINVAL is returned if <em>event</em> is not a event group descriptor.</li>
+</ul>
+<ul>
+<li>-EIDRM is returned if <em>event</em> is a deleted event group descriptor, including if the deletion occurred while the caller was sleeping on it before the request has been satisfied.</li>
+</ul>
+<ul>
+<li>-EWOULDBLOCK is returned if <em>timeout</em> is equal to TM_NONBLOCK and the current event mask value does not satisfy the request.</li>
+</ul>
+<ul>
+<li>-EINTR is returned if <a class="el" href="group__task.html#ga770281eeca009c0a08a7c4a9fd849ac1" title="Unblock a real-time task.">rt_task_unblock()</a> has been called for the waiting task before the request has been satisfied.</li>
+</ul>
+<ul>
+<li>-ETIMEDOUT is returned if the absolute <em>timeout</em> date is reached before the request is satisfied.</li>
+</ul>
+<ul>
+<li>-EPERM is returned if this service should block, but was called from a context which cannot sleep (e.g. interrupt, non-realtime context).</li>
+</ul>
+<p>Environments:</p>
+<p>This service can be called from:</p>
+<ul>
+<li>Kernel module initialization/cleanup code or Interrupt service routine only if <em>timeout</em> is equal to TM_NONBLOCK.</li>
+<li>Kernel-based task</li>
+<li>User-space task (switches to primary mode)</li>
+</ul>
+<p>Rescheduling: always unless the request is immediately satisfied or <em>timeout</em> specifies a non-blocking operation.</p>
+<dl class="note"><dt><b>Note:</b></dt><dd>The <em>timeout</em> value will be interpreted as jiffies if the native skin is bound to a periodic time base (see CONFIG_XENO_OPT_NATIVE_PERIOD), or nanoseconds otherwise. </dd></dl>
 
 </div>
 </div>
 </div>
-<hr size="1"/><address style="text-align: right;"><small>Generated on Tue Oct 27 19:18:54 2009 for Xenomai API by&nbsp;
+<hr size="1"/><address style="text-align: right;"><small>Generated on Fri Jan 1 10:45:17 2010 for Xenomai API by&nbsp;
 <a href="http://www.doxygen.org/index.html">
 <img class="footer" src="doxygen.png" alt="doxygen"/></a> 1.6.1 </small></address>
 </body>

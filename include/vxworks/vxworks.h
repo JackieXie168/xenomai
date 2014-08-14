@@ -27,10 +27,9 @@
 #define _XENO_VXWORKS_VXWORKS_H
 
 #include <nucleus/types.h>
-#include <nucleus/thread.h>
 
-#define VXWORKS_SKIN_VERSION_STRING  "4"
-#define VXWORKS_SKIN_VERSION_CODE    0x00000004
+#define VXWORKS_SKIN_VERSION_STRING  "5"
+#define VXWORKS_SKIN_VERSION_CODE    0x00000005
 #define VXWORKS_SKIN_MAGIC           0x57494E44
 
 #undef STATUS
@@ -84,13 +83,6 @@ typedef int BOOL;
 #define VX_PRIVATE_ENV   0x0080
 /* do not fill the stack for use by checkStack(). */
 #define VX_NO_STACK_FILL 0x0100
-
-/* Xenomai extension: enable IRQ shield. */
-#define VX_IRQ_SHIELD    XNSHIELD
-/* Xenomai extension: enable mode switch trap. */
-#define VX_TRAP_SWITCH   XNTRAPSW
-/* Xenomai extension: disable Linux priority coupling. */
-#define VX_RPI_OFF       XNRPIOFF
 
 /* defines for all kinds of semaphores */
 #define SEM_Q_FIFO           0x0
@@ -296,20 +288,17 @@ int *wind_current_context_errno(void);
 
 typedef WIND_TCB_PLACEHOLDER WIND_TCB;
 
-/* Xenomai extension */
-STATUS taskSetMode(int clrmask, int setmask, int *rmask);
-
 #endif /* __KERNEL__ || __XENO_SIM__ */
 
 /*
  * The following macros return normalized or native VxWorks priority
- * values. The core pod uses an ascending [0-257] priority scale
- * (include/nucleus/core.h), whilst the VxWorks personality exhibits a
- * decreasing scale [255-0]; normalization is done in the [1-256]
+ * values. The core scheduler uses an ascending [0-257] priority scale
+ * (include/nucleus/sched.h), whilst the VxWorks personality exhibits
+ * a decreasing scale [255-0]; normalization is done in the [1-256]
  * range so that priority 0 is kept for non-realtime shadows.
  */
 #define wind_normalized_prio(prio)  \
-  ({ int __p = (prio) ? XNCORE_MAX_PRIO - (prio) - 1 : 0; __p; })
+  ({ int __p = (prio) ? XNSCHED_RT_MAX_PRIO - (prio) - 1 : 0; __p; })
 #define wind_denormalized_prio(prio) \
   ({ int __p = (prio) ? 256 - (prio) : 0; __p; })
 
@@ -333,7 +322,7 @@ TASK_ID taskSpawn(const char *name,
 		  int stacksize,
 		  FUNCPTR entry,
 		  long arg0, long arg1, long arg2, long arg3, long arg4,
-		  long arg5, long arg6, long arg7, long arg8, long arg9);
+		  long arg5, long arg6, long arg7, long arg8, long arg9) __deprecated_in_kernel__;
 
 STATUS taskInit(WIND_TCB *pTcb,
 		const char *name,
@@ -343,7 +332,7 @@ STATUS taskInit(WIND_TCB *pTcb,
 		int stacksize,
 		FUNCPTR entry,
 		long arg0, long arg1, long arg2, long arg3, long arg4,
-		long arg5, long arg6, long arg7, long arg8, long arg9);
+		long arg5, long arg6, long arg7, long arg8, long arg9) __deprecated_in_kernel__;
 
 STATUS taskActivate(TASK_ID task_id);
 

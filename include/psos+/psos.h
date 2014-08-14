@@ -59,13 +59,12 @@
 
 /* Those bits are Xenomai-specific. */
 #define T_SHADOW      0x8000
-#define  T_SHIELD      XNSHIELD
-#define  T_TRAPSW      XNTRAPSW
-#define  T_RPIOFF      XNRPIOFF
+#define T_TRAPSW      XNTRAPSW
+#define T_RPIOFF      XNRPIOFF
 
-#define T_START_MASK   (T_NOPREEMPT|T_TSLICE|T_NOASR|T_SUPV|T_NOISR|T_LEVELMASK7)
-#define T_MODE_MASK    (T_NOPREEMPT|T_TSLICE|T_NOASR|T_NOISR| \
-			T_LEVELMASK7|T_SHIELD|T_TRAPSW|T_RPIOFF)
+#define T_START_MASK  (T_NOPREEMPT|T_TSLICE|T_NOASR|T_SUPV|T_NOISR|T_LEVELMASK7)
+#define T_MODE_MASK   (T_NOPREEMPT|T_TSLICE|T_NOASR|T_NOISR| \
+			T_LEVELMASK7|T_TRAPSW|T_RPIOFF)
 
 #define RN_PRIOR      0x0002
 #define RN_FIFO       0x0000
@@ -202,8 +201,8 @@ u_long t_restart(u_long tid,
 
 /*
  * The following macros return normalized or native pSOS priority
- * values. The core pod uses an ascending [0-257] priority scale
- * (include/nucleus/core.h), whilst the pSOS personality exhibits a
+ * values. The core scheduler uses an ascending [0-257] priority scale
+ * (include/nucleus/sched.h), whilst the pSOS personality exhibits a
  * smaller scale [1-255]. In other words, these macros are nops for
  * pSOS.
  */
@@ -351,7 +350,7 @@ u_long t_create(const char *name,
 		u_long sstack,
 		u_long ustack,
 		u_long flags,
-		u_long *tid_r);
+		u_long *tid_r) __deprecated_in_kernel__;
 
 u_long t_shadow(const char *name, /* Xenomai extension. */
 		u_long prio,

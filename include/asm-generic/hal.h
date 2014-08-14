@@ -46,6 +46,7 @@
 #define RTHAL_DOMAIN_ID		0x58454e4f
 
 #define RTHAL_TIMER_FREQ	(rthal_tunables.timer_freq)
+#define RTHAL_CLOCK_FREQ	(rthal_tunables.clock_freq)
 #define RTHAL_CPU_FREQ		(rthal_tunables.cpu_freq)
 #define RTHAL_NR_APCS		BITS_PER_LONG
 
@@ -97,6 +98,16 @@ typedef spinlock_t rthal_spinlock_t;
 
 #define rthal_cpudata_irq_hits(ipd,cpu,irq)	__ipipe_cpudata_irq_hits(ipd,cpu,irq)
 
+#ifndef local_irq_save_hw_smp
+#ifdef CONFIG_SMP
+#define local_irq_save_hw_smp(flags)	local_irq_save_hw(flags)
+#define local_irq_restore_hw_smp(flags)	local_irq_restore_hw(flags)
+#else /* !CONFIG_SMP */
+#define local_irq_save_hw_smp(flags)	do { (void)(flags); } while (0)
+#define local_irq_restore_hw_smp(flags)	do { } while (0)
+#endif /* !CONFIG_SMP */
+#endif /* !local_irq_save_hw_smp */
+
 /* I-pipe domain priorities and virtual interrupt mask handling. If
    the invariant pipeline head feature is enabled for Xenomai, use
    it. */
@@ -116,6 +127,14 @@ typedef spinlock_t rthal_spinlock_t;
 #endif /* !CONFIG_XENO_OPT_PIPELINE_HEAD */
 #define rthal_local_irq_flags(x)	((x) = ipipe_test_pipeline_from(&rthal_domain) & 1)
 #define rthal_local_irq_test()		ipipe_test_pipeline_from(&rthal_domain)
+#define rthal_local_irq_disabled()				\
+({								\
+	unsigned long __flags, __ret;				\
+	local_irq_save_hw_smp(__flags);				\
+	__ret = ipipe_test_pipeline_from(&rthal_domain);	\
+	local_irq_restore_hw_smp(__flags);			\
+	__ret;							\
+})
 #define rthal_stage_irq_enable(dom)	ipipe_unstall_pipeline_from(dom)
 #define rthal_local_irq_save_hw(x)	local_irq_save_hw(x)
 #define rthal_local_irq_restore_hw(x)	local_irq_restore_hw(x)
@@ -139,9 +158,17 @@ typedef spinlock_t rthal_spinlock_t;
 #define rthal_suspend_domain()		ipipe_suspend_domain()
 #define rthal_grab_superlock(syncfn)	ipipe_critical_enter(syncfn)
 #define rthal_release_superlock(x)	ipipe_critical_exit(x)
-#define rthal_propagate_irq(irq)	ipipe_propagate_irq(irq)
 #define rthal_set_irq_affinity(irq,aff)	ipipe_set_irq_affinity(irq,aff)
-#define rthal_schedule_irq(irq)	ipipe_schedule_irq(irq)
+#ifdef __IPIPE_FEATURE_FASTPEND_IRQ
+/* We use the faster form assuming that hw IRQs are off at call site. */
+#define rthal_schedule_irq_head(irq)	__ipipe_schedule_irq_head(irq)
+#define rthal_schedule_irq_root(irq)	__ipipe_schedule_irq_root(irq)
+#define rthal_propagate_irq(irq)	__ipipe_propagate_irq(irq)
+#else /* !__IPIPE_FEATURE_FASTPEND_IRQ */
+#define rthal_schedule_irq_head(irq)	ipipe_schedule_irq(irq)
+#define rthal_schedule_irq_root(irq)	ipipe_schedule_irq(irq)
+#define rthal_propagate_irq(irq)	ipipe_propagate_irq(irq)
+#endif /* !__IPIPE_FEATURE_FASTPEND_IRQ */
 #define rthal_virtualize_irq(dom,irq,isr,cookie,ackfn,mode) \
     ipipe_virtualize_irq(dom,irq,isr,cookie,ackfn,mode)
 #define rthal_alloc_virq()		ipipe_alloc_virq()
@@ -153,6 +180,13 @@ typedef spinlock_t rthal_spinlock_t;
 #define rthal_send_ipi(irq,cpus)	ipipe_send_ipi(irq,cpus)
 #define rthal_lock_irq(dom,cpu,irq)	__ipipe_lock_irq(dom,cpu,irq)
 #define rthal_unlock_irq(dom,irq)	__ipipe_unlock_irq(dom,irq)
+#ifdef __IPIPE_FEATURE_PIC_MUTE
+#define rthal_mute_pic()		ipipe_mute_pic()
+#define rthal_unmute_pic()		ipipe_unmute_pic()
+#else /* !__IPIPE_FEATURE_PIC_MUTE */
+#define rthal_mute_pic()		do { } while(0)
+#define rthal_unmute_pic()		do { } while(0)
+#endif /* __IPIPE_FEATURE_PIC_MUTE */
 
 #define rthal_processor_id()		ipipe_processor_id()
 
@@ -161,11 +195,36 @@ typedef spinlock_t rthal_spinlock_t;
 #define rthal_emergency_console()	ipipe_set_printk_sync(ipipe_current_domain)
 #define rthal_read_tsc(v)		ipipe_read_tsc(v)
 
+#ifdef __IPIPE_FEATURE_SYSINFO_V2
+	
 static inline unsigned long rthal_get_cpufreq(void)
 {
-    struct ipipe_sysinfo sysinfo;
-    rthal_get_sysinfo(&sysinfo);
-    return (unsigned long)sysinfo.cpufreq;
+	struct ipipe_sysinfo sysinfo;
+	rthal_get_sysinfo(&sysinfo);
+	return (unsigned long)sysinfo.sys_cpu_freq;
+}
+
+static inline unsigned long rthal_get_timerfreq(void)
+{
+	struct ipipe_sysinfo sysinfo;
+	rthal_get_sysinfo(&sysinfo);
+	return (unsigned long)sysinfo.sys_hrtimer_freq;
+}
+
+static inline unsigned long rthal_get_clockfreq(void)
+{
+	struct ipipe_sysinfo sysinfo;
+	rthal_get_sysinfo(&sysinfo);
+	return (unsigned long)sysinfo.sys_hrclock_freq;
+}
+
+#else /* !__IPIPE_FEATURE_SYSINFO_V2 */
+
+static inline unsigned long rthal_get_cpufreq(void)
+{
+	struct ipipe_sysinfo sysinfo;
+	rthal_get_sysinfo(&sysinfo);
+	return (unsigned long)sysinfo.cpufreq;
 }
 
 static inline unsigned long rthal_get_timerfreq(void)
@@ -174,6 +233,13 @@ static inline unsigned long rthal_get_timerfreq(void)
 	rthal_get_sysinfo(&sysinfo);
 	return (unsigned long)sysinfo.archdep.tmfreq;
 }
+
+static inline unsigned long rthal_get_clockfreq(void)
+{
+	return rthal_get_cpufreq();
+}
+
+#endif /* !__IPIPE_FEATURE_SYSINFO_V2 */
 
 #define RTHAL_DECLARE_EVENT(hdlr)				       \
 static int hdlr (unsigned event, struct ipipe_domain *ipd, void *data) \
@@ -329,9 +395,9 @@ typedef ipipe_irq_handler_t rthal_irq_handler_t;
 typedef ipipe_irq_ackfn_t   rthal_irq_ackfn_t;
 
 struct rthal_calibration_data {
-
-    unsigned long cpu_freq;
-    unsigned long timer_freq;
+	unsigned long cpu_freq;
+	unsigned long timer_freq;
+	unsigned long clock_freq;
 };
 
 typedef int (*rthal_trap_handler_t)(unsigned trapno,
@@ -341,6 +407,8 @@ typedef int (*rthal_trap_handler_t)(unsigned trapno,
 extern unsigned long rthal_cpufreq_arg;
 
 extern unsigned long rthal_timerfreq_arg;
+
+extern unsigned long rthal_clockfreq_arg;
 
 extern rthal_pipeline_stage_t rthal_domain;
 
@@ -420,7 +488,10 @@ int rthal_irq_host_request(unsigned irq,
 int rthal_irq_host_release(unsigned irq,
 			   void *dev_id);
 
-int rthal_irq_host_pend(unsigned irq);
+static inline void rthal_irq_host_pend(unsigned irq)
+{
+	rthal_propagate_irq(irq);
+}
 
 int rthal_apc_alloc(const char *name,
 		    void (*handler)(void *cookie),
@@ -454,16 +525,38 @@ int rthal_timer_request(void (*tick_handler)(void),
 
 void rthal_timer_release(int cpu);
 
+#ifdef CONFIG_SMP
+extern cpumask_t rthal_supported_cpus;
+
+static inline int rthal_cpu_supported(int cpu)
+{
+	return cpu_isset(cpu, rthal_supported_cpus);
+}
+#else  /* !CONFIG_SMP */
+#define rthal_supported_cpus CPU_MASK_ALL
+
+static inline int rthal_cpu_supported(int cpu)
+{
+	return 1;
+}
+#endif /* !CONFIG_SMP */
+
 #ifdef CONFIG_PROC_FS
+
 #include <linux/proc_fs.h>
 
 extern struct proc_dir_entry *rthal_proc_root;
 
-struct proc_dir_entry *__rthal_add_proc_leaf(const char *name,
-					     read_proc_t rdproc,
-					     write_proc_t wrproc,
-					     void *data,
-					     struct proc_dir_entry *parent);
+struct proc_dir_entry *rthal_add_proc_leaf(const char *name,
+					   read_proc_t rdproc,
+					   write_proc_t wrproc,
+					   void *data,
+					   struct proc_dir_entry *parent);
+
+struct proc_dir_entry *rthal_add_proc_seq(const char *name,
+					  struct file_operations *fops,
+					  size_t size,
+					  struct proc_dir_entry *parent);
 #endif /* CONFIG_PROC_FS */
 
 #ifdef CONFIG_IPIPE_TRACE

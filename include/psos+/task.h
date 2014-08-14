@@ -64,6 +64,10 @@ typedef struct psostask {
 
     } waitargs;
 
+#ifdef CONFIG_XENO_OPT_PERVASIVE
+	u_long pthread; /* hidden pthread_t identifier. */
+#endif
+
 } psostask_t;
 
 static inline psostask_t *thread2psostask (xnthread_t *t)
@@ -90,7 +94,7 @@ static inline xnflags_t psos_mode_to_xeno (u_long mode)
     if (mode & T_NOASR)
 	xnmode |= XNASDI;
 
-    xnmode |= (mode & (T_SHIELD|T_TRAPSW|T_RPIOFF));
+    xnmode |= (mode & (T_TRAPSW|T_RPIOFF));
 
     return xnmode;
 }
@@ -108,7 +112,7 @@ static inline u_long xeno_mode_to_psos (xnflags_t xnmode)
     if (xnmode & XNASDI)
 	mode |= T_NOASR;
 
-    mode |= (xnmode & (XNSHIELD|XNTRAPSW|XNRPIOFF));
+    mode |= (xnmode & (XNTRAPSW|XNRPIOFF));
 
     return mode;
 }

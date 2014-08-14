@@ -75,7 +75,7 @@ am__base_list = \
   sed '$$!N;$$!N;$$!N;$$!N;s/\n/ /g'
 am__installdirs = "$(DESTDIR)$(libdir)"
 LTLIBRARIES = $(lib_LTLIBRARIES)
-libuitron_la_LIBADD =
+libuitron_la_DEPENDENCIES = ../common/libxeno_common.la
 am_libuitron_la_OBJECTS = libuitron_la-flag.lo libuitron_la-init.lo \
 	libuitron_la-mbx.lo libuitron_la-sem.lo libuitron_la-task.lo
 libuitron_la_OBJECTS = $(am_libuitron_la_OBJECTS)
@@ -189,6 +189,7 @@ SHELL = @SHELL@
 STRIP = @STRIP@
 VERSION = @VERSION@
 XENO_BUILD_STRING = @XENO_BUILD_STRING@
+XENO_DLOPEN_CONSTRAINT = @XENO_DLOPEN_CONSTRAINT@
 XENO_HOST_STRING = @XENO_HOST_STRING@
 XENO_LINUX_ALL_TARGETS = @XENO_LINUX_ALL_TARGETS@
 XENO_LINUX_ARCH = @XENO_LINUX_ARCH@
@@ -259,7 +260,7 @@ top_build_prefix = @top_build_prefix@
 top_builddir = @top_builddir@
 top_srcdir = @top_srcdir@
 lib_LTLIBRARIES = libuitron.la
-libuitron_la_LDFLAGS = -version-info 0:0:0 -lpthread
+libuitron_la_LDFLAGS = @XENO_DLOPEN_CONSTRAINT@ -version-info 0:0:0 -lpthread
 libuitron_la_SOURCES = \
 	flag.c \
 	init.c \
@@ -271,6 +272,7 @@ libuitron_la_CPPFLAGS = \
 	@XENO_USER_CFLAGS@ \
 	-I$(top_srcdir)/include
 
+libuitron_la_LIBADD = ../common/libxeno_common.la
 all: all-am
 
 .SUFFIXES:

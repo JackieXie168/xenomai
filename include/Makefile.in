@@ -208,6 +208,7 @@ SHELL = @SHELL@
 STRIP = @STRIP@
 VERSION = @VERSION@
 XENO_BUILD_STRING = @XENO_BUILD_STRING@
+XENO_DLOPEN_CONSTRAINT = @XENO_DLOPEN_CONSTRAINT@
 XENO_HOST_STRING = @XENO_HOST_STRING@
 XENO_LINUX_ALL_TARGETS = @XENO_LINUX_ALL_TARGETS@
 XENO_LINUX_ARCH = @XENO_LINUX_ARCH@
@@ -285,10 +286,11 @@ SUBDIRS = \
 	asm-generic \
 	asm-blackfin \
 	asm-x86 \
-	asm-ia64 \
 	asm-powerpc \
 	asm-arm \
+	asm-nios2 \
 	asm-sim \
+	analogy \
 	native \
 	nucleus \
 	posix \
@@ -299,7 +301,7 @@ SUBDIRS = \
 	vrtx \
 	vxworks
 
-EXTRA_DIST = compat
+EXTRA_DIST = compat testing
 all: all-recursive
 
 .SUFFIXES:

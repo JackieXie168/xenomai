@@ -46,7 +46,6 @@
 
 #include <nucleus/pod.h>
 #include <nucleus/heap.h>
-#include <nucleus/registry.h>
 #include <native/task.h>
 #include <native/timer.h>
 
@@ -59,7 +58,7 @@ static unsigned __task_get_magic(void)
 	return XENO_SKIN_MAGIC;
 }
 
-static xnthrops_t __xeno_task_ops = {
+static struct xnthread_operations __xeno_task_ops = {
 	.get_magic = &__task_get_magic,
 };
 
@@ -79,11 +78,6 @@ static void __task_delete_hook(xnthread_t *thread)
 	xnsynch_destroy(&task->mrecv);
 	xnsynch_destroy(&task->msendq);
 #endif /* CONFIG_XENO_OPT_NATIVE_MPS */
-
-#ifdef CONFIG_XENO_OPT_REGISTRY
-	if (xnthread_handle(&task->thread_base) != XN_NO_HANDLE)
-		xnregistry_remove(xnthread_handle(&task->thread_base));
-#endif /* CONFIG_XENO_OPT_REGISTRY */
 
 	xnsynch_destroy(&task->safesynch);
 
@@ -114,6 +108,7 @@ void __native_task_unsafe(RT_TASK *task)
 int __native_task_safewait(RT_TASK *task)
 {
 	/* Must be called nklock locked, interrupts off. */
+	xnflags_t info;
 	u_long cstamp;
 
 	if (task->safelock == 0)
@@ -122,13 +117,11 @@ int __native_task_safewait(RT_TASK *task)
 	cstamp = task->cstamp;
 
 	do {
-		xnsynch_sleep_on(&task->safesynch, XN_INFINITE, XN_RELATIVE);
-
-		if (xnthread_test_info
-		    (&xeno_current_task()->thread_base, XNBREAK))
-			return -EINTR;
-	}
-	while (task->safelock > 0);
+	  info = xnsynch_sleep_on(&task->safesynch,
+				  XN_INFINITE, XN_RELATIVE);
+	  if (info & XNBREAK)
+		  return -EINTR;
+	} while (task->safelock > 0);
 
 	if (task->cstamp != cstamp)
 		return -EIDRM;
@@ -186,7 +179,7 @@ void __native_task_pkg_cleanup(void)
  * substituted.
  *
  * @param prio The base priority of the new task. This value must
- * range from [1 .. 99] (inclusive) where 1 is the lowest effective
+ * range from [0 .. 99] (inclusive) where 0 is the lowest effective
  * priority.
  *
  * @param mode The task creation mode. The following flags can be
@@ -231,11 +224,33 @@ void __native_task_pkg_cleanup(void)
  * - User-space task
  *
  * Rescheduling: possible.
+ *
+ * @note
+ *
+ * When creating or shadowing a Xenomai thread for the first time in
+ * user-space, Xenomai installs a handler for the SIGWINCH signal. If you had
+ * installed a handler before that, it will be automatically called by Xenomai
+ * for SIGWINCH signals that it has not sent.
+ *
+ * If, however, you install a signal handler for SIGWINCH after creating
+ * or shadowing the first Xenomai thread, you have to explicitly call the
+ * function xeno_sigwinch_handler at the beginning of your signal handler,
+ * using its return to know if the signal was in fact an internal signal of
+ * Xenomai (in which case it returns 1), or if you should handle the signal (in
+ * which case it returns 0). xeno_sigwinch_handler prototype is:
+ *
+ * <b>int xeno_sigwinch_handler(int sig, siginfo_t *si, void *ctxt);</b>
+ *
+ * Which means that you should register your handler with sigaction, using the
+ * SA_SIGINFO flag, and pass all the arguments you received to
+ * xeno_sigwinch_handler.
  */
 
 int rt_task_create(RT_TASK *task,
 		   const char *name, int stksize, int prio, int mode)
 {
+	union xnsched_policy_param param;
+	struct xnthread_init_attr attr;
 	int err = 0, cpumask, cpu;
 	xnflags_t bflags;
 	spl_t s;
@@ -246,20 +261,20 @@ int rt_task_create(RT_TASK *task,
 	if (xnpod_asynch_p())
 		return -EPERM;
 
-	bflags = mode & (XNFPU | XNSHADOW | XNSHIELD | XNSUSP);
+	bflags = mode & (XNFPU | XNSHADOW | XNSUSP);
 
-	if (name) {
-		if (!*name)
-			/* i.e. Anonymous object which must be accessible from
-			   user-space. */
-			xnobject_create_name(task->rname, sizeof(task->rname),
-					     task);
-		else
-			xnobject_copy_name(task->rname, name);
-	}
+	if (name)
+		xnobject_copy_name(task->rname, name);
 
-	if (xnpod_init_thread(&task->thread_base, __native_tbase,
-			      name, prio, bflags, stksize, &__xeno_task_ops) != 0)
+	attr.tbase = __native_tbase;
+	attr.name = name;
+	attr.flags = bflags;
+	attr.ops = &__xeno_task_ops;
+	attr.stacksize = stksize;
+	param.rt.prio = prio;
+
+	if (xnpod_init_thread(&task->thread_base,
+			      &attr, &xnsched_class_rt, &param) != 0)
 		/* Assume this is the only possible failure. */
 		return -ENOMEM;
 
@@ -268,7 +283,7 @@ int rt_task_create(RT_TASK *task,
 	task->overrun = -1;
 	task->cstamp = ++__xeno_task_stamp;
 	task->safelock = 0;
-	xnsynch_init(&task->safesynch, XNSYNCH_FIFO);
+	xnsynch_init(&task->safesynch, XNSYNCH_FIFO, NULL);
 
 	xnarch_cpus_clear(task->affinity);
 
@@ -281,8 +296,9 @@ int rt_task_create(RT_TASK *task,
 		task->affinity = XNPOD_ALL_CPUS;
 
 #ifdef CONFIG_XENO_OPT_NATIVE_MPS
-	xnsynch_init(&task->mrecv, XNSYNCH_FIFO);
-	xnsynch_init(&task->msendq, XNSYNCH_PRIO | XNSYNCH_PIP);
+	xnsynch_init(&task->mrecv, XNSYNCH_FIFO, NULL);
+	xnsynch_init(&task->msendq,
+		     XNSYNCH_PRIO | XNSYNCH_PIP | XNSYNCH_OWNER, NULL);
 	xnsynch_set_owner(&task->msendq, &task->thread_base);
 	task->flowgen = 0;
 #endif /* CONFIG_XENO_OPT_NATIVE_MPS */
@@ -292,25 +308,13 @@ int rt_task_create(RT_TASK *task,
 	appendq(&__xeno_task_q, &task->link);
 	xnlock_put_irqrestore(&nklock, s);
 
-#ifdef CONFIG_XENO_OPT_REGISTRY
 	/* <!> Since xnregister_enter() may reschedule, only register
 	   complete objects, so that the registry cannot return handles to
 	   half-baked objects... */
 
-	if (name) {
-		err = xnregistry_enter(task->rname,
-				       task,
-				       &xnthread_handle(&task->thread_base),
-				       NULL);
-		if (err)
-			xnpod_delete_thread(&task->thread_base);
-		else if (!*name)
-			/* /proc/xenomai/sched will dump no name for the anonymous
-			   task, but the registry still has a stable reference
-			   into the TCB to set up a handle for the task. */
-			xnthread_clear_name(&task->thread_base);
-	}
-#endif /* CONFIG_XENO_OPT_REGISTRY */
+	err = xnthread_register(&task->thread_base, name ? task->rname : "");
+	if (err)
+		xnpod_delete_thread(&task->thread_base);
 
 	return err;
 }
@@ -359,7 +363,8 @@ int rt_task_create(RT_TASK *task,
 
 int rt_task_start(RT_TASK *task, void (*entry) (void *cookie), void *cookie)
 {
-	int err = 0;
+	struct xnthread_start_attr attr;
+	int ret = 0;
 	spl_t s;
 
 	if (xnpod_asynch_p())
@@ -370,24 +375,27 @@ int rt_task_start(RT_TASK *task, void (*entry) (void *cookie), void *cookie)
 	task = xeno_h2obj_validate(task, XENO_TASK_MAGIC, RT_TASK);
 
 	if (!task) {
-		err = xeno_handle_error(task, XENO_TASK_MAGIC, RT_TASK);
+		ret = xeno_handle_error(task, XENO_TASK_MAGIC, RT_TASK);
 		goto unlock_and_exit;
 	}
 
 	if (!xnthread_test_state(&task->thread_base, XNDORMANT)) {
-		err = -EBUSY;	/* Task already started. */
+		ret = -EBUSY;	/* Task already started. */
 		goto unlock_and_exit;
 	}
 
-	err =
-	    xnpod_start_thread(&task->thread_base, 0, 0, task->affinity, entry,
-			       cookie);
+	attr.mode = 0;
+	attr.imask = 0;
+	attr.affinity = task->affinity;
+	attr.entry = entry;
+	attr.cookie = cookie;
+	ret = xnpod_start_thread(&task->thread_base, &attr);
 
       unlock_and_exit:
 
 	xnlock_put_irqrestore(&nklock, s);
 
-	return err;
+	return ret;
 }
 
 /**
@@ -417,8 +425,8 @@ int rt_task_start(RT_TASK *task, void (*entry) (void *cookie), void *cookie)
  *
  * - -EINVAL is returned if @a task is not a task descriptor.
  *
- * - -EPERM is returned if the addressed @a task is not allowed to sleep
- * (i.e. scheduler locked).
+ * - -EPERM is returned if this service was called from an invalid
+ * context (e.g. interrupt, non-realtime context).
  *
  * - -EIDRM is returned if @a task is a deleted task descriptor.
  *
@@ -454,12 +462,6 @@ int rt_task_suspend(RT_TASK *task)
 
 	if (!task) {
 		err = xeno_handle_error(task, XENO_TASK_MAGIC, RT_TASK);
-		goto unlock_and_exit;
-	}
-
-	/* We are about to suspend a task, let's check whether it may sleep */
-	if (xnthread_test_state(&task->thread_base, XNLOCK)) {
-		err = -EPERM;
 		goto unlock_and_exit;
 	}
 
@@ -813,10 +815,10 @@ int rt_task_wait_period(unsigned long *overruns_r)
  *
  * @param task The descriptor address of the affected task.
  *
- * @param prio The new task priority. This value must range from [1
- * .. 99] (inclusive) where 1 is the lowest effective priority.
+ * @param prio The new task priority. This value must range from [0
+ * .. 99] (inclusive) where 0 is the lowest effective priority.
 
- * @return 0 is returned upon success. Otherwise:
+ * @return Upon success, the previously set priority is returned. Otherwise:
  *
  * - -EINVAL is returned if @a task is not a task descriptor, or if @a
  * prio is invalid.
@@ -850,6 +852,7 @@ int rt_task_wait_period(unsigned long *overruns_r)
 
 int rt_task_set_priority(RT_TASK *task, int prio)
 {
+	union xnsched_policy_param param;
 	int oldprio;
 	spl_t s;
 
@@ -874,7 +877,8 @@ int rt_task_set_priority(RT_TASK *task, int prio)
 
 	oldprio = xnthread_base_priority(&task->thread_base);
 
-	xnpod_renice_thread(&task->thread_base, prio);
+	param.rt.prio = prio;
+	xnpod_set_thread_schedparam(&task->thread_base, &xnsched_class_rt, &param);
 
 	xnpod_schedule();
 
@@ -1150,7 +1154,7 @@ int rt_task_inquire(RT_TASK *task, RT_TASK_INFO *info)
 	info->status = xnthread_state_flags(&task->thread_base);
 	info->relpoint = xntimer_get_date(&task->thread_base.ptimer);
 	raw_exectime = xnthread_get_exectime(&task->thread_base);
-	if (task->thread_base.sched->runthread == &task->thread_base)
+	if (xnthread_sched(&task->thread_base)->curr == &task->thread_base)
 		raw_exectime += xnstat_exectime_now() -
 			xnthread_get_lastswitch(&task->thread_base);
 	info->exectime = xnarch_tsc_to_ns(raw_exectime);
@@ -1412,24 +1416,8 @@ int rt_task_notify(RT_TASK *task, rt_sigset_t signals)
  * - T_LOCK causes the current task to lock the scheduler. Clearing
  * this bit unlocks the scheduler.
  *
- * - T_RRB causes the current task to be marked as undergoing the
- * round-robin scheduling policy. If the task is already undergoing
- * the round-robin scheduling policy at the time this service is
- * called, the time quantum remains unchanged.
- *
  * - T_NOSIG disables the asynchronous signal delivery for the current
  * task.
- *
- * - T_SHIELD enables the interrupt shield for the current user-space
- * task. When engaged, the interrupt shield protects the Xenomai task
- * running in secondary mode from any preemption by the regular Linux
- * interrupt handlers, without delaying in any way the Xenomai
- * interrupt handling. The shield is operated on a per-task basis at
- * each context switch, depending on the setting of this flag. This
- * flag is cleared by default for new user-space tasks. This feature
- * is only available if the CONFIG_XENO_OPT_ISHIELD option has been
- * enabled at configuration time; otherwise, this flag is simply
- * ignored.
  *
  * - When set, T_WARNSW causes the SIGXCPU signal to be sent to the
  * current user-space task whenever it switches to the secondary
@@ -1498,7 +1486,7 @@ int rt_task_set_mode(int clrmask, int setmask, int *mode_r)
 	}
 
 	if (((clrmask | setmask) &
-	     ~(T_LOCK | T_RRB | T_NOSIG | T_SHIELD | T_WARNSW)) != 0)
+	     ~(T_LOCK | T_NOSIG | T_WARNSW | T_RPIOFF)) != 0)
 		return -EINVAL;
 
 	if (!xnpod_primary_p())
@@ -1550,23 +1538,19 @@ RT_TASK *rt_task_self(void)
  * @brief Set a task's round-robin quantum.
  *
  * Set the time credit allotted to a task undergoing the round-robin
- * scheduling. As a side-effect, rt_task_slice() refills the current
- * quantum of the target task.
+ * scheduling. If @a quantum is non-zero, rt_task_slice() also refills
+ * the current quantum for the target task, otherwise, time-slicing is
+ * stopped for that task.
  *
  * @param task The descriptor address of the affected task. If @a task
  * is NULL, the current task is considered.
  *
  * @param quantum The round-robin quantum for the task expressed in
- * clock ticks (see note).
+ * ticks (see note).
  *
  * @return 0 is returned upon success. Otherwise:
  *
- * - -EINVAL is returned if @a task is not a task descriptor, or if @a
- * quantum is zero.
- *
- * - -ENODEV is returned if the native skin is not bound to a periodic
- * time base (see CONFIG_XENO_OPT_NATIVE_PERIOD), in which case
- * round-robin scheduling is not available.
+ * - -EINVAL is returned if @a task is not a task descriptor.
  *
  * - -EPERM is returned if @a task is NULL but not called from a task
  * context.
@@ -1585,21 +1569,16 @@ RT_TASK *rt_task_self(void)
  * Rescheduling: never.
  *
  * @note The @a quantum value is always interpreted as a count of
- * jiffies.
+ * ticks. If the task undergoes aperiodic timing, the tick duration is
+ * defined by CONFIG_XENO_OPT_TIMING_VIRTICK.
  */
 
 int rt_task_slice(RT_TASK *task, RTIME quantum)
 {
-	int err = 0;
+	int ret = 0;
 	spl_t s;
 
-	if (!xntbase_periodic_p(__native_tbase))
-		return -ENODEV;
-
-	if (!quantum)
-		return -EINVAL;
-
-	if (!task) {
+	if (task == NULL) {
 		if (!xnpod_primary_p())
 			return -EPERM;
 
@@ -1611,18 +1590,17 @@ int rt_task_slice(RT_TASK *task, RTIME quantum)
 	task = xeno_h2obj_validate(task, XENO_TASK_MAGIC, RT_TASK);
 
 	if (!task) {
-		err = xeno_handle_error(task, XENO_TASK_MAGIC, RT_TASK);
+		ret = xeno_handle_error(task, XENO_TASK_MAGIC, RT_TASK);
 		goto unlock_and_exit;
 	}
 
-	xnthread_time_slice(&task->thread_base) = quantum;
-	xnthread_time_credit(&task->thread_base) = quantum;
+	xnpod_set_thread_tslice(&task->thread_base, quantum);
 
       unlock_and_exit:
 
 	xnlock_put_irqrestore(&nklock, s);
 
-	return err;
+	return ret;
 }
 
 #ifdef CONFIG_XENO_OPT_NATIVE_MPS
@@ -1710,8 +1688,8 @@ int rt_task_slice(RT_TASK *task, RTIME quantum)
  * caller before any reply was available.
  *
  * - -EPERM is returned if this service should block, but was called
- * from a context which cannot sleep (e.g. interrupt, non-realtime or
- * scheduler locked).
+ * from a context which cannot sleep (e.g. interrupt, non-realtime
+ * context).
  *
  * - -ESRCH is returned if @a task cannot be found (when called from
  *    user-space only).
@@ -1740,6 +1718,7 @@ ssize_t rt_task_send(RT_TASK *task,
 		     RT_TASK_MCB *mcb_s, RT_TASK_MCB *mcb_r, RTIME timeout)
 {
 	RT_TASK *client;
+	xnflags_t info;
 	size_t rsize;
 	ssize_t err;
 	spl_t s;
@@ -1791,30 +1770,32 @@ ssize_t rt_task_send(RT_TASK *task,
 	else
 		client->wait_args.mps.mcb_r.size = 0;
 
-	/* Wake up the server if it is currently waiting for a
-	   message, then sleep on the send queue, waiting for the
-	   remote reply. xnsynch_sleep_on() will reschedule as
-	   needed. */
-
+	/*
+	 * Wake up the server if it is currently waiting for a
+	 * message, then sleep on the send queue, waiting for the
+	 * remote reply. xnsynch_sleep_on() will reschedule as
+	 * needed.
+	 */
 	xnsynch_flush(&task->mrecv, 0);
 
-	/* Since the server is perpetually marked as the current owner
-	   of its own send queue which has been declared as a
-	   PIP-enabled object, it will inherit the priority of the
-	   client in the case required by the priority inheritance
-	   protocol (i.e. prio(client) > prio(server)). */
-
-	xnsynch_sleep_on(&task->msendq, timeout, XN_RELATIVE);
-
-	/* At this point, the server task might have exited right
+	/*
+	 * Since the server is perpetually marked as the current owner
+	 * of its own send queue which has been declared as a
+	 * PIP-enabled object, it will inherit the priority of the
+	 * client in the case required by the priority inheritance
+	 * protocol (i.e. prio(client) > prio(server)).
+	 */
+	info = xnsynch_acquire(&task->msendq, timeout, XN_RELATIVE);
+	/*
+	 * At this point, the server task might have exited right
 	 * after having replied to us, so do not make optimistic
-	 * assumption regarding its existence. */
-
-	if (xnthread_test_info(&client->thread_base, XNRMID))
+	 * assumption regarding its existence.
+	 */
+	if (info & XNRMID)
 		err = -EIDRM;	/* Receiver deleted while pending. */
-	else if (xnthread_test_info(&client->thread_base, XNTIMEO))
+	else if (info & XNTIMEO)
 		err = -ETIMEDOUT;	/* Timeout. */
-	else if (xnthread_test_info(&client->thread_base, XNBREAK))
+	else if (info & XNBREAK)
 		err = -EINTR;	/* Unblocked. */
 	else {
 		rsize = client->wait_args.mps.mcb_r.size;
@@ -1933,6 +1914,7 @@ int rt_task_receive(RT_TASK_MCB *mcb_r, RTIME timeout)
 {
 	RT_TASK *server, *client;
 	xnpholder_t *holder;
+	xnflags_t info;
 	size_t rsize;
 	int err;
 	spl_t s;
@@ -1963,18 +1945,19 @@ int rt_task_receive(RT_TASK_MCB *mcb_r, RTIME timeout)
 		goto unlock_and_exit;
 	}
 
-	/* Wait on our receive slot for some client to enqueue itself in
-	   our send queue. */
-
-	xnsynch_sleep_on(&server->mrecv, timeout, XN_RELATIVE);
-
-	/* XNRMID cannot happen, since well, the current task would be the
-	   deleted object, so... */
-
-	if (xnthread_test_info(&server->thread_base, XNTIMEO)) {
+	/*
+	 * Wait on our receive slot for some client to enqueue itself
+	 * in our send queue.
+	 */
+	info = xnsynch_sleep_on(&server->mrecv, timeout, XN_RELATIVE);
+	/*
+	 * XNRMID cannot happen, since well, the current task would be the
+	 * deleted object, so...
+	 */
+	if (info & XNTIMEO) {
 		err = -ETIMEDOUT;	/* Timeout. */
 		goto unlock_and_exit;
-	} else if (xnthread_test_info(&server->thread_base, XNBREAK)) {
+	} else if (info & XNBREAK) {
 		err = -EINTR;	/* Unblocked. */
 		goto unlock_and_exit;
 	}
@@ -2176,7 +2159,7 @@ int rt_task_reply(int flowid, RT_TASK_MCB *mcb_s)
  * substituted.
  *
  * @param prio The base priority of the new task. This value must
- * range from [1 .. 99] (inclusive) where 1 is the lowest effective
+ * range from [0 .. 99] (inclusive) where 0 is the lowest effective
  * priority.
  *
  * @param mode The task creation mode. The following flags can be
@@ -2228,6 +2211,26 @@ int rt_task_reply(int flowid, RT_TASK_MCB *mcb_s)
  * - User-space task
  *
  * Rescheduling: possible.
+ *
+ * @note
+ *
+ * When creating or shadowing a Xenomai thread for the first time in
+ * user-space, Xenomai installs a handler for the SIGWINCH signal. If you had
+ * installed a handler before that, it will be automatically called by Xenomai
+ * for SIGWINCH signals that it has not sent.
+ *
+ * If, however, you install a signal handler for SIGWINCH after creating
+ * or shadowing the first Xenomai thread, you have to explicitly call the
+ * function xeno_sigwinch_handler at the beginning of your signal handler,
+ * using its return to know if the signal was in fact an internal signal of
+ * Xenomai (in which case it returns 1), or if you should handle the signal (in
+ * which case it returns 0). xeno_sigwinch_handler prototype is:
+ *
+ * <b>int xeno_sigwinch_handler(int sig, siginfo_t *si, void *ctxt);</b>
+ *
+ * Which means that you should register your handler with sigaction, using the
+ * SA_SIGINFO flag, and pass all the arguments you received to
+ * xeno_sigwinch_handler.
  */
 
 /**
@@ -2237,10 +2240,17 @@ int rt_task_reply(int flowid, RT_TASK_MCB *mcb_s)
  * Creates a real-time task running in the context of the calling
  * regular Linux task in user-space.
  *
- * @param task The address of a task descriptor Xenomai will use to store
- * the task-related data.  This descriptor must always be valid while
- * the task is active therefore it must be allocated in permanent
- * memory.
+ * @param task In non-NULL, the address of a task descriptor Xenomai
+ * will use to store the task-related data; this descriptor must
+ * always be valid while the task is active therefore it must be
+ * allocated in permanent memory. If NULL is passed, then the
+ * descriptor will not be returned; main() threads which do not need
+ * to be referred to by other threads may use this syntax to promote
+ * themselves to the real-time domain for instance.
+ *
+ * @note Allowing for a NULL descriptor pointer to be passed is a
+ * recent feature which is not available with any earlier Xenomai
+ * release.
  *
  * The current context is switched to primary execution mode and
  * returns immediately, unless T_SUSP has been passed in the @a mode
@@ -2252,7 +2262,7 @@ int rt_task_reply(int flowid, RT_TASK_MCB *mcb_s)
  * enabled for indexing the created task.
  *
  * @param prio The base priority which will be set for the current
- * task. This value must range from [1 .. 99] (inclusive) where 1 is
+ * task. This value must range from [0 .. 99] (inclusive) where 0 is
  * the lowest effective priority.
  *
  * @param mode The task creation mode. The following flags can be
@@ -2296,6 +2306,26 @@ int rt_task_reply(int flowid, RT_TASK_MCB *mcb_s)
  * - User-space task (enters primary mode)
  *
  * Rescheduling: possible.
+ *
+ * @note
+ *
+ * When creating or shadowing a Xenomai thread for the first time in
+ * user-space, Xenomai installs a handler for the SIGWINCH signal. If you had
+ * installed a handler before that, it will be automatically called by Xenomai
+ * for SIGWINCH signals that it has not sent.
+ *
+ * If, however, you install a signal handler for SIGWINCH after creating
+ * or shadowing the first Xenomai thread, you have to explicitly call the
+ * function xeno_sigwinch_handler at the beginning of your signal handler,
+ * using its return to know if the signal was in fact an internal signal of
+ * Xenomai (in which case it returns 1), or if you should handle the signal (in
+ * which case it returns 0). xeno_sigwinch_handler prototype is:
+ *
+ * <b>int xeno_sigwinch_handler(int sig, siginfo_t *si, void *ctxt);</b>
+ *
+ * Which means that you should register your handler with sigaction, using the
+ * SA_SIGINFO flag, and pass all the arguments you received to
+ * xeno_sigwinch_handler.
  */
 
 /**
@@ -2335,8 +2365,8 @@ int rt_task_reply(int flowid, RT_TASK_MCB *mcb_s)
  * the specified amount of time.
  *
  * - -EPERM is returned if this service should block, but was called
- * from a context which cannot sleep (e.g. interrupt, non-realtime or
- * scheduler locked).
+ * from a context which cannot sleep (e.g. interrupt, non-realtime
+ * context).
  *
  * Environments:
  *

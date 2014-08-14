@@ -119,7 +119,7 @@ Collaboration diagram for Interrupt management services.:</div>
 <li>-ETIMEDOUT is returned if the object cannot be retrieved within the specified amount of time.</li>
 </ul>
 <ul>
-<li>-EPERM is returned if this service should block, but was called from a context which cannot sleep (e.g. interrupt, non-realtime or scheduler locked).</li>
+<li>-EPERM is returned if this service should block, but was called from a context which cannot sleep (e.g. interrupt, non-realtime context).</li>
 </ul>
 <p>Environments:</p>
 <p>This service can be called from:</p>
@@ -266,10 +266,10 @@ Collaboration diagram for Interrupt management services.:</div>
 <p>In addition, one of the following bits may be set by the ISR :</p>
 <p>NOTE: use these bits with care and only when you do understand their effect on the system. The ISR is not encouraged to use these bits in case it shares the IRQ line with other ISRs in the real-time domain.</p>
 <ul>
-<li>RT_INTR_PROPAGATE tells Xenomai to require the real-time control layer to forward the IRQ. For instance, this would cause the Adeos control layer to propagate the interrupt down the interrupt pipeline to other Adeos domains, such as Linux. This is the regular way to share interrupts between Xenomai and the Linux kernel.</li>
+<li>RT_INTR_NOENABLE asks Xenomai not to re-enable the IRQ line upon return of the interrupt service routine.</li>
 </ul>
 <ul>
-<li>RT_INTR_NOENABLE asks Xenomai not to re-enable the IRQ line upon return of the interrupt service routine.</li>
+<li>RT_INTR_PROPAGATE tells Xenomai to require the real-time control layer to forward the IRQ. For instance, this would cause the Adeos control layer to propagate the interrupt down the interrupt pipeline to other Adeos domains, such as Linux. This is the regular way to share interrupts between Xenomai and the Linux kernel. In effect, RT_INTR_PROPAGATE implies RT_INTR_NOENABLE since it would make no sense to re-enable the interrupt channel before the next domain down the pipeline has had a chance to process the propagated interrupt.</li>
 </ul>
 <p>A count of interrupt receipts is tracked into the interrupt descriptor, and reset to zero each time the interrupt object is attached. Since this count could wrap around, it should be used as an indication of interrupt activity only.</p>
 <dl><dt><b>Parameters:</b></dt><dd>
@@ -312,7 +312,7 @@ Collaboration diagram for Interrupt management services.:</div>
 <p>Rescheduling: possible.</p>
 <dl class="note"><dt><b>Note:</b></dt><dd>The interrupt source associated to the interrupt descriptor remains masked upon creation. <a class="el" href="group__interrupt.html#gac712ee67f90d053a21bdb0041a63e17c" title="Enable an interrupt object.">rt_intr_enable()</a> should be called for the new interrupt object to unmask it. </dd></dl>
 
-<p>References <a class="el" href="src_2skins_2native_2intr_8c_source.html#l00038">rt_intr_delete()</a>, <a class="el" href="ksrc_2nucleus_2intr_8c_source.html#l00697">xnintr_attach()</a>, <a class="el" href="ksrc_2nucleus_2intr_8c_source.html#l00610">xnintr_init()</a>, <a class="el" href="nucleus_2registry_8c_source.html#l00582">xnregistry_enter()</a>, and <a class="el" href="synch_8c_source.html#l00087">xnsynch_init()</a>.</p>
+<p>References <a class="el" href="src_2skins_2native_2intr_8c_source.html#l00038">rt_intr_delete()</a>, <a class="el" href="ksrc_2nucleus_2intr_8c_source.html#l00719">xnintr_attach()</a>, <a class="el" href="ksrc_2nucleus_2intr_8c_source.html#l00630">xnintr_init()</a>, <a class="el" href="nucleus_2registry_8c_source.html#l00582">xnregistry_enter()</a>, and <a class="el" href="synch_8c_source.html#l00106">xnsynch_init()</a>.</p>
 
 </div>
 </div>
@@ -360,9 +360,9 @@ Collaboration diagram for Interrupt management services.:</div>
 </ul>
 <p>Rescheduling: possible. </p>
 
-<p>References <a class="el" href="ksrc_2nucleus_2intr_8c_source.html#l00655">xnintr_destroy()</a>, <a class="el" href="ksrc_2nucleus_2intr_8c_source.html#l00755">xnintr_detach()</a>, <a class="el" href="pod_8c_source.html#l02379">xnpod_schedule()</a>, and <a class="el" href="nucleus_2registry_8c_source.html#l00809">xnregistry_remove()</a>.</p>
+<p>References <a class="el" href="ksrc_2nucleus_2intr_8c_source.html#l00676">xnintr_destroy()</a>, <a class="el" href="ksrc_2nucleus_2intr_8c_source.html#l00778">xnintr_detach()</a>, <a class="el" href="pod_8h_source.html#l00251">xnpod_schedule()</a>, and <a class="el" href="nucleus_2registry_8c_source.html#l00818">xnregistry_remove()</a>.</p>
 
-<p>Referenced by <a class="el" href="ksrc_2skins_2native_2intr_8c_source.html#l00246">rt_intr_create()</a>.</p>
+<p>Referenced by <a class="el" href="ksrc_2skins_2native_2intr_8c_source.html#l00250">rt_intr_create()</a>.</p>
 
 </div>
 </div>
@@ -406,7 +406,7 @@ Collaboration diagram for Interrupt management services.:</div>
 </ul>
 <p>Rescheduling: never. </p>
 
-<p>References <a class="el" href="ksrc_2nucleus_2intr_8c_source.html#l00830">xnintr_disable()</a>.</p>
+<p>References <a class="el" href="ksrc_2nucleus_2intr_8c_source.html#l00855">xnintr_disable()</a>.</p>
 
 </div>
 </div>
@@ -450,7 +450,7 @@ Collaboration diagram for Interrupt management services.:</div>
 </ul>
 <p>Rescheduling: never. </p>
 
-<p>References <a class="el" href="ksrc_2nucleus_2intr_8c_source.html#l00799">xnintr_enable()</a>.</p>
+<p>References <a class="el" href="ksrc_2nucleus_2intr_8c_source.html#l00823">xnintr_enable()</a>.</p>
 
 </div>
 </div>
@@ -600,7 +600,7 @@ Collaboration diagram for Interrupt management services.:</div>
 </div>
 </div>
 </div>
-<hr size="1"/><address style="text-align: right;"><small>Generated on Tue Oct 27 19:18:54 2009 for Xenomai API by&nbsp;
+<hr size="1"/><address style="text-align: right;"><small>Generated on Fri Jan 1 10:45:17 2010 for Xenomai API by&nbsp;
 <a href="http://www.doxygen.org/index.html">
 <img class="footer" src="doxygen.png" alt="doxygen"/></a> 1.6.1 </small></address>
 </body>

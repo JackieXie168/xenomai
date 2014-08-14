@@ -61,6 +61,19 @@ typedef unsigned long xnhandle_t;
 
 #define XN_NO_HANDLE ((xnhandle_t)0)
 
+#define XN_HANDLE_SPARE0	((xnhandle_t)0x10000000)
+#define XN_HANDLE_SPARE1	((xnhandle_t)0x20000000)
+#define XN_HANDLE_SPARE2	((xnhandle_t)0x40000000)
+#define XN_HANDLE_SPARE3	((xnhandle_t)0x80000000)
+#define XN_HANDLE_SPARE_MASK	((xnhandle_t)0xf0000000)
+
+#define xnhandle_mask_spare(handle)  ((handle) & ~XN_HANDLE_SPARE_MASK)
+#define xnhandle_test_spare(handle, bits)  (!!((handle) & (bits)))
+#define xnhandle_set_spare(handle, bits) \
+	do { (handle) |= (bits); } while (0)
+#define xnhandle_clear_spare(handle, bits) \
+	do { (handle) &= ~(bits); } while (0)
+
 struct xnintr;
 
 typedef int (*xnisr_t)(struct xnintr *intr);
@@ -78,7 +91,6 @@ typedef enum xntmode {
 } xntmode_t;
 
 #define XN_APERIODIC_TICK  0
-#define XN_NO_TICK         ((xnticks_t)-1)
 
 #define testbits(flags,mask) ((flags) & (mask))
 #define setbits(flags,mask)  xnarch_atomic_set_mask(&(flags),mask)

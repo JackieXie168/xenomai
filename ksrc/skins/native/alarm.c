@@ -43,7 +43,7 @@
 #include <native/alarm.h>
 #include <native/timer.h>
 
-#ifdef CONFIG_XENO_EXPORT_REGISTRY
+#ifdef CONFIG_PROC_FS
 
 static int __alarm_read_proc(char *page,
 			     char **start,
@@ -101,14 +101,14 @@ static xnpnode_t __alarm_pnode = {
 	.root = &__native_ptree,
 };
 
-#elif defined(CONFIG_XENO_OPT_REGISTRY)
+#else /* !CONFIG_PROC_FS */
 
 static xnpnode_t __alarm_pnode = {
 
 	.type = "alarms"
 };
 
-#endif /* CONFIG_XENO_EXPORT_REGISTRY */
+#endif /* !CONFIG_PROC_FS */
 
 int __native_alarm_pkg_init(void)
 {
@@ -207,33 +207,28 @@ int rt_alarm_create(RT_ALARM *alarm,
 	xnlock_put_irqrestore(&nklock, s);
 
 #ifdef CONFIG_XENO_OPT_PERVASIVE
-	xnsynch_init(&alarm->synch_base, XNSYNCH_PRIO);
+	xnsynch_init(&alarm->synch_base, XNSYNCH_PRIO, NULL);
 	alarm->cpid = 0;
 #endif /* CONFIG_XENO_OPT_PERVASIVE */
 
 	if (name) {
-#ifdef CONFIG_XENO_OPT_REGISTRY
-		/* <!> Since xnregister_enter() may reschedule, only register
-		   complete objects, so that the registry cannot return
-		   handles to half-baked objects... */
-
-		xnpnode_t *pnode = &__alarm_pnode;
-
-		if (!*name) {
-			/* Since this is an anonymous object (empty name on entry)
-			   from user-space, it gets registered under an unique
-			   internal name but is not exported through /proc. */
+		if (!*name)
+			/*
+			 * To improve readability in timer_base /proc
+			 * output.
+			 */
 			xnobject_create_name(alarm->name, sizeof(alarm->name),
 					     (void *)alarm);
-			pnode = NULL;
-		}
 
-		err =
-		    xnregistry_enter(alarm->name, alarm, &alarm->handle, pnode);
-
+		/*
+		 * <!> Since xnregister_enter() may reschedule, only register
+		 * complete objects, so that the registry cannot return
+		 * handles to half-baked objects...
+		 */
+		err = xnregistry_enter((*name) ? alarm->name : "", alarm,
+				       &alarm->handle, &__alarm_pnode);
 		if (err)
 			rt_alarm_delete(alarm);
-#endif /* CONFIG_XENO_OPT_REGISTRY */
 
 		xntimer_set_name(&alarm->timer_base, alarm->name);
 	}
@@ -296,10 +291,8 @@ int rt_alarm_delete(RT_ALARM *alarm)
 	rc = xnsynch_destroy(&alarm->synch_base);
 #endif /* CONFIG_XENO_OPT_PERVASIVE */
 
-#ifdef CONFIG_XENO_OPT_REGISTRY
 	if (alarm->handle)
 		xnregistry_remove(alarm->handle);
-#endif /* CONFIG_XENO_OPT_REGISTRY */
 
 	xeno_mark_deleted(alarm);
 

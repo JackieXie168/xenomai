@@ -19,6 +19,15 @@
 #ifndef _LIBRTUTILS_INTERNAL_H
 #define _LIBRTUTILS_INTERNAL_H
 
+#include <time.h>
+#include <sys/time.h>
+
 void __rt_print_init(void);
+
+void __real_free(void *ptr);
+void *__real_malloc(size_t size);
+
+int __real_gettimeofday(struct timeval *tv, struct timezone *tz);
+int __real_clock_gettime(clockid_t clk_id, struct timespec *tp);
 
 #endif /* !_LIBRTUTILS_INTERNAL_H */

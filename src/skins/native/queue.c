@@ -50,12 +50,11 @@ static int __map_queue_memory(RT_QUEUE *q, RT_QUEUE_PLACEHOLDER * php)
 					     php->mapsize,
 					     PROT_READ | PROT_WRITE,
 					     MAP_SHARED, heapfd, 0L);
-
 	if (php->mapbase != MAP_FAILED)
 		/* Copy back a complete placeholder only if all is ok. */
 		*q = *php;
 	else
-		err = -ENOMEM;
+		err = -errno;
 
       close_and_exit:
 
@@ -153,18 +152,39 @@ int rt_queue_write(RT_QUEUE *q, const void *buf, size_t size, int mode)
 
 ssize_t rt_queue_receive(RT_QUEUE *q, void **bufp, RTIME timeout)
 {
-	return XENOMAI_SKINCALL3(__native_muxid,
-				 __native_queue_receive, q, bufp, &timeout);
+	return XENOMAI_SKINCALL4(__native_muxid,
+				 __native_queue_receive, q, bufp,
+				 XN_RELATIVE, &timeout);
+}
+
+ssize_t rt_queue_receive_until(RT_QUEUE *q, void **bufp, RTIME timeout)
+{
+	return XENOMAI_SKINCALL4(__native_muxid,
+				 __native_queue_receive, q, bufp,
+				 XN_REALTIME, &timeout);
 }
 
 ssize_t rt_queue_read(RT_QUEUE *q, void *buf, size_t size, RTIME timeout)
 {
-	return XENOMAI_SKINCALL4(__native_muxid,
-				 __native_queue_read, q, buf, size, &timeout);
+	return XENOMAI_SKINCALL5(__native_muxid,
+				 __native_queue_read, q, buf, size,
+				 XN_RELATIVE, &timeout);
+}
+
+ssize_t rt_queue_read_until(RT_QUEUE *q, void *buf, size_t size, RTIME timeout)
+{
+	return XENOMAI_SKINCALL5(__native_muxid,
+				 __native_queue_read, q, buf, size,
+				 XN_REALTIME, &timeout);
 }
 
 int rt_queue_inquire(RT_QUEUE *q, RT_QUEUE_INFO *info)
 {
 	return XENOMAI_SKINCALL2(__native_muxid, __native_queue_inquire, q,
 				 info);
+}
+
+int rt_queue_flush(RT_QUEUE *q)
+{
+	return XENOMAI_SKINCALL1(__native_muxid, __native_queue_flush, q);
 }

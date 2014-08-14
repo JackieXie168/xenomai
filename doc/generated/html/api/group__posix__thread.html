@@ -141,10 +141,15 @@ an error number if:<ul>
 <li>EINVAL, thread attribute <em>inheritsched</em> is set to PTHREAD_INHERIT_SCHED and the calling thread does not belong to the POSIX skin;</li>
 </ul>
 </dd></dl>
-<dl class="see"><dt><b>See also:</b></dt><dd><a href="http://www.opengroup.org/onlinepubs/000095399/functions/pthread_create.html">Specification.</a> </dd></dl>
+<dl class="see"><dt><b>See also:</b></dt><dd><a href="http://www.opengroup.org/onlinepubs/000095399/functions/pthread_create.html">Specification.</a></dd></dl>
+<dl class="note"><dt><b>Note:</b></dt><dd></dd></dl>
+<p>When creating or shadowing a Xenomai thread for the first time in user-space, Xenomai installs a handler for the SIGWINCH signal. If you had installed a handler before that, it will be automatically called by Xenomai for SIGWINCH signals that it has not sent.</p>
+<p>If, however, you install a signal handler for SIGWINCH after creating or shadowing the first Xenomai thread, you have to explicitly call the function xeno_sigwinch_handler at the beginning of your signal handler, using its return to know if the signal was in fact an internal signal of Xenomai (in which case it returns 1), or if you should handle the signal (in which case it returns 0). xeno_sigwinch_handler prototype is:</p>
+<p><b>int xeno_sigwinch_handler(int sig, siginfo_t *si, void *ctxt);</b></p>
+<p>Which means that you should register your handler with sigaction, using the SA_SIGINFO flag, and pass all the arguments you received to xeno_sigwinch_handler. </p>
 <dl><dt><b>Examples: </b></dt><dd><a class="el" href="rtcan__rtt_8c-example.html#a21">rtcan_rtt.c</a>.</dd>
 </dl>
-<p>References <a class="el" href="sched_8c_source.html#l00184">pthread_getschedparam()</a>, <a class="el" href="include_2nucleus_2thread_8h_source.html#l00059">XNFPU</a>, <a class="el" href="pod_8c_source.html#l00683">xnpod_init_thread()</a>, <a class="el" href="pod_8c_source.html#l00797">xnpod_start_thread()</a>, <a class="el" href="include_2nucleus_2thread_8h_source.html#l00048">XNRRB</a>, <a class="el" href="include_2nucleus_2thread_8h_source.html#l00060">XNSHADOW</a>, and <a class="el" href="synch_8c_source.html#l00087">xnsynch_init()</a>.</p>
+<p>References <a class="el" href="skins_2posix_2sched_8c_source.html#l00238">pthread_getschedparam_ex()</a>, <a class="el" href="include_2nucleus_2thread_8h_source.html#l00062">XNFPU</a>, <a class="el" href="pod_8c_source.html#l00636">xnpod_init_thread()</a>, <a class="el" href="pod_8c_source.html#l03052">xnpod_set_thread_tslice()</a>, <a class="el" href="pod_8c_source.html#l00740">xnpod_start_thread()</a>, <a class="el" href="include_2nucleus_2thread_8h_source.html#l00063">XNSHADOW</a>, and <a class="el" href="synch_8c_source.html#l00106">xnsynch_init()</a>.</p>
 
 </div>
 </div>
@@ -182,7 +187,7 @@ an error number if:<ul>
 </dd></dl>
 <dl class="see"><dt><b>See also:</b></dt><dd><a href="http://www.opengroup.org/onlinepubs/000095399/functions/pthread_detach.html">Specification.</a> </dd></dl>
 
-<p>References <a class="el" href="pod_8c_source.html#l02379">xnpod_schedule()</a>, and <a class="el" href="synch_8c_source.html#l00571">xnsynch_flush()</a>.</p>
+<p>References <a class="el" href="pod_8h_source.html#l00251">xnpod_schedule()</a>, and <a class="el" href="synch_8c_source.html#l00852">xnsynch_flush()</a>.</p>
 
 </div>
 </div>
@@ -254,7 +259,7 @@ an error number if:<ul>
 </dl>
 <dl class="see"><dt><b>See also:</b></dt><dd><a href="http://www.opengroup.org/onlinepubs/000095399/functions/pthread_exit.html">Specification.</a> </dd></dl>
 
-<p>Referenced by <a class="el" href="src_2skins_2native_2task_8c_source.html#l00208">rt_task_delete()</a>.</p>
+<p>Referenced by <a class="el" href="src_2skins_2native_2task_8c_source.html#l00263">rt_task_delete()</a>.</p>
 
 </div>
 </div>
@@ -313,9 +318,9 @@ an error number if:<ul>
 <dl class="see"><dt><b>See also:</b></dt><dd><a href="http://www.opengroup.org/onlinepubs/000095399/functions/pthread_join.html">Specification.</a> </dd></dl>
 <dl><dt><b>Examples: </b></dt><dd><a class="el" href="rtcan__rtt_8c-example.html#a24">rtcan_rtt.c</a>.</dd>
 </dl>
-<p>References <a class="el" href="pod_8c_source.html#l02379">xnpod_schedule()</a>, <a class="el" href="synch_8c_source.html#l00168">xnsynch_sleep_on()</a>, and <a class="el" href="synch_8c_source.html#l00376">xnsynch_wakeup_one_sleeper()</a>.</p>
+<p>References <a class="el" href="pod_8h_source.html#l00251">xnpod_schedule()</a>, <a class="el" href="synch_8c_source.html#l00175">xnsynch_sleep_on()</a>, and <a class="el" href="synch_8c_source.html#l00241">xnsynch_wakeup_one_sleeper()</a>.</p>
 
-<p>Referenced by <a class="el" href="src_2skins_2native_2task_8c_source.html#l00328">rt_task_join()</a>.</p>
+<p>Referenced by <a class="el" href="src_2skins_2native_2task_8c_source.html#l00121">rt_task_create()</a>, and <a class="el" href="src_2skins_2native_2task_8c_source.html#l00383">rt_task_join()</a>.</p>
 
 </div>
 </div>
@@ -370,7 +375,7 @@ an error number if:<ul>
 </dd></dl>
 <p>Rescheduling: always, until the <em>starttp</em> start time has been reached. </p>
 
-<p>References <a class="el" href="pod_8c_source.html#l03244">xnpod_set_thread_periodic()</a>.</p>
+<p>References <a class="el" href="pod_8c_source.html#l02854">xnpod_set_thread_periodic()</a>.</p>
 
 </div>
 </div>
@@ -436,7 +441,7 @@ NULL if the calling thread is not a POSIX skin thread.</dd></dl>
 <dl class="see"><dt><b>See also:</b></dt><dd><a href="http://www.opengroup.org/onlinepubs/000095399/functions/pthread_self.html">Specification.</a> </dd></dl>
 <dl><dt><b>Examples: </b></dt><dd><a class="el" href="rtcan__rtt_8c-example.html#a4">rtcan_rtt.c</a>.</dd>
 </dl>
-<p>Referenced by <a class="el" href="src_2skins_2native_2task_8c_source.html#l00165">rt_task_shadow()</a>.</p>
+<p>Referenced by <a class="el" href="src_2skins_2native_2task_8c_source.html#l00185">rt_task_shadow()</a>.</p>
 
 </div>
 </div>
@@ -469,7 +474,6 @@ NULL if the calling thread is not a POSIX skin thread.</dd></dl>
 <p>This service sets the mode of the calling thread. <em>clrmask</em> and <em>setmask</em> are two bit masks which are respectively cleared and set in the calling thread status. They are a bitwise OR of the following values:</p>
 <ul>
 <li>PTHREAD_LOCK_SCHED, when set, locks the scheduler, which prevents the current thread from being switched out by the scheduler until the scheduler is unlocked;</li>
-<li>PTHREAD_SHIELD, when set, activates the interrupt shield, which improve the execution determinism of the current thread by blocking Linux interrupts when it runs in secondary mode;</li>
 <li>PTHREAD_RPIOFF, when set, prevents the root Linux thread from inheriting the priority of the calling thread, when this thread is running in secondary mode;</li>
 <li>PTHREAD_WARNSW, when set, cause the signal SIGXCPU to be sent to the current thread, whenever it involontary switches to secondary mode;</li>
 <li>PTHREAD_PRIMARY, cause the migration of the current thread to primary mode.</li>
@@ -490,7 +494,7 @@ an error number if:<ul>
 </ul>
 </dd></dl>
 
-<p>References <a class="el" href="include_2nucleus_2thread_8h_source.html#l00047">XNLOCK</a>, <a class="el" href="pod_8c_source.html#l01038">xnpod_set_thread_mode()</a>, <a class="el" href="include_2nucleus_2thread_8h_source.html#l00057">XNRPIOFF</a>, <a class="el" href="include_2nucleus_2thread_8h_source.html#l00060">XNSHADOW</a>, <a class="el" href="shadow_8c_source.html#l01187">xnshadow_relax()</a>, <a class="el" href="include_2nucleus_2thread_8h_source.html#l00055">XNSHIELD</a>, and <a class="el" href="include_2nucleus_2thread_8h_source.html#l00056">XNTRAPSW</a>.</p>
+<p>References <a class="el" href="include_2nucleus_2thread_8h_source.html#l00050">XNLOCK</a>, <a class="el" href="pod_8c_source.html#l01014">xnpod_set_thread_mode()</a>, <a class="el" href="include_2nucleus_2thread_8h_source.html#l00061">XNRPIOFF</a>, <a class="el" href="include_2nucleus_2thread_8h_source.html#l00063">XNSHADOW</a>, <a class="el" href="shadow_8c_source.html#l01141">xnshadow_relax()</a>, and <a class="el" href="include_2nucleus_2thread_8h_source.html#l00060">XNTRAPSW</a>.</p>
 
 </div>
 </div>
@@ -579,12 +583,12 @@ an error number if:<ul>
 </ul>
 </dd></dl>
 
-<p>References <a class="el" href="pod_8c_source.html#l03343">xnpod_wait_thread_period()</a>.</p>
+<p>References <a class="el" href="pod_8c_source.html#l02955">xnpod_wait_thread_period()</a>.</p>
 
 </div>
 </div>
 </div>
-<hr size="1"/><address style="text-align: right;"><small>Generated on Tue Oct 27 19:18:55 2009 for Xenomai API by&nbsp;
+<hr size="1"/><address style="text-align: right;"><small>Generated on Fri Jan 1 10:45:19 2010 for Xenomai API by&nbsp;
 <a href="http://www.doxygen.org/index.html">
 <img class="footer" src="doxygen.png" alt="doxygen"/></a> 1.6.1 </small></address>
 </body>

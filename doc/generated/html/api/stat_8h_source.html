@@ -152,7 +152,7 @@
 <a name="l00125"></a>00125 <span class="preprocessor">#endif </span><span class="comment">/* __XENO_SIM__ */</span>
 <a name="l00126"></a>00126 } xnstat_counter_t;
 <a name="l00127"></a>00127 
-<a name="l00128"></a>00128 <span class="preprocessor">#define xnstat_counter_inc(c) ({ 0; })</span>
+<a name="l00128"></a>00128 <span class="preprocessor">#define xnstat_counter_inc(c) ({ do { } while(0); 0; })</span>
 <a name="l00129"></a>00129 <span class="preprocessor"></span><span class="preprocessor">#define xnstat_counter_get(c) ({ 0; })</span>
 <a name="l00130"></a>00130 <span class="preprocessor"></span><span class="preprocessor">#define xnstat_counter_set(c, value) do { } while (0)</span>
 <a name="l00131"></a>00131 <span class="preprocessor"></span><span class="preprocessor">#endif </span><span class="comment">/* CONFIG_XENO_OPT_STATS */</span>
@@ -175,7 +175,7 @@
 <a name="l00148"></a>00148 <span class="preprocessor"></span>
 <a name="l00149"></a>00149 <span class="preprocessor">#endif </span><span class="comment">/* !_XENO_NUCLEUS_STAT_H */</span>
 </pre></div></div>
-<hr size="1"/><address style="text-align: right;"><small>Generated on Tue Oct 27 19:18:52 2009 for Xenomai API by&nbsp;
+<hr size="1"/><address style="text-align: right;"><small>Generated on Fri Jan 1 10:45:14 2010 for Xenomai API by&nbsp;
 <a href="http://www.doxygen.org/index.html">
 <img class="footer" src="doxygen.png" alt="doxygen"/></a> 1.6.1 </small></address>
 </body>

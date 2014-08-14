@@ -39,25 +39,27 @@
 #define __xn_feat_x86_tsc 0x00000002
 
 /* The ABI revision level we use on this arch. */
-#define XENOMAI_ABI_REV   1UL
+#define XENOMAI_ABI_REV   3UL
 
 #ifdef CONFIG_X86_TSC
 #define __xn_feat_x86_tsc_mask __xn_feat_x86_tsc
+#define XNARCH_HAVE_NONPRIV_TSC  1
 #else
-#define __xn_feat_x86_tsc_mask 0
+#define __xn_feat_x86_tsc_mask   0
 #endif
 
 #ifdef CONFIG_XENO_X86_SEP
-#define __xn_feat_x86_sep_mask __xn_feat_x86_sep
+#define __xn_feat_x86_sep_mask  __xn_feat_x86_sep
 #else
-#define __xn_feat_x86_sep_mask 0
+#define __xn_feat_x86_sep_mask   0
 #endif
 
 #define XENOMAI_FEAT_DEP  (__xn_feat_generic_mask| \
 			   __xn_feat_x86_sep_mask| \
 			   __xn_feat_x86_tsc_mask)
 
-#define XENOMAI_FEAT_MAN  (__xn_feat_x86_sep| \
+#define XENOMAI_FEAT_MAN  (__xn_feat_generic_man_mask| \
+			   __xn_feat_x86_sep| \
 			   __xn_feat_x86_tsc)
 
 static inline int check_abi_revision(unsigned long abirev)
@@ -108,5 +110,6 @@ static inline void xeno_x86_features_check(void)
 #endif /* __KERNEL__ */
 
 #define XNARCH_HAVE_LLMULSHFT    1
+#define XNARCH_HAVE_NODIV_LLIMD  1
 
 #endif /* !_XENO_ASM_X86_FEATURES_32_H */

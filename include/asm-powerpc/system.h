@@ -49,9 +49,15 @@ typedef struct xnarchtcb {	/* Per-thread arch-dependent block */
 	struct task_struct *user_task;	/* Shadowed user-space task */
 	struct task_struct *active_task;	/* Active user-space task */
 	struct thread_struct *tsp;	/* Pointer to the active thread struct (&ts or &user->thread). */
+	struct mm_struct *mm;
+	struct mm_struct *active_mm;
 
 	/* Kernel mode side */
 	struct thread_struct ts;	/* Holds kernel-based thread context. */
+#ifdef CONFIG_IPIPE_WANT_PREEMPTIBLE_SWITCH
+	struct thread_info *tip; /* Pointer to the active thread info (ti or user->thread_info). */
+	struct thread_info ti;	/* Holds kernel-based thread info */
+#endif
 #ifdef CONFIG_XENO_HW_FPU
 	/*
 	 * We only care for basic FPU handling in kernel-space; Altivec

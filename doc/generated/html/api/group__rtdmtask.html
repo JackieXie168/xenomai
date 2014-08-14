@@ -66,9 +66,9 @@ Collaboration diagram for Task Services:</div>
 <tr><td colspan="2"><p><a class="anchor" id="amgrp7b76feb5dd60eb2fa4dedc6d1d7bb08e"></a> <a class="anchor" id="taskprio"></a> Maximum and minimum task priorities </p>
 <br/><br/></td></tr>
 <tr><td class="memItemLeft" align="right" valign="top"><a class="anchor" id="ga06f12fa27637f0a61906a02bbfd27c8c"></a><!-- doxytag: member="rtdmtask::RTDM_TASK_LOWEST_PRIORITY" ref="ga06f12fa27637f0a61906a02bbfd27c8c" args="" -->
-#define&nbsp;</td><td class="memItemRight" valign="bottom"><b>RTDM_TASK_LOWEST_PRIORITY</b>&nbsp;&nbsp;&nbsp;XNCORE_LOW_PRIO</td></tr>
+#define&nbsp;</td><td class="memItemRight" valign="bottom"><b>RTDM_TASK_LOWEST_PRIORITY</b>&nbsp;&nbsp;&nbsp;XNSCHED_LOW_PRIO</td></tr>
 <tr><td class="memItemLeft" align="right" valign="top"><a class="anchor" id="ga93b4e739fd61aef0999c7819ead9798c"></a><!-- doxytag: member="rtdmtask::RTDM_TASK_HIGHEST_PRIORITY" ref="ga93b4e739fd61aef0999c7819ead9798c" args="" -->
-#define&nbsp;</td><td class="memItemRight" valign="bottom"><b>RTDM_TASK_HIGHEST_PRIORITY</b>&nbsp;&nbsp;&nbsp;XNCORE_HIGH_PRIO</td></tr>
+#define&nbsp;</td><td class="memItemRight" valign="bottom"><b>RTDM_TASK_HIGHEST_PRIORITY</b>&nbsp;&nbsp;&nbsp;XNSCHED_HIGH_PRIO</td></tr>
 <tr><td colspan="2"><h2>Task Priority Modification</h2></td></tr>
 <tr><td colspan="2"><p><a class="anchor" id="amgrp482005f3a30d055ef9be299fb2742198"></a> <a class="anchor" id="changetaskprio"></a> Raise or lower task priorities by one level </p>
 <br/><br/></td></tr>
@@ -271,7 +271,7 @@ Collaboration diagram for Task Services:</div>
 </ul>
 <p>Rescheduling: possible. </p>
 
-<p>References <a class="el" href="pod_8c_source.html#l01118">xnpod_delete_thread()</a>, <a class="el" href="pod_8c_source.html#l00683">xnpod_init_thread()</a>, <a class="el" href="pod_8c_source.html#l03244">xnpod_set_thread_periodic()</a>, and <a class="el" href="pod_8c_source.html#l00797">xnpod_start_thread()</a>.</p>
+<p>References <a class="el" href="pod_8c_source.html#l01082">xnpod_delete_thread()</a>, <a class="el" href="pod_8c_source.html#l00636">xnpod_init_thread()</a>, <a class="el" href="pod_8c_source.html#l02854">xnpod_set_thread_periodic()</a>, and <a class="el" href="pod_8c_source.html#l00740">xnpod_start_thread()</a>.</p>
 
 </div>
 </div>
@@ -319,7 +319,7 @@ This service does not trigger the termination of the targeted task. The user has
 </ul>
 <p>Rescheduling: possible. </p>
 
-<p>References <a class="el" href="include_2nucleus_2thread_8h_source.html#l00038">XNZOMBIE</a>.</p>
+<p>References <a class="el" href="include_2nucleus_2thread_8h_source.html#l00040">XNZOMBIE</a>.</p>
 
 </div>
 </div>
@@ -612,7 +612,7 @@ This service does not trigger the termination of the targeted task. The user has
 </div>
 </div>
 </div>
-<hr size="1"/><address style="text-align: right;"><small>Generated on Tue Oct 27 19:18:55 2009 for Xenomai API by&nbsp;
+<hr size="1"/><address style="text-align: right;"><small>Generated on Fri Jan 1 10:45:18 2010 for Xenomai API by&nbsp;
 <a href="http://www.doxygen.org/index.html">
 <img class="footer" src="doxygen.png" alt="doxygen"/></a> 1.6.1 </small></address>
 </body>

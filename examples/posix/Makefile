@@ -79,7 +79,7 @@ else
 
 ARCH    ?= $(shell uname -i)
 INCLUDE := -I$(KSRC)/include/xenomai -I$(KSRC)/include/xenomai/compat -I$(KSRC)/include/xenomai/posix
-CFLAGS  := $(shell $(MAKE) -s -C $(KSRC) CC=$(CC) ARCH=$(ARCH) SUBDIRS=$(PWD) modules) $(INCLUDE)
+CFLAGS  += $(shell $(MAKE) -s -C $(KSRC) CC=$(CC) ARCH=$(ARCH) SUBDIRS=$(PWD) modules) $(INCLUDE)
 
 all:: $(OBJS)
 
@@ -90,7 +90,7 @@ modules:
 	@echo "$(CFLAGS)"
 
 clean::
-	$(RM) $(CLEANMOD) *.o *.ko *.mod.c Module*.symvers
+	$(RM) $(CLEANMOD) *.o *.ko *.mod.c Module*.symvers Module.markers modules.order
 	$(RM) -R .tmp*
 	$(RM) .runinfo
 

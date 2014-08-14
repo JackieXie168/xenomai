@@ -31,6 +31,9 @@ static inline void xnarch_init_shadow_tcb(xnarchtcb_t * tcb,
 	struct task_struct *task = current;
 
 	tcb->user_task = task;
+#ifdef CONFIG_MPU
+	tcb->active_task = NULL;
+#endif
 	tcb->tsp = &task->thread;
 	tcb->entry = NULL;
 	tcb->cookie = NULL;
@@ -39,61 +42,9 @@ static inline void xnarch_init_shadow_tcb(xnarchtcb_t * tcb,
 	tcb->name = name;
 }
 
-static inline void xnarch_grab_xirqs(rthal_irq_handler_t handler)
-{
-	unsigned irq;
-
-	for (irq = 0; irq < IPIPE_NR_XIRQS; irq++)
-		rthal_virtualize_irq(rthal_current_domain,
-				     irq,
-				     handler, NULL, NULL, IPIPE_HANDLE_MASK);
-}
-
-static inline void xnarch_lock_xirqs(rthal_pipeline_stage_t * ipd, int cpuid)
-{
-	unsigned irq;
-
-	for (irq = 0; irq < IPIPE_NR_XIRQS; irq++) {
-		switch (irq) {
-#ifdef CONFIG_SMP
-		case RTHAL_CRITICAL_IPI:
-
-			/* Never lock out this one. */
-			continue;
-#endif /* CONFIG_SMP */
-
-		default:
-
-			rthal_lock_irq(ipd, cpuid, irq);
-		}
-	}
-}
-
-static inline void xnarch_unlock_xirqs(rthal_pipeline_stage_t * ipd, int cpuid)
-{
-	unsigned irq;
-
-	for (irq = 0; irq < IPIPE_NR_XIRQS; irq++) {
-		switch (irq) {
-#ifdef CONFIG_SMP
-		case RTHAL_CRITICAL_IPI:
-
-			continue;
-#endif /* CONFIG_SMP */
-
-		default:
-
-			rthal_unlock_irq(ipd, irq);
-		}
-	}
-}
-
 static inline int xnarch_local_syscall(struct pt_regs *regs)
 {
-	unsigned long ptr, x, r, flags;
-	int err = 0;
-
-	local_irq_save_hw(flags);
+	unsigned long ptr, x, r;
 
 	switch (__xn_reg_arg1(regs)) {
 	case __xn_lsys_xchg:
@@ -102,17 +53,15 @@ static inline int xnarch_local_syscall(struct pt_regs *regs)
 		ptr = __xn_reg_arg2(regs);
 		x = __xn_reg_arg3(regs);
 		r = xchg((unsigned long *)ptr, x);
-		__xn_put_user(current, r, (unsigned long *)__xn_reg_arg4(regs));
+		__xn_put_user(r, (unsigned long *)__xn_reg_arg4(regs));
 		break;
 
 	default:
 
-		err = -ENOSYS;
+		return -ENOSYS;
 	}
 
-	local_irq_restore_hw(flags);
-
-	return err;
+	return 0;
 }
 
 #define xnarch_schedule_tail(prev) do { } while(0)

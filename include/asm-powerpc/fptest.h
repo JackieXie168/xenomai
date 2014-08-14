@@ -3,6 +3,32 @@
 
 #ifdef __KERNEL__
 #include <linux/module.h>
+#include <asm/system.h>
+
+static inline int fp_kernel_supported(void)
+{
+#ifdef CONFIG_MATH_EMULATION
+	static int once = 0;
+	if (!once) {
+		once = 1;
+		printk("Warning: CONFIG_MATH_EMULATION defined in kernel\n"
+		       "         no kernel-based FPU support for this platform\n");
+	}
+	return 0;
+#else
+	return 1;
+#endif
+}
+
+static inline int fp_linux_begin(void)
+{
+	return -ENOSYS;
+}
+
+static inline void fp_linux_end(void)
+{
+}
+
 #else /* !__KERNEL__ */
 #include <stdint.h>
 #include <stdio.h>

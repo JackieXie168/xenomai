@@ -1,6 +1,6 @@
 lib_LTLIBRARIES = librtdm.la
 
-librtdm_la_LDFLAGS = -version-info 1:0:0
+librtdm_la_LDFLAGS = @XENO_DLOPEN_CONSTRAINT@ -version-info 1:0:0 -lpthread
 
 librtdm_la_SOURCES = \
 	core.c \
@@ -9,3 +9,5 @@ librtdm_la_SOURCES = \
 librtdm_la_CPPFLAGS = \
 	@XENO_USER_CFLAGS@ \
 	-I$(top_srcdir)/include
+
+librtdm_la_LIBADD = ../common/libxeno_common.la

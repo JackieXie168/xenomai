@@ -36,7 +36,6 @@
 #include <linux/errno.h>
 #include <linux/module.h>
 #include <linux/console.h>
-#include <linux/mm.h>
 #include <asm/system.h>
 #include <asm/hardirq.h>
 #include <asm/irq.h>
@@ -70,12 +69,13 @@ int rthal_timer_request(void (*handler)(void),
 
 #ifdef CONFIG_GENERIC_CLOCKEVENTS
     unsigned long dummy, *tmfreq = &dummy;
+    int res;    
 
     if (rthal_timerfreq_arg == 0)
         tmfreq = &rthal_tunables.timer_freq;
 
-    int res = ipipe_request_tickdev(RTHAL_TIMER_DEVICE, mode_emul,
-				    tick_emul, cpu, tmfreq);
+    res = ipipe_request_tickdev(RTHAL_TIMER_DEVICE, mode_emul,
+				tick_emul, cpu, tmfreq);
     
     switch (res) {
     case CLOCK_EVT_MODE_PERIODIC:

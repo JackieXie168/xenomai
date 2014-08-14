@@ -102,7 +102,7 @@ Collaboration diagram for Shared memory services.:</div>
 <dl class="see"><dt><b>See also:</b></dt><dd><a href="http://www.opengroup.org/onlinepubs/000095399/functions/close.html">Specification.</a> </dd></dl>
 <dl><dt><b>Examples: </b></dt><dd><a class="el" href="pipe_8c-example.html#a0">pipe.c</a>, and <a class="el" href="rtcan__rtt_8c-example.html#a23">rtcan_rtt.c</a>.</dd>
 </dl>
-<p>Referenced by <a class="el" href="shm_8c_source.html#l00232">shm_open()</a>.</p>
+<p>Referenced by <a class="el" href="shm_8c_source.html#l00224">shm_open()</a>.</p>
 
 </div>
 </div>
@@ -133,7 +133,7 @@ Collaboration diagram for Shared memory services.:</div>
 
 <p>Truncate a file or shared memory object to a specified length. </p>
 <p>When used in kernel-space, this service set to <em>len</em> the size of a shared memory object opened with the <a class="el" href="group__posix__shm.html#gaf765a0fa9152fbf874436c966f3af7ba" title="Open a shared memory object.">shm_open()</a> service. In user-space this service falls back to Linux regular ftruncate service for file descriptors not obtained with <a class="el" href="group__posix__shm.html#gaf765a0fa9152fbf874436c966f3af7ba" title="Open a shared memory object.">shm_open()</a>. When this service is used to increase the size of a shared memory object, the added space is zero-filled.</p>
-<p>Shared memory are suitable for direct memory access (allocated in physically contiguous memory) if their size is less than or equal to 128 K.</p>
+<p>Shared memory are suitable for direct memory access (allocated in physically contiguous memory) if O_DIRECT was passed to shm_open.</p>
 <p>Shared memory objects may only be resized if they are not currently mapped.</p>
 <dl><dt><b>Parameters:</b></dt><dd>
   <table border="0" cellspacing="2" cellpadding="0">
@@ -150,6 +150,7 @@ Collaboration diagram for Shared memory services.:</div>
 <li>EBADF, <em>fd</em> is not a valid file descriptor;</li>
 <li>EPERM, the caller context is invalid;</li>
 <li>EINVAL, the specified length is invalid;</li>
+<li>EINVAL, the architecture can not honour the O_DIRECT flag;</li>
 <li>EINTR, this service was interrupted by a signal;</li>
 <li>EBUSY, <em>fd</em> is a shared memory object descriptor and the underlying shared memory is currently mapped;</li>
 <li>EFBIG, allocation of system memory failed.</li>
@@ -165,9 +166,9 @@ Collaboration diagram for Shared memory services.:</div>
 </dd></dl>
 <dl class="see"><dt><b>See also:</b></dt><dd><a href="http://www.opengroup.org/onlinepubs/000095399/functions/ftruncate.html">Specification.</a> </dd></dl>
 
-<p>References <a class="el" href="ksrc_2nucleus_2heap_8c_source.html#l00429">xnheap_alloc()</a>, <a class="el" href="ksrc_2nucleus_2heap_8c_source.html#l00270">xnheap_destroy()</a>, <a class="el" href="ksrc_2nucleus_2heap_8c_source.html#l00788">xnheap_free()</a>, and <a class="el" href="ksrc_2nucleus_2heap_8c_source.html#l00167">xnheap_init()</a>.</p>
+<p>References <a class="el" href="ksrc_2nucleus_2heap_8c_source.html#l00481">xnheap_alloc()</a>, <a class="el" href="ksrc_2nucleus_2heap_8c_source.html#l00842">xnheap_free()</a>, and <a class="el" href="ksrc_2nucleus_2heap_8c_source.html#l00276">xnheap_set_label()</a>.</p>
 
-<p>Referenced by <a class="el" href="shm_8c_source.html#l00232">shm_open()</a>.</p>
+<p>Referenced by <a class="el" href="shm_8c_source.html#l00224">shm_open()</a>.</p>
 
 </div>
 </div>
@@ -373,6 +374,7 @@ Collaboration diagram for Shared memory services.:</div>
 <p>If no shared memory object named <em>name</em> exists, and <em>oflags</em> has the <em>O_CREAT</em> bit set, the shared memory object is created by this function.</p>
 <p>If <em>oflags</em> has the two bits <em>O_CREAT</em> and <em>O_EXCL</em> set and the shared memory object alread exists, this service fails.</p>
 <p>If <em>oflags</em> has the bit <em>O_TRUNC</em> set, the shared memory exists and is not currently mapped, its size is truncated to 0.</p>
+<p>If <em>oflags</em> has the bit <em>O_DIRECT</em> set, the shared memory will be suitable for direct memory access (allocated in physically contiguous memory).</p>
 <p><em>name</em> may be any arbitrary string, in which slashes have no particular meaning. However, for portability, using a name which starts with a slash and contains no other slash is recommended.</p>
 <dl><dt><b>Parameters:</b></dt><dd>
   <table border="0" cellspacing="2" cellpadding="0">
@@ -401,7 +403,7 @@ Collaboration diagram for Shared memory services.:</div>
 </dd></dl>
 <dl class="see"><dt><b>See also:</b></dt><dd><a href="http://www.opengroup.org/onlinepubs/000095399/functions/shm_open.html">Specification.</a> </dd></dl>
 
-<p>References <a class="el" href="shm_8c_source.html#l00335">close()</a>, and <a class="el" href="shm_8c_source.html#l00469">ftruncate()</a>.</p>
+<p>References <a class="el" href="shm_8c_source.html#l00327">close()</a>, and <a class="el" href="shm_8c_source.html#l00462">ftruncate()</a>.</p>
 
 </div>
 </div>
@@ -454,7 +456,7 @@ Collaboration diagram for Shared memory services.:</div>
 </div>
 </div>
 </div>
-<hr size="1"/><address style="text-align: right;"><small>Generated on Tue Oct 27 19:18:55 2009 for Xenomai API by&nbsp;
+<hr size="1"/><address style="text-align: right;"><small>Generated on Fri Jan 1 10:45:19 2010 for Xenomai API by&nbsp;
 <a href="http://www.doxygen.org/index.html">
 <img class="footer" src="doxygen.png" alt="doxygen"/></a> 1.6.1 </small></address>
 </body>

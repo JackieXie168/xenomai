@@ -2,7 +2,9 @@ includedir = $(prefix)/include/posix
 
 lib_LTLIBRARIES = libpthread_rt.la
 
-libpthread_rt_la_LDFLAGS = -version-info 1:0:0 -lpthread
+CPPFLAGS+=-I$(top_srcdir)/ksrc/skins
+
+libpthread_rt_la_LDFLAGS = @XENO_DLOPEN_CONSTRAINT@ -version-info 1:0:0 -lpthread
 
 libpthread_rt_la_SOURCES = \
 	init.c \
@@ -23,6 +25,8 @@ libpthread_rt_la_CPPFLAGS = \
 	@XENO_USER_CFLAGS@ \
 	-I$(top_srcdir)/include \
 	-I$(top_srcdir)/include/posix
+
+libpthread_rt_la_LIBADD = ../common/libxeno_common.la
 
 install-data-local:
 	$(mkinstalldirs) $(DESTDIR)$(libdir)

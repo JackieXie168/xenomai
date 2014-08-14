@@ -46,7 +46,7 @@
 #define __xn_feat_arm_tsc               0x00000008
 
 /* The ABI revision level we use on this arch. */
-#define XENOMAI_ABI_REV   1UL
+#define XENOMAI_ABI_REV   3UL
 
 #if __LINUX_ARM_ARCH__ >= 6
 /* ARMv6 has both atomic xchg and atomic_inc/dec etc. */
@@ -75,7 +75,7 @@
                             __xn_feat_arm_eabi_mask             | \
 			    __xn_feat_arm_tsc_mask)
 
-#define XENOMAI_FEAT_MAN  0
+#define XENOMAI_FEAT_MAN  __xn_feat_generic_man_mask
 
 static inline int check_abi_revision(unsigned long abirev)
 {
@@ -99,5 +99,8 @@ static inline const char *get_feature_label (unsigned feature)
 }
 
 #define XNARCH_HAVE_LLMULSHFT    1
+#define XNARCH_HAVE_NODIV_LLIMD  1
 
 #endif /* !_XENO_ASM_ARM_FEATURES_H */
+
+// vim: ts=4 et sw=4 sts=4

@@ -46,6 +46,14 @@
 
 #if defined(__KERNEL__) || defined(__XENO_SIM__)
 
+#ifndef CONFIG_XENO_OPT_DEBUG_NUCLEUS
+#define CONFIG_XENO_OPT_DEBUG_NUCLEUS 0
+#endif
+
+#define XNHEAP_PAGE_SIZE	512 /* A reasonable value for the xnheap page size */
+#define XNHEAP_PAGE_MASK	(~(XNHEAP_PAGE_SIZE-1))
+#define XNHEAP_PAGE_ALIGN(addr)	(((addr)+XNHEAP_PAGE_SIZE-1)&XNHEAP_PAGE_MASK)
+
 #define XNHEAP_MINLOG2    3
 #define XNHEAP_MAXLOG2    22	/* Must hold pagemap::bcount objects */
 #define XNHEAP_MINALLOCSZ (1 << XNHEAP_MINLOG2)
@@ -59,6 +67,11 @@
 
 #define XNHEAP_GFP_NONCACHED (1 << __GFP_BITS_SHIFT)
 
+struct xnpagemap {
+	unsigned int type : 8;	  /* PFREE, PCONT, PLIST or log2 */
+	unsigned int bcount : 24; /* Number of active blocks. */
+};
+
 typedef struct xnextent {
 
 	xnholder_t link;
@@ -69,10 +82,7 @@ typedef struct xnextent {
 		memlim,		/* Memory limit of page array */
 		freelist;	/* Head of the free page list */
 
-	struct xnpagemap {	/* Beginning of page map */
-		unsigned int type : 8;	  /* PFREE, PCONT, PLIST or log2 */
-		unsigned int bcount : 24; /* Number of active blocks. */
-	} pagemap[1];
+	struct xnpagemap pagemap[1];	/* Beginning of page map */
 
 } xnextent_t;
 
@@ -92,18 +102,22 @@ typedef struct xnheap {
 
 	xnqueue_t extents;
 
-        DECLARE_XNLOCK(lock);
+	DECLARE_XNLOCK(lock);
 
 	struct xnbucket {
 		caddr_t freelist;
 		int fcount;
 	} buckets[XNHEAP_NBUCKETS];
 
-	xnholder_t *idleq;
+	xnholder_t *idleq[XNARCH_NR_CPUS];
 
 	xnarch_heapcb_t archdep;
 
 	XNARCH_DECL_DISPLAY_CONTEXT();
+
+	xnholder_t stat_link;	/* Link in heapq */
+
+	char label[XNOBJECT_NAME_LEN+16];
 
 } xnheap_t;
 
@@ -148,13 +162,13 @@ static inline size_t xnheap_internal_overhead(size_t hsize, size_t psize)
 #define xnmalloc(size)     xnheap_alloc(&kheap,size)
 #define xnfree(ptr)        xnheap_free(&kheap,ptr)
 #define xnfreesync()       xnheap_finalize_free(&kheap)
-#define xnfreesafe(thread,ptr,ln)		\
-    do {					\
-    if (xnpod_current_p(thread))		\
-	xnheap_schedule_free(&kheap,ptr,ln);	\
-    else					\
-	xnheap_free(&kheap,ptr);		\
-} while(0)
+#define xnfreesafe(thread, ptr, ln)				\
+	do {							\
+		if (xnpod_current_p(thread))			\
+			xnheap_schedule_free(&kheap, ptr, ln);	\
+		else						\
+			xnheap_free(&kheap,ptr);		\
+	} while(0)
 
 static inline size_t xnheap_rounded_size(size_t hsize, size_t psize)
 {
@@ -168,7 +182,7 @@ static inline size_t xnheap_rounded_size(size_t hsize, size_t psize)
 	 */
 	if (hsize < 2 * psize)
 		hsize = 2 * psize;
- 	hsize += xnheap_external_overhead(hsize, psize);
+	hsize += xnheap_external_overhead(hsize, psize);
 	return xnheap_align(hsize, psize);
 }
 
@@ -186,13 +200,17 @@ int xnheap_mount(void);
 
 void xnheap_umount(void);
 
+void xnheap_init_proc(void);
+
+void xnheap_cleanup_proc(void);
+
 int xnheap_init_mapped(xnheap_t *heap,
 		       u_long heapsize,
 		       int memflags);
 
-int xnheap_destroy_mapped(xnheap_t *heap,
-			  void (*release)(struct xnheap *heap),
-			  void __user *mapaddr);
+void xnheap_destroy_mapped(xnheap_t *heap,
+			   void (*release)(struct xnheap *heap),
+			   void __user *mapaddr);
 
 #define xnheap_mapped_offset(heap,ptr) \
 (((caddr_t)(ptr)) - ((caddr_t)(heap)->archdep.heapbase))
@@ -212,12 +230,14 @@ int xnheap_init(xnheap_t *heap,
 		u_long heapsize,
 		u_long pagesize);
 
-int xnheap_destroy(xnheap_t *heap,
-		   void (*flushfn)(xnheap_t *heap,
-				   void *extaddr,
-				   u_long extsize,
-				   void *cookie),
-		   void *cookie);
+void xnheap_set_label(xnheap_t *heap, const char *name, ...);
+
+void xnheap_destroy(xnheap_t *heap,
+		    void (*flushfn)(xnheap_t *heap,
+				    void *extaddr,
+				    u_long extsize,
+				    void *cookie),
+		    void *cookie);
 
 int xnheap_extend(xnheap_t *heap,
 		  void *extaddr,
@@ -237,12 +257,19 @@ void xnheap_schedule_free(xnheap_t *heap,
 			  void *block,
 			  xnholder_t *link);
 
-void xnheap_finalize_free_inner(xnheap_t *heap);
+void xnheap_finalize_free_inner(xnheap_t *heap,
+				int cpu);
 
 static inline void xnheap_finalize_free(xnheap_t *heap)
 {
-    if (heap->idleq)
-	xnheap_finalize_free_inner(heap);
+	int cpu = xnarch_current_cpu();
+
+	XENO_ASSERT(NUCLEUS,
+		    spltest() != 0,
+		    xnpod_fatal("%s called in unsafe context", __FUNCTION__));
+
+	if (heap->idleq[cpu])
+		xnheap_finalize_free_inner(heap, cpu);
 }
 
 int xnheap_check_block(xnheap_t *heap,

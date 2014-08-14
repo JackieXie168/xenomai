@@ -20,48 +20,63 @@
 #ifndef _XENO_ASM_GENERIC_SYSCALL_H
 #define _XENO_ASM_GENERIC_SYSCALL_H
 
+#include <asm/xenomai/features.h>
+#ifdef __KERNEL__
+#include <linux/types.h>
+#include <linux/signal.h>
+#include <asm/uaccess.h>
+#include <asm/xenomai/wrappers.h>
+#include <asm/xenomai/hal.h>
+#else /* !__KERNEL__ */
+#include <sys/types.h>
+#include <signal.h>
+#endif /* !__KERNEL__ */
+
 /* Xenomai multiplexer syscall. */
-#define __xn_sys_mux        555	/* Must fit within 15bit */
+#define __xn_sys_mux		555	/* Must fit within 15bit */
 /* Xenomai nucleus syscalls. */
-#define __xn_sys_bind       0	/* muxid = bind_to_interface(magic,featdep,abirev) */
-#define __xn_sys_completion 1	/* xnshadow_completion(&completion) */
-#define __xn_sys_migrate    2	/* switched = xnshadow_relax/harden() */
-#define __xn_sys_barrier    3	/* started = xnshadow_wait_barrier(&entry,&cookie) */
-#define __xn_sys_info       4	/* xnshadow_get_info(muxid,&info) */
-#define __xn_sys_arch       5	/* r = xnarch_local_syscall(args) */
-#define __xn_sys_trace      6	/* r = xntrace_xxx(...) */
+#define __xn_sys_bind		0	/* muxid = bind_to_interface(magic,featdep,abirev) */
+#define __xn_sys_completion	1	/* xnshadow_completion(&completion) */
+#define __xn_sys_migrate	2	/* switched = xnshadow_relax/harden() */
+#define __xn_sys_barrier	3	/* started = xnshadow_wait_barrier(&entry,&cookie) */
+#define __xn_sys_info		4	/* xnshadow_get_info(muxid,&info) */
+#define __xn_sys_arch		5	/* r = xnarch_local_syscall(args) */
+#define __xn_sys_trace		6	/* r = xntrace_xxx(...) */
+#define __xn_sys_sem_heap	7
+#define __xn_sys_current	8	/* threadh = xnthread_handle(cur) */
+#define __xn_sys_current_info	9	/* r = xnshadow_current_info(&info) */
+#define __xn_sys_get_next_sigs 10	/* only unqueue pending signals. */
 
 #define XENOMAI_LINUX_DOMAIN  0
 #define XENOMAI_XENO_DOMAIN   1
 
-typedef struct xnfeatinfo {
-
-#define XNFEAT_STRING_LEN 64
-
-    unsigned long feat_all;	/* Available feature set. */
-    char feat_all_s[XNFEAT_STRING_LEN];
-    unsigned long feat_man;	/* Mandatory features (when requested). */
-    char feat_man_s[XNFEAT_STRING_LEN];
-    unsigned long feat_req;	/* Requested feature set. */
-    char feat_req_s[XNFEAT_STRING_LEN];
-    unsigned long feat_mis;	/* Missing features. */
-    char feat_mis_s[XNFEAT_STRING_LEN];
-
-    unsigned long abirev;	/* ABI revision level. */
-
-} xnfeatinfo_t;
-
 typedef struct xnsysinfo {
-
-    unsigned long long cpufreq;	/* CPU frequency */
-    unsigned long tickval;	/* Tick duration (ns) */
+	unsigned long long cpufreq;	/* CPU frequency */
+	unsigned long tickval;		/* Tick duration (ns) */
+	unsigned long vdso;  		/* Offset of nkvdso in the sem heap */
 } xnsysinfo_t;
 
-#define SIGHARDEN  SIGWINCH
+#define SIGSHADOW  SIGWINCH
+#define SIGSHADOW_ACTION_HARDEN   1
+#define SIGSHADOW_ACTION_RENICE   2
+#define sigshadow_action(code) ((code) & 0xff)
+#define sigshadow_arg(code) (((code) >> 8) & 0xff)
+#define sigshadow_int(action, arg) ((action) | ((arg) << 8))
+
+union xnsiginfo {
+	struct siginfo pse51_si;
+};
+
+struct xnsig {
+	unsigned nsigs;
+	unsigned remaining;
+	struct {
+		unsigned muxid;
+		union xnsiginfo si;
+	} pending[16];
+};
 
 #ifdef __KERNEL__
-
-#include <linux/types.h>
 
 struct task_struct;
 struct pt_regs;
@@ -70,8 +85,7 @@ struct pt_regs;
 
 typedef struct _xnsysent {
 
-    int (*svc)(struct task_struct *task,
-	       struct pt_regs *regs);
+    int (*svc)(struct pt_regs *regs);
 
 /* Syscall must run into the Linux domain. */
 #define __xn_exec_lostage    0x1
@@ -111,18 +125,69 @@ extern int nkerrptd;
 /* The errno field must be addressable for plain Linux tasks too. */
 #define xnshadow_errno(t)  (*(int *)&((t)->ptd[nkerrptd]))
 
+#define access_rok(addr, size)	access_ok(VERIFY_READ, (addr), (size))
+#define access_wok(addr, size)	access_ok(VERIFY_WRITE, (addr), (size))
+
+#define __xn_copy_from_user(dstP, srcP, n)	__copy_from_user_inatomic(dstP, srcP, n)
+#define __xn_copy_to_user(dstP, srcP, n)	__copy_to_user_inatomic(dstP, srcP, n)
+#define __xn_put_user(src, dstP)		__put_user(src, dstP)
+#define __xn_get_user(dst, srcP)		__get_user(dst, srcP)
+#define __xn_strncpy_from_user(dstP, srcP, n)	wrap_strncpy_from_user(dstP, srcP, n)
+
+static inline int __xn_safe_copy_from_user(void *dst, const void __user *src,
+					   size_t size)
+{
+	return (!access_rok(src, size) ||
+		__xn_copy_from_user(dst, src, size)) ? -EFAULT : 0;
+}
+
+static inline int __xn_safe_copy_to_user(void __user *dst, const void *src,
+					 size_t size)
+{
+	return (!access_wok(dst, size) ||
+		__xn_copy_to_user(dst, src, size)) ? -EFAULT : 0;
+}
+
+static inline int __xn_safe_strncpy_from_user(char *dst,
+					      const char __user *src, size_t count)
+{
+	if (unlikely(!access_rok(src, 1)))
+		return -EFAULT;
+	return __xn_strncpy_from_user(dst, src, count);
+}
+
 #else /* !__KERNEL__ */
 
-#include <sys/types.h>
-#include <asm/xenomai/features.h>
+#ifdef __cplusplus
+extern "C" {
+#endif /* __cplusplus */
+int __xnsig_dispatch(struct xnsig *sigs, int cumulated_error, int last_error);
 
-#endif /* __KERNEL__ */
+int __xnsig_dispatch_safe(struct xnsig *sigs, int cumulated_error, int last_error);
+#ifdef __cplusplus
+}
+#endif /* __cplusplus */
+
+/* Called to dispatch signals which interrupted a system call. */
+static inline int xnsig_dispatch(struct xnsig *sigs, int cumul, int last)
+{
+	if (sigs->nsigs)
+		return __xnsig_dispatch(sigs, cumul, last);
+	return last;
+}
+
+static inline int xnsig_dispatch_safe(struct xnsig *sigs, int cumul, int last)
+{
+	if (sigs->nsigs)
+		return __xnsig_dispatch_safe(sigs, cumul, last);
+	return last;
+}
+
+#endif /* !__KERNEL__ */
 
 typedef struct xncompletion {
-
-    long syncflag;		/* Semaphore variable. */
-    pid_t pid;			/* Single waiter ID. */
-
+	long syncflag;		/* Semaphore variable. */
+	pid_t pid;		/* Single waiter ID. */
 } xncompletion_t;
 
 #endif /* !_XENO_ASM_GENERIC_SYSCALL_H */

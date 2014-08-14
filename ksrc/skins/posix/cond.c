@@ -142,7 +142,7 @@ int pthread_cond_init(pthread_cond_t * cnd, const pthread_condattr_t * attr)
 	shadow->magic = PSE51_COND_MAGIC;
 	shadow->cond = cond;
 
-	xnsynch_init(&cond->synchbase, synch_flags);
+	xnsynch_init(&cond->synchbase, synch_flags, NULL);
 	inith(&cond->link);
 	cond->attr = *attr;
 	cond->mutex = NULL;
@@ -229,15 +229,13 @@ static inline int mutex_save_count(xnthread_t *cur,
 
 	mutex = shadow->mutex;
 
-	if (xnsynch_owner(&mutex->synchbase) != cur || mutex->count == 0)
+	if (xnsynch_owner_check(&mutex->synchbase, cur) != 0)
 		return EPERM;
 
-	*count_ptr = mutex->count;
+	*count_ptr = shadow->lockcnt;
 
-	if (xnsynch_wakeup_one_sleeper(&mutex->synchbase))
-		mutex->count = 1;
-	else
-		mutex->count = 0;
+	xnsynch_release(&mutex->synchbase);
+
 	/* Do not reschedule here, releasing the mutex and suspension must be
 	   done atomically in pthread_cond_*wait. */
 
@@ -282,15 +280,12 @@ int pse51_cond_timedwait_prologue(xnthread_t *cur,
 	/* Unlock mutex, with its previous recursive lock count stored
 	   in "*count_ptr". */
 	err = mutex_save_count(cur, mutex, count_ptr);
-
 	if (err)
 		goto unlock_and_return;
 
 	/* Bind mutex to cond. */
-	if (cond->mutex == NULL) {
+	if (cond->mutex == NULL)
 		cond->mutex = mutex->mutex;
-		++mutex->mutex->condvars;
-	}
 
 	/* Wait for another thread to signal the condition. */
 	if (timed)
@@ -342,18 +337,15 @@ int pse51_cond_timedwait_epilogue(xnthread_t *cur,
 
 	err = pse51_mutex_timedlock_internal(cur, mutex, count, 0, XN_INFINITE);
 
-	if (err == EINTR)
+	if (err == -EINTR)
 		goto unlock_and_return;
 
 
 	/* Unbind mutex and cond, if no other thread is waiting, if the job was
 	   not already done. */
 	if (!xnsynch_nsleepers(&cond->synchbase)
-	    && cond->mutex == mutex->mutex) {
-	
-		--mutex->mutex->condvars;
+	    && cond->mutex == mutex->mutex)
 		cond->mutex = NULL;
-	}
 
 	thread_cancellation_point(cur);
 
@@ -422,6 +414,11 @@ int pthread_cond_wait(pthread_cond_t * cnd, pthread_mutex_t * mx)
 	unsigned count;
 	int err;
 
+#ifdef CONFIG_XENO_FASTSYNCH
+	if (unlikely(cb_try_read_lock(&mutex->lock, s)))
+		return EINVAL;
+#endif /* CONFIG_XENO_FASTSYNCH */
+
 	err = pse51_cond_timedwait_prologue(cur, cond, mutex,
 					    &count, 0, XN_INFINITE);
 
@@ -429,6 +426,10 @@ int pthread_cond_wait(pthread_cond_t * cnd, pthread_mutex_t * mx)
 		while (EINTR == pse51_cond_timedwait_epilogue(cur, cond,
 							      mutex, count))
 			;
+
+#ifdef CONFIG_XENO_FASTSYNCH
+	cb_read_unlock(&mutex->lock, s);
+#endif /* CONFIG_XENO_FASTSYNCH */
 
 	return err != EINTR ? err : 0;
 }
@@ -481,6 +482,11 @@ int pthread_cond_timedwait(pthread_cond_t * cnd,
 	unsigned count;
 	int err;
 
+#ifdef CONFIG_XENO_FASTSYNCH
+	if (unlikely(cb_try_read_lock(&mutex->lock, s)))
+		return EINVAL;
+#endif /* CONFIG_XENO_FASTSYNCH */
+
 	err = pse51_cond_timedwait_prologue(cur, cond, mutex, &count, 1,
 					    ts2ticks_ceil(abstime) + 1);
 
@@ -488,6 +494,10 @@ int pthread_cond_timedwait(pthread_cond_t * cnd,
 		while (EINTR == pse51_cond_timedwait_epilogue(cur, cond,
 							      mutex, count))
 			;
+
+#ifdef CONFIG_XENO_FASTSYNCH
+	cb_read_unlock(&mutex->lock, s);
+#endif /* CONFIG_XENO_FASTSYNCH */
 
 	return err != EINTR ? err : 0;
 }

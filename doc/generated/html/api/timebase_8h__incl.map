@@ -1,7 +1,6 @@
 <map id="G" name="G">
-<area shape="rect" href="$nucleus_2queue_8h_source.html" title="nucleus/queue.h" alt="" coords="443,83,557,112"/>
+<area shape="rect" href="$nucleus_2queue_8h_source.html" title="nucleus/queue.h" alt="" coords="383,83,497,112"/>
 <area shape="rect" href="$nucleus_2types_8h_source.html" title="nucleus/types.h" alt="" coords="324,160,436,189"/>
 <area shape="rect" href="$assert_8h_source.html" title="nucleus/assert.h" alt="" coords="456,237,573,267"/>
-<area shape="rect" href="$core_8h_source.html" title="nucleus/core.h" alt="" coords="537,160,644,189"/>
 <area shape="rect" href="$compiler_8h_source.html" title="nucleus/compiler.h" alt="" coords="301,237,432,267"/>
 </map>

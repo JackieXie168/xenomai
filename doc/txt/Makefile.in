@@ -168,6 +168,7 @@ SHELL = @SHELL@
 STRIP = @STRIP@
 VERSION = @VERSION@
 XENO_BUILD_STRING = @XENO_BUILD_STRING@
+XENO_DLOPEN_CONSTRAINT = @XENO_DLOPEN_CONSTRAINT@
 XENO_HOST_STRING = @XENO_HOST_STRING@
 XENO_LINUX_ALL_TARGETS = @XENO_LINUX_ALL_TARGETS@
 XENO_LINUX_ARCH = @XENO_LINUX_ARCH@
@@ -246,7 +247,9 @@ dist_txtdoc_DATA = \
 	rtai-skin.txt \
 	uITRON-skin.txt \
 	vrtx-skin.txt \
-	vxworks-skin.txt
+	comedi-skin.txt \
+	vxworks-skin.txt \
+	ChangeLog.pre-git
 
 all: all-am
 

@@ -75,7 +75,7 @@ am__base_list = \
   sed '$$!N;$$!N;$$!N;$$!N;s/\n/ /g'
 am__installdirs = "$(DESTDIR)$(libdir)"
 LTLIBRARIES = $(lib_LTLIBRARIES)
-libpsos_la_LIBADD =
+libpsos_la_DEPENDENCIES = ../common/libxeno_common.la
 am_libpsos_la_OBJECTS = libpsos_la-asr.lo libpsos_la-init.lo \
 	libpsos_la-queue.lo libpsos_la-rn.lo libpsos_la-sem.lo \
 	libpsos_la-task.lo libpsos_la-tm.lo
@@ -190,6 +190,7 @@ SHELL = @SHELL@
 STRIP = @STRIP@
 VERSION = @VERSION@
 XENO_BUILD_STRING = @XENO_BUILD_STRING@
+XENO_DLOPEN_CONSTRAINT = @XENO_DLOPEN_CONSTRAINT@
 XENO_HOST_STRING = @XENO_HOST_STRING@
 XENO_LINUX_ALL_TARGETS = @XENO_LINUX_ALL_TARGETS@
 XENO_LINUX_ARCH = @XENO_LINUX_ARCH@
@@ -260,7 +261,7 @@ top_build_prefix = @top_build_prefix@
 top_builddir = @top_builddir@
 top_srcdir = @top_srcdir@
 lib_LTLIBRARIES = libpsos.la
-libpsos_la_LDFLAGS = -version-info 0:0:0 -lpthread
+libpsos_la_LDFLAGS = @XENO_DLOPEN_CONSTRAINT@ -version-info 0:0:0 -lpthread
 libpsos_la_SOURCES = \
 	asr.c \
 	init.c \
@@ -274,6 +275,7 @@ libpsos_la_CPPFLAGS = \
 	@XENO_USER_CFLAGS@ \
 	-I$(top_srcdir)/include
 
+libpsos_la_LIBADD = ../common/libxeno_common.la
 all: all-am
 
 .SUFFIXES:

@@ -41,6 +41,7 @@ void xnpod_delete_thread(struct xnthread *);
 
 static inline void xnarch_leave_root(xnarchtcb_t * rootcb)
 {
+	rthal_mute_pic();
 	/* Remember the preempted Linux task pointer. */
 	rootcb->user_task = rootcb->active_task = current;
 	rootcb->mm = rootcb->active_mm = rthal_get_active_mm();
@@ -63,9 +64,10 @@ static inline void xnarch_enter_root(xnarchtcb_t * rootcb)
 	if (!rootcb->mm)
 		set_ti_thread_flag(rootcb->tip, TIF_MMSWITCH_INT);
 #endif /* TIF_MMSWITCH_INT */
+	rthal_unmute_pic();
 }
 
-static inline void xnarch_switch_to(xnarchtcb_t * out_tcb, xnarchtcb_t * in_tcb)
+static inline void xnarch_switch_to(xnarchtcb_t *out_tcb, xnarchtcb_t *in_tcb)
 {
 	struct task_struct *prev = out_tcb->active_task;
 	struct mm_struct *prev_mm = out_tcb->active_mm;
@@ -94,38 +96,6 @@ static inline void xnarch_switch_to(xnarchtcb_t * out_tcb, xnarchtcb_t * in_tcb)
 
 	/* Kernel-to-kernel context switch. */
 	rthal_thread_switch(prev, out_tcb->tip, in_tcb->tip);
-}
-
-static inline void xnarch_finalize_and_switch(xnarchtcb_t * dead_tcb,
-					      xnarchtcb_t * next_tcb)
-{
-	xnarch_switch_to(dead_tcb, next_tcb);
-}
-
-static inline void xnarch_finalize_no_switch(xnarchtcb_t * dead_tcb)
-{
-	/* Empty */
-}
-
-static inline void xnarch_init_root_tcb(xnarchtcb_t * tcb,
-					struct xnthread *thread,
-					const char *name)
-{
-	tcb->user_task = current;
-	tcb->active_task = NULL;
-	tcb->mm = current->mm;
-	tcb->active_mm = NULL;
-	tcb->tip = &tcb->ti;
-#ifdef CONFIG_XENO_HW_FPU
-	tcb->user_fpu_owner = NULL;
-	tcb->fpup = NULL;
-	tcb->is_root = 1;
-#endif /* CONFIG_XENO_HW_FPU */
-	tcb->entry = NULL;
-	tcb->cookie = NULL;
-	tcb->self = thread;
-	tcb->imask = 0;
-	tcb->name = name;
 }
 
 asmlinkage static void xnarch_thread_trampoline(xnarchtcb_t * tcb)

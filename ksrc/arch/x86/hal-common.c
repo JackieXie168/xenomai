@@ -46,6 +46,8 @@ static struct {
 
 static void rthal_critical_sync(void)
 {
+	if (!rthal_cpu_supported(rthal_processor_id()))
+		return;
 	switch (rthal_sync_op) {
 	case RTHAL_SET_ONESHOT_XENOMAI:
 		rthal_setup_oneshot_apic(RTHAL_APIC_TIMER_VECTOR);
@@ -70,12 +72,14 @@ static void rthal_timer_set_oneshot(int rt_mode)
 	flags = rthal_critical_enter(rthal_critical_sync);
 	if (rt_mode) {
 		rthal_sync_op = RTHAL_SET_ONESHOT_XENOMAI;
-		rthal_setup_oneshot_apic(RTHAL_APIC_TIMER_VECTOR);
+		if (rthal_cpu_supported(rthal_processor_id()))
+			rthal_setup_oneshot_apic(RTHAL_APIC_TIMER_VECTOR);
 		if (rthal_ktimer_saved_mode != KTIMER_MODE_UNUSED)
 			__ipipe_tick_irq = RTHAL_TIMER_IRQ;
 	} else {
 		rthal_sync_op = RTHAL_SET_ONESHOT_LINUX;
-		rthal_setup_oneshot_apic(LOCAL_TIMER_VECTOR);
+		if (rthal_cpu_supported(rthal_processor_id()))
+			rthal_setup_oneshot_apic(LOCAL_TIMER_VECTOR);
 		__ipipe_tick_irq = RTHAL_HOST_TICK_IRQ;
 		/* We need to keep the timing cycle alive for the kernel. */
 		rthal_trigger_irq(RTHAL_HOST_TICK_IRQ);
@@ -89,37 +93,10 @@ static void rthal_timer_set_periodic(void)
 
 	flags = rthal_critical_enter(&rthal_critical_sync);
 	rthal_sync_op = RTHAL_SET_PERIODIC;
-	rthal_setup_periodic_apic(RTHAL_APIC_ICOUNT, LOCAL_TIMER_VECTOR);
+	if (rthal_cpu_supported(rthal_processor_id()))
+		rthal_setup_periodic_apic(RTHAL_APIC_ICOUNT, LOCAL_TIMER_VECTOR);
 	__ipipe_tick_irq = RTHAL_HOST_TICK_IRQ;
 	rthal_critical_exit(flags);
-}
-
-#if LINUX_VERSION_CODE < KERNEL_VERSION(2,6,0)
-#include <asm/smpboot.h>
-static inline void send_IPI_allbutself(int vector)
-{
-	unsigned long flags;
-
-	rthal_local_irq_save_hw(flags);
-	apic_wait_icr_idle();
-	apic_write(APIC_ICR,
-			  APIC_DM_FIXED | APIC_DEST_ALLBUT | INT_DEST_ADDR_MODE
-			  | vector);
-	rthal_local_irq_restore_hw(flags);
-}
-#elif LINUX_VERSION_CODE < KERNEL_VERSION(2,6,30)
-#include <mach_ipi.h>
-#else
-#define send_IPI_allbutself(vector)	apic->send_IPI_allbutself(vector)
-#endif /* __i386__ && < 2.6.30 */
-
-DECLARE_LINUX_IRQ_HANDLER(rthal_broadcast_to_local_timers, irq, dev_id)
-{
-#ifdef CONFIG_SMP
-	send_IPI_allbutself(LOCAL_TIMER_VECTOR);
-#endif
-	rthal_trigger_irq(RTHAL_HOST_TICK_IRQ);
-	return IRQ_HANDLED;
 }
 
 static int cpu_timers_requested;
@@ -203,6 +180,34 @@ int rthal_timer_request(
 
 #else /* !CONFIG_GENERIC_CLOCKEVENTS */
 
+#if LINUX_VERSION_CODE < KERNEL_VERSION(2,6,0)
+#include <asm/smpboot.h>
+static inline void send_IPI_allbutself(int vector)
+{
+	unsigned long flags;
+
+	rthal_local_irq_save_hw(flags);
+	apic_wait_icr_idle();
+	apic_write(APIC_ICR,
+			  APIC_DM_FIXED | APIC_DEST_ALLBUT | INT_DEST_ADDR_MODE
+			  | vector);
+	rthal_local_irq_restore_hw(flags);
+}
+#elif LINUX_VERSION_CODE < KERNEL_VERSION(2,6,30)
+#include <mach_ipi.h>
+#else
+#define send_IPI_allbutself(vector)	apic->send_IPI_allbutself(vector)
+#endif /* __i386__ && < 2.6.30 */
+
+DECLARE_LINUX_IRQ_HANDLER(rthal_broadcast_to_local_timers, irq, dev_id)
+{
+#ifdef CONFIG_SMP
+	send_IPI_allbutself(LOCAL_TIMER_VECTOR);
+#endif
+	rthal_trigger_irq(RTHAL_HOST_TICK_IRQ);
+	return IRQ_HANDLED;
+}
+
 int rthal_timer_request(void (*tick_handler)(void), int cpu)
 {
 	int err;
@@ -282,6 +287,54 @@ void rthal_timer_release(int cpu)
 	rthal_irq_release(RTHAL_APIC_TIMER_IPI);
 }
 
+#ifdef CONFIG_XENO_HW_NMI_DEBUG_LATENCY
+
+#if LINUX_VERSION_CODE < KERNEL_VERSION(2,6,0)
+
+#include <linux/vt_kern.h>
+
+extern void show_registers(struct pt_regs *regs);
+
+extern spinlock_t nmi_print_lock;
+
+void die_nmi(const char *msg, struct pt_regs *regs, int do_panic)
+{
+	spin_lock(&nmi_print_lock);
+	/*
+	 * We are in trouble anyway, lets at least try
+	 * to get a message out.
+	 */
+	bust_spinlocks(1);
+	printk(msg);
+	show_registers(regs);
+	printk("console shuts up ...\n");
+	console_silent();
+	spin_unlock(&nmi_print_lock);
+	bust_spinlocks(0);
+	do_exit(SIGSEGV);
+}
+
+#elif LINUX_VERSION_CODE < KERNEL_VERSION(2,6,27) && defined(CONFIG_X86_32)
+#define die_nmi(msg, regs, do_panic)	die_nmi(regs, msg)
+#else /* Linux >= 2.6.27 || CONFIG_X86_64 */
+#include <asm/nmi.h>
+#endif /* Linux >= 2.6.27 || CONFIG_X86_64*/
+
+void rthal_latency_above_max(struct pt_regs *regs)
+{
+	/* Try to report via latency tracer first, then fall back to panic. */
+	if (rthal_trace_user_freeze(rthal_maxlat_us, 1) < 0) {
+		char buf[128];
+
+		snprintf(buf,
+			 sizeof(buf),
+			 "NMI watchdog detected timer latency above %u us\n",
+			 rthal_maxlat_us);
+		die_nmi(buf, regs, 1);
+	}
+}
+
+#endif /* CONFIG_XENO_HW_NMI_DEBUG_LATENCY */
 
 #endif /* CONFIG_X86_LOCAL_APIC */
 

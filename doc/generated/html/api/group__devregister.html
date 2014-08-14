@@ -44,6 +44,10 @@ Collaboration diagram for Device Registration Services:</div>
 <tr><td colspan="2"><h2>Modules</h2></td></tr>
 <tr><td class="memItemLeft" align="right" valign="top">&nbsp;</td><td class="memItemRight" valign="bottom"><a class="el" href="group__rtdmsync.html">Synchronisation Services</a></td></tr>
 <tr><td colspan="2"><h2>Functions</h2></td></tr>
+<tr><td class="memItemLeft" align="right" valign="top">static void *&nbsp;</td><td class="memItemRight" valign="bottom"><a class="el" href="group__devregister.html#ga765ab311ea9024a7ff210e963acd7a14">rtdm_context_to_private</a> (struct <a class="el" href="structrtdm__dev__context.html">rtdm_dev_context</a> *context)</td></tr>
+<tr><td class="mdescLeft">&nbsp;</td><td class="mdescRight">Locate the driver private area associated to a device context structure.  <a href="#ga765ab311ea9024a7ff210e963acd7a14"></a><br/></td></tr>
+<tr><td class="memItemLeft" align="right" valign="top">static struct <a class="el" href="structrtdm__dev__context.html">rtdm_dev_context</a> *&nbsp;</td><td class="memItemRight" valign="bottom"><a class="el" href="group__devregister.html#gacc982b978fc3967b0e9d6d308f79c6ee">rtdm_private_to_context</a> (void *dev_private)</td></tr>
+<tr><td class="mdescLeft">&nbsp;</td><td class="mdescRight">Locate a device context structure from its driver private area.  <a href="#gacc982b978fc3967b0e9d6d308f79c6ee"></a><br/></td></tr>
 <tr><td class="memItemLeft" align="right" valign="top">int&nbsp;</td><td class="memItemRight" valign="bottom"><a class="el" href="group__devregister.html#ga6a191b3d206680c48cad2047adb9fc98">rtdm_dev_register</a> (struct <a class="el" href="structrtdm__device.html">rtdm_device</a> *device)</td></tr>
 <tr><td class="mdescLeft">&nbsp;</td><td class="mdescRight">Register a RTDM device.  <a href="#ga6a191b3d206680c48cad2047adb9fc98"></a><br/></td></tr>
 <tr><td class="memItemLeft" align="right" valign="top">int&nbsp;</td><td class="memItemRight" valign="bottom"><a class="el" href="group__devregister.html#ga9cc04a9b6e1710d9ad3860de8d81bf14">rtdm_dev_unregister</a> (struct <a class="el" href="structrtdm__device.html">rtdm_device</a> *device, unsigned int poll_delay)</td></tr>
@@ -161,7 +165,7 @@ Collaboration diagram for Device Registration Services:</div>
 
 <p>Mask selecting the device type. </p>
 
-<p>Referenced by <a class="el" href="device_8c_source.html#l00192">rtdm_dev_register()</a>, and <a class="el" href="device_8c_source.html#l00384">rtdm_dev_unregister()</a>.</p>
+<p>Referenced by <a class="el" href="skins_2rtdm_2device_8c_source.html#l00192">rtdm_dev_register()</a>, and <a class="el" href="skins_2rtdm_2device_8c_source.html#l00384">rtdm_dev_unregister()</a>.</p>
 
 </div>
 </div>
@@ -178,7 +182,7 @@ Collaboration diagram for Device Registration Services:</div>
 
 <p>If set, only a single instance of the device can be requested by an application. </p>
 
-<p>Referenced by <a class="el" href="device_8c_source.html#l00192">rtdm_dev_register()</a>.</p>
+<p>Referenced by <a class="el" href="skins_2rtdm_2device_8c_source.html#l00192">rtdm_dev_register()</a>.</p>
 
 </div>
 </div>
@@ -195,7 +199,7 @@ Collaboration diagram for Device Registration Services:</div>
 
 <p>If set, the device is addressed via a clear-text name. </p>
 
-<p>Referenced by <a class="el" href="device_8c_source.html#l00192">rtdm_dev_register()</a>, and <a class="el" href="device_8c_source.html#l00384">rtdm_dev_unregister()</a>.</p>
+<p>Referenced by <a class="el" href="skins_2rtdm_2device_8c_source.html#l00192">rtdm_dev_register()</a>, and <a class="el" href="skins_2rtdm_2device_8c_source.html#l00384">rtdm_dev_unregister()</a>.</p>
 
 </div>
 </div>
@@ -212,7 +216,7 @@ Collaboration diagram for Device Registration Services:</div>
 
 <p>If set, the device is addressed via a combination of protocol ID and socket type. </p>
 
-<p>Referenced by <a class="el" href="device_8c_source.html#l00192">rtdm_dev_register()</a>.</p>
+<p>Referenced by <a class="el" href="skins_2rtdm_2device_8c_source.html#l00192">rtdm_dev_register()</a>.</p>
 
 </div>
 </div>
@@ -236,7 +240,7 @@ Collaboration diagram for Device Registration Services:</div>
   </table>
   </dd>
 </dl>
-<dl class="return"><dt><b>Returns:</b></dt><dd>0 on success, otherwise negative error code</dd></dl>
+<dl class="return"><dt><b>Returns:</b></dt><dd>0 on success. On failure return either -ENOSYS, to request that this handler be called again from the opposite realtime/non-realtime context, or another negative error code.</dd></dl>
 <dl class="see"><dt><b>See also:</b></dt><dd><code><a class="el" href="group__posix__shm.html#gaafbcde67669a1b96577e735ddebd8634" title="Close a file descriptor.">close()</a></code> in IEEE Std 1003.1, <a href="http://www.opengroup.org/onlinepubs/009695399">http://www.opengroup.org/onlinepubs/009695399</a> </dd></dl>
 
 </div>
@@ -262,7 +266,7 @@ Collaboration diagram for Device Registration Services:</div>
   </table>
   </dd>
 </dl>
-<dl class="return"><dt><b>Returns:</b></dt><dd>Positiv value on success, otherwise negative error code</dd></dl>
+<dl class="return"><dt><b>Returns:</b></dt><dd>A positive value or 0 on success. On failure return either -ENOSYS, to request that the function be called again from the opposite realtime/non-realtime context, or another negative error code.</dd></dl>
 <dl class="see"><dt><b>See also:</b></dt><dd><code>ioctl()</code> in IEEE Std 1003.1, <a href="http://www.opengroup.org/onlinepubs/009695399">http://www.opengroup.org/onlinepubs/009695399</a> </dd></dl>
 
 </div>
@@ -287,7 +291,7 @@ Collaboration diagram for Device Registration Services:</div>
   </table>
   </dd>
 </dl>
-<dl class="return"><dt><b>Returns:</b></dt><dd>0 on success, otherwise negative error code</dd></dl>
+<dl class="return"><dt><b>Returns:</b></dt><dd>0 on success. On failure return either -ENOSYS, to request that this handler be called again from the opposite realtime/non-realtime context, or another negative error code.</dd></dl>
 <dl class="see"><dt><b>See also:</b></dt><dd><code>open()</code> in IEEE Std 1003.1, <a href="http://www.opengroup.org/onlinepubs/009695399">http://www.opengroup.org/onlinepubs/009695399</a> </dd></dl>
 
 </div>
@@ -313,7 +317,7 @@ Collaboration diagram for Device Registration Services:</div>
   </table>
   </dd>
 </dl>
-<dl class="return"><dt><b>Returns:</b></dt><dd>On success, the number of bytes read, otherwise negative error code</dd></dl>
+<dl class="return"><dt><b>Returns:</b></dt><dd>On success, the number of bytes read. On failure return either -ENOSYS, to request that this handler be called again from the opposite realtime/non-realtime context, or another negative error code.</dd></dl>
 <dl class="see"><dt><b>See also:</b></dt><dd><code>read()</code> in IEEE Std 1003.1, <a href="http://www.opengroup.org/onlinepubs/009695399">http://www.opengroup.org/onlinepubs/009695399</a> </dd></dl>
 
 </div>
@@ -339,7 +343,7 @@ Collaboration diagram for Device Registration Services:</div>
   </table>
   </dd>
 </dl>
-<dl class="return"><dt><b>Returns:</b></dt><dd>On success, the number of bytes received, otherwise negative error code</dd></dl>
+<dl class="return"><dt><b>Returns:</b></dt><dd>On success, the number of bytes received. On failure return either -ENOSYS, to request that this handler be called again from the opposite realtime/non-realtime context, or another negative error code.</dd></dl>
 <dl class="see"><dt><b>See also:</b></dt><dd><code>recvmsg()</code> in IEEE Std 1003.1, <a href="http://www.opengroup.org/onlinepubs/009695399">http://www.opengroup.org/onlinepubs/009695399</a> </dd></dl>
 
 </div>
@@ -365,7 +369,7 @@ Collaboration diagram for Device Registration Services:</div>
   </table>
   </dd>
 </dl>
-<dl class="return"><dt><b>Returns:</b></dt><dd>0 on success, otherwise negative error code </dd></dl>
+<dl class="return"><dt><b>Returns:</b></dt><dd>0 on success. On failure return either -ENOSYS, to request that this handler be called again from the opposite realtime/non-realtime context, or another negative error code. </dd></dl>
 
 </div>
 </div>
@@ -390,7 +394,7 @@ Collaboration diagram for Device Registration Services:</div>
   </table>
   </dd>
 </dl>
-<dl class="return"><dt><b>Returns:</b></dt><dd>On success, the number of bytes transmitted, otherwise negative error code</dd></dl>
+<dl class="return"><dt><b>Returns:</b></dt><dd>On success, the number of bytes transmitted. On failure return either -ENOSYS, to request that this handler be called again from the opposite realtime/non-realtime context, or another negative error code.</dd></dl>
 <dl class="see"><dt><b>See also:</b></dt><dd><code>sendmsg()</code> in IEEE Std 1003.1, <a href="http://www.opengroup.org/onlinepubs/009695399">http://www.opengroup.org/onlinepubs/009695399</a> </dd></dl>
 
 </div>
@@ -415,7 +419,7 @@ Collaboration diagram for Device Registration Services:</div>
   </table>
   </dd>
 </dl>
-<dl class="return"><dt><b>Returns:</b></dt><dd>0 on success, otherwise negative error code</dd></dl>
+<dl class="return"><dt><b>Returns:</b></dt><dd>0 on success. On failure return either -ENOSYS, to request that this handler be called again from the opposite realtime/non-realtime context, or another negative error code.</dd></dl>
 <dl class="see"><dt><b>See also:</b></dt><dd><code>socket()</code> in IEEE Std 1003.1, <a href="http://www.opengroup.org/onlinepubs/009695399">http://www.opengroup.org/onlinepubs/009695399</a> </dd></dl>
 
 </div>
@@ -441,12 +445,41 @@ Collaboration diagram for Device Registration Services:</div>
   </table>
   </dd>
 </dl>
-<dl class="return"><dt><b>Returns:</b></dt><dd>On success, the number of bytes written, otherwise negative error code</dd></dl>
+<dl class="return"><dt><b>Returns:</b></dt><dd>On success, the number of bytes written. On failure return either -ENOSYS, to request that this handler be called again from the opposite realtime/non-realtime context, or another negative error code.</dd></dl>
 <dl class="see"><dt><b>See also:</b></dt><dd><code>write()</code> in IEEE Std 1003.1, <a href="http://www.opengroup.org/onlinepubs/009695399">http://www.opengroup.org/onlinepubs/009695399</a> </dd></dl>
 
 </div>
 </div>
 <hr/><h2>Function Documentation</h2>
+<a class="anchor" id="ga765ab311ea9024a7ff210e963acd7a14"></a><!-- doxytag: member="rtdm_driver.h::rtdm_context_to_private" ref="ga765ab311ea9024a7ff210e963acd7a14" args="(struct rtdm_dev_context *context)" -->
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">static void* rtdm_context_to_private </td>
+          <td>(</td>
+          <td class="paramtype">struct <a class="el" href="structrtdm__dev__context.html">rtdm_dev_context</a> *&nbsp;</td>
+          <td class="paramname"> <em>context</em></td>
+          <td>&nbsp;)&nbsp;</td>
+          <td><code> [inline, static]</code></td>
+        </tr>
+      </table>
+</div>
+<div class="memdoc">
+
+<p>Locate the driver private area associated to a device context structure. </p>
+<dl><dt><b>Parameters:</b></dt><dd>
+  <table border="0" cellspacing="2" cellpadding="0">
+    <tr><td valign="top"><tt>[in]</tt>&nbsp;</td><td valign="top"><em>context</em>&nbsp;</td><td>Context structure associated with opened device instance</td></tr>
+  </table>
+  </dd>
+</dl>
+<dl class="return"><dt><b>Returns:</b></dt><dd>The address of the private driver area associated to <em>context</em>. </dd></dl>
+
+<p>References <a class="el" href="rtdm__driver_8h_source.html#l00408">rtdm_dev_context::dev_private</a>.</p>
+
+</div>
+</div>
 <a class="anchor" id="ga6a191b3d206680c48cad2047adb9fc98"></a><!-- doxytag: member="device.c::rtdm_dev_register" ref="ga6a191b3d206680c48cad2047adb9fc98" args="(struct rtdm_device *device)" -->
 <div class="memitem">
 <div class="memproto">
@@ -490,7 +523,7 @@ Collaboration diagram for Device Registration Services:</div>
 </ul>
 <p>Rescheduling: never. </p>
 
-<p>References <a class="el" href="rtdm__driver_8h_source.html#l00317">rtdm_operations::close_nrt</a>, <a class="el" href="rtdm__driver_8h_source.html#l00315">rtdm_operations::close_rt</a>, <a class="el" href="rtdm__driver_8h_source.html#l00415">rtdm_device::context_size</a>, <a class="el" href="rtdm__driver_8h_source.html#l00443">rtdm_device::device_class</a>, <a class="el" href="rtdm__driver_8h_source.html#l00413">rtdm_device::device_flags</a>, <a class="el" href="rtdm__driver_8h_source.html#l00418">rtdm_device::device_name</a>, <a class="el" href="rtdm__driver_8h_source.html#l00446">rtdm_device::device_sub_class</a>, <a class="el" href="rtdm__driver_8h_source.html#l00452">rtdm_device::driver_version</a>, <a class="el" href="rtdm__driver_8h_source.html#l00440">rtdm_device::ops</a>, <a class="el" href="rtdm__driver_8h_source.html#l00460">rtdm_device::proc_name</a>, <a class="el" href="rtdm__driver_8h_source.html#l00448">rtdm_device::profile_version</a>, <a class="el" href="rtdm__driver_8h_source.html#l00421">rtdm_device::protocol_family</a>, <a class="el" href="rtdm__driver_8h_source.html#l00470">rtdm_device::reserved</a>, <a class="el" href="rtdm__driver_8h_source.html#l00104">RTDM_DEVICE_STRUCT_VER</a>, <a class="el" href="rtdm__driver_8h_source.html#l00078">RTDM_DEVICE_TYPE_MASK</a>, <a class="el" href="rtdm__driver_8h_source.html#l00068">RTDM_EXCLUSIVE</a>, <a class="el" href="rtdm__driver_8h_source.html#l00071">RTDM_NAMED_DEVICE</a>, <a class="el" href="rtdm__driver_8h_source.html#l00075">RTDM_PROTOCOL_DEVICE</a>, <a class="el" href="rtdm__driver_8h_source.html#l00325">rtdm_operations::select_bind</a>, <a class="el" href="rtdm__driver_8h_source.html#l00423">rtdm_device::socket_type</a>, and <a class="el" href="rtdm__driver_8h_source.html#l00410">rtdm_device::struct_version</a>.</p>
+<p>References <a class="el" href="rtdm__driver_8h_source.html#l00334">rtdm_operations::close_nrt</a>, <a class="el" href="rtdm__driver_8h_source.html#l00332">rtdm_operations::close_rt</a>, <a class="el" href="rtdm__driver_8h_source.html#l00460">rtdm_device::context_size</a>, <a class="el" href="rtdm__driver_8h_source.html#l00488">rtdm_device::device_class</a>, <a class="el" href="rtdm__driver_8h_source.html#l00458">rtdm_device::device_flags</a>, <a class="el" href="rtdm__driver_8h_source.html#l00463">rtdm_device::device_name</a>, <a class="el" href="rtdm__driver_8h_source.html#l00491">rtdm_device::device_sub_class</a>, <a class="el" href="rtdm__driver_8h_source.html#l00497">rtdm_device::driver_version</a>, <a class="el" href="rtdm__driver_8h_source.html#l00485">rtdm_device::ops</a>, <a class="el" href="rtdm__driver_8h_source.html#l00505">rtdm_device::proc_name</a>, <a class="el" href="rtdm__driver_8h_source.html#l00493">rtdm_device::profile_version</a>, <a class="el" href="rtdm__driver_8h_source.html#l00466">rtdm_device::protocol_family</a>, <a class="el" href="rtdm__driver_8h_source.html#l00515">rtdm_device::reserved</a>, <a class="el" href="rtdm__driver_8h_source.html#l00106">RTDM_DEVICE_STRUCT_VER</a>, <a class="el" href="rtdm__driver_8h_source.html#l00080">RTDM_DEVICE_TYPE_MASK</a>, <a class="el" href="rtdm__driver_8h_source.html#l00070">RTDM_EXCLUSIVE</a>, <a class="el" href="rtdm__driver_8h_source.html#l00073">RTDM_NAMED_DEVICE</a>, <a class="el" href="rtdm__driver_8h_source.html#l00077">RTDM_PROTOCOL_DEVICE</a>, <a class="el" href="rtdm__driver_8h_source.html#l00342">rtdm_operations::select_bind</a>, <a class="el" href="rtdm__driver_8h_source.html#l00468">rtdm_device::socket_type</a>, and <a class="el" href="rtdm__driver_8h_source.html#l00455">rtdm_device::struct_version</a>.</p>
 
 </div>
 </div>
@@ -541,12 +574,39 @@ Collaboration diagram for Device Registration Services:</div>
 </ul>
 <p>Rescheduling: never. </p>
 
-<p>References <a class="el" href="rtdm__driver_8h_source.html#l00413">rtdm_device::device_flags</a>, <a class="el" href="rtdm__driver_8h_source.html#l00418">rtdm_device::device_name</a>, <a class="el" href="rtdm__driver_8h_source.html#l00462">rtdm_device::proc_entry</a>, <a class="el" href="rtdm__driver_8h_source.html#l00460">rtdm_device::proc_name</a>, <a class="el" href="rtdm__driver_8h_source.html#l00421">rtdm_device::protocol_family</a>, <a class="el" href="rtdm__driver_8h_source.html#l00470">rtdm_device::reserved</a>, <a class="el" href="rtdm__driver_8h_source.html#l00078">RTDM_DEVICE_TYPE_MASK</a>, <a class="el" href="rtdm__driver_8h_source.html#l00071">RTDM_NAMED_DEVICE</a>, and <a class="el" href="rtdm__driver_8h_source.html#l00423">rtdm_device::socket_type</a>.</p>
+<p>References <a class="el" href="rtdm__driver_8h_source.html#l00458">rtdm_device::device_flags</a>, <a class="el" href="rtdm__driver_8h_source.html#l00463">rtdm_device::device_name</a>, <a class="el" href="rtdm__driver_8h_source.html#l00507">rtdm_device::proc_entry</a>, <a class="el" href="rtdm__driver_8h_source.html#l00505">rtdm_device::proc_name</a>, <a class="el" href="rtdm__driver_8h_source.html#l00466">rtdm_device::protocol_family</a>, <a class="el" href="rtdm__driver_8h_source.html#l00515">rtdm_device::reserved</a>, <a class="el" href="rtdm__driver_8h_source.html#l00080">RTDM_DEVICE_TYPE_MASK</a>, <a class="el" href="rtdm__driver_8h_source.html#l00073">RTDM_NAMED_DEVICE</a>, and <a class="el" href="rtdm__driver_8h_source.html#l00468">rtdm_device::socket_type</a>.</p>
+
+</div>
+</div>
+<a class="anchor" id="gacc982b978fc3967b0e9d6d308f79c6ee"></a><!-- doxytag: member="rtdm_driver.h::rtdm_private_to_context" ref="gacc982b978fc3967b0e9d6d308f79c6ee" args="(void *dev_private)" -->
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">static struct <a class="el" href="structrtdm__dev__context.html">rtdm_dev_context</a>* rtdm_private_to_context </td>
+          <td>(</td>
+          <td class="paramtype">void *&nbsp;</td>
+          <td class="paramname"> <em>dev_private</em></td>
+          <td>&nbsp;)&nbsp;</td>
+          <td><code> [static, read]</code></td>
+        </tr>
+      </table>
+</div>
+<div class="memdoc">
+
+<p>Locate a device context structure from its driver private area. </p>
+<dl><dt><b>Parameters:</b></dt><dd>
+  <table border="0" cellspacing="2" cellpadding="0">
+    <tr><td valign="top"><tt>[in]</tt>&nbsp;</td><td valign="top"><em>dev_private</em>&nbsp;</td><td>Address of a private context area</td></tr>
+  </table>
+  </dd>
+</dl>
+<dl class="return"><dt><b>Returns:</b></dt><dd>The address of the device context structure defining <em>dev_private</em>. </dd></dl>
 
 </div>
 </div>
 </div>
-<hr size="1"/><address style="text-align: right;"><small>Generated on Tue Oct 27 19:18:54 2009 for Xenomai API by&nbsp;
+<hr size="1"/><address style="text-align: right;"><small>Generated on Fri Jan 1 10:45:18 2010 for Xenomai API by&nbsp;
 <a href="http://www.doxygen.org/index.html">
 <img class="footer" src="doxygen.png" alt="doxygen"/></a> 1.6.1 </small></address>
 </body>

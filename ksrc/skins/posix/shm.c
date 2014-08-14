@@ -38,6 +38,7 @@
 #include <posix/internal.h>
 #include <posix/thread.h>
 #include <posix/shm.h>
+#include <linux/fs.h>		/* Make sure ERR_PTR is defined for all kernel versions */
 
 typedef struct pse51_shm {
 	pse51_node_t nodebase;
@@ -86,14 +87,6 @@ static void pse51_shm_init(pse51_shm_t * shm)
 	appendq(&pse51_shmq, &shm->link);
 }
 
-#ifndef CONFIG_XENO_OPT_PERVASIVE
-static void pse51_free_heap_extent(xnheap_t *heap,
-				   void *extent, u_long size, void *cookie)
-{
-	xnarch_free_host_mem(extent, size);
-}
-#endif /* !CONFIG_XENO_OPT_PERVASIVE */
-
 /* Must be called nklock locked, irq off. */
 static void pse51_shm_destroy(pse51_shm_t * shm, int force)
 {
@@ -107,11 +100,7 @@ static void pse51_shm_destroy(pse51_shm_t * shm, int force)
 	if (shm->addr) {
 		xnheap_free(&shm->heapbase, shm->addr);
 
-#ifdef CONFIG_XENO_OPT_PERVASIVE
 		xnheap_destroy_mapped(&shm->heapbase, NULL, NULL);
-#else /* !CONFIG_XENO_OPT_PERVASIVE. */
-		xnheap_destroy(&shm->heapbase, &pse51_free_heap_extent, NULL);
-#endif /* !CONFIG_XENO_OPT_PERVASIVE. */
 
 		shm->addr = NULL;
 		shm->size = 0;
@@ -195,6 +184,9 @@ static void pse51_shm_put(pse51_shm_t * shm, unsigned dec)
  *
  * If @a oflags has the bit @a O_TRUNC set, the shared memory exists and is not
  * currently mapped, its size is truncated to 0.
+ *
+ * If @a oflags has the bit @a O_DIRECT set, the shared memory will be suitable
+ * for direct memory access (allocated in physically contiguous memory).
  *
  * @a name may be any arbitrary string, in which slashes have no particular
  * meaning. However, for portability, using a name which starts with a slash and
@@ -284,7 +276,7 @@ int shm_open(const char *name, int oflags, mode_t mode)
 
   got_shm:
 	err = pse51_desc_create(&desc, &shm->nodebase,
-				oflags & PSE51_PERMS_MASK);
+				oflags & (PSE51_PERMS_MASK | O_DIRECT));
 	if (err)
 		goto err_shm_put;
 
@@ -439,7 +431,7 @@ int shm_unlink(const char *name)
  * shared memory object, the added space is zero-filled.
  *
  * Shared memory are suitable for direct memory access (allocated in physically
- * contiguous memory) if their size is less than or equal to 128 K.
+ * contiguous memory) if O_DIRECT was passed to shm_open.
  *
  * Shared memory objects may only be resized if they are not currently mapped.
  *
@@ -452,6 +444,7 @@ int shm_unlink(const char *name)
  * - EBADF, @a fd is not a valid file descriptor;
  * - EPERM, the caller context is invalid;
  * - EINVAL, the specified length is invalid;
+ * - EINVAL, the architecture can not honour the O_DIRECT flag;
  * - EINTR, this service was interrupted by a signal;
  * - EBUSY, @a fd is a shared memory object descriptor and the underlying shared
  *   memory is currently mapped;
@@ -506,7 +499,11 @@ int ftruncate(int fd, off_t len)
 	/* Allocate one more page for alignment (the address returned by mmap
 	   must be aligned on a page boundary). */
 	if (len)
+#ifdef CONFIG_XENO_OPT_PERVASIVE
 		len = xnheap_rounded_size(len + PAGE_SIZE, PAGE_SIZE);
+#else /* !CONFIG_XENO_OPT_PERVASIVE */
+		len = xnheap_rounded_size(len + PAGE_SIZE, XNHEAP_PAGE_SIZE);
+#endif /* !CONFIG_XENO_OPT_PERVASIVE */
 
 	err = 0;
 	if (emptyq_p(&shm->mappings)) {
@@ -532,38 +529,22 @@ int ftruncate(int fd, off_t len)
 			memcpy(addr, shm->addr, size);
 
 			xnheap_free(&shm->heapbase, shm->addr);
-#ifdef CONFIG_XENO_OPT_PERVASIVE
 			xnheap_destroy_mapped(&shm->heapbase, NULL, NULL);
-#else /* !CONFIG_XENO_OPT_PERVASIVE. */
-			xnheap_destroy(&shm->heapbase, &pse51_free_heap_extent,
-				       NULL);
-#endif /* !CONFIG_XENO_OPT_PERVASIVE. */
 
 			shm->addr = NULL;
 			shm->size = 0;
 		}
 
 		if (len) {
-#ifdef CONFIG_XENO_OPT_PERVASIVE
-			int flags = (XNARCH_SHARED_HEAP_FLAGS ?:
-				     len <= 128 * 1024 ? GFP_USER : 0);
+			int flags = XNARCH_SHARED_HEAP_FLAGS |
+				((desc_flags & O_DIRECT) ? GFP_DMA : 0);
+
 			err = -xnheap_init_mapped(&shm->heapbase, len, flags);
-#else /* !CONFIG_XENO_OPT_PERVASIVE. */
-			{
-				void *heapaddr = xnarch_alloc_host_mem(len);
+			if (err)
+				goto err_up;
 
-				if (heapaddr)
-					err =
-					    -xnheap_init(&shm->heapbase,
-							 heapaddr, len,
-							 XNCORE_PAGE_SIZE);
-				else
-					err = ENOMEM;
-
-				if (err)
-					goto err_up;
-			}
-#endif /* !CONFIG_XENO_OPT_PERVASIVE. */
+			xnheap_set_label(&shm->heapbase,
+					 "posix shm: %s", shm->nodebase.name);
 
 			shm->size = xnheap_max_contiguous(&shm->heapbase);
 			shm->addr = xnheap_alloc(&shm->heapbase, shm->size);
@@ -699,7 +680,7 @@ void *mmap(void *addr, size_t len, int prot, int flags, int fd, off_t off)
 		goto err_shm_put;
 	}
 
-	desc_flags = pse51_desc_getflags(desc);
+	desc_flags = pse51_desc_getflags(desc) & PSE51_PERMS_MASK;
 	xnlock_put_irqrestore(&nklock, s);
 
 	if ((desc_flags != O_RDWR && desc_flags != O_RDONLY) ||

@@ -41,10 +41,8 @@ typedef struct xnshm_a {
 	void *chunk;
 	unsigned long name;
 	int size;
-#ifdef CONFIG_XENO_OPT_REGISTRY
 	char szName[6];
 	xnhandle_t handle;
-#endif /* CONFIG_XENO_OPT_REGISTRY */
 
 } xnshm_a_t;
 
@@ -55,7 +53,7 @@ static inline xnshm_a_t *link2shma(xnholder_t *ln)
 
 xnqueue_t xnshm_allocq;
 
-#ifdef CONFIG_XENO_EXPORT_REGISTRY
+#ifdef CONFIG_PROC_FS
 
 extern xnptree_t __rtai_ptree;
 
@@ -93,14 +91,14 @@ static xnpnode_t __shm_pnode = {
 	.root = &__rtai_ptree,
 };
 
-#elif defined(CONFIG_XENO_OPT_REGISTRY)
+#else /* !CONFIG_PROC_FS */
 
 static xnpnode_t __shm_pnode = {
 
 	.type = "fifo"
 };
 
-#endif /* CONFIG_XENO_EXPORT_REGISTRY */
+#endif /* !CONFIG_PROC_FS */
 
 static xnshm_a_t *kalloc_new_shm(unsigned long name, int size)
 {
@@ -158,7 +156,7 @@ static xnshm_a_t *create_new_heap(unsigned long name, int heapsize, int suprt)
 	{
 		void *heapmem;
 
-		heapsize = xnheap_rounded_size(heapsize, XNCORE_PAGE_SIZE);
+		heapsize = xnheap_rounded_size(heapsize, XNHEAP_PAGE_SIZE);
 
 		heapmem = xnarch_alloc_host_mem(heapsize);
 
@@ -166,7 +164,7 @@ static xnshm_a_t *create_new_heap(unsigned long name, int heapsize, int suprt)
 			err = -ENOMEM;
 		} else {
 
-			err = xnheap_init(p->heap, heapmem, heapsize, XNCORE_PAGE_SIZE);
+			err = xnheap_init(p->heap, heapmem, heapsize, XNHEAP_PAGE_SIZE);
 			if (err) {
 				xnarch_free_host_mem(heapmem, heapsize);
 			}
@@ -178,6 +176,7 @@ static xnshm_a_t *create_new_heap(unsigned long name, int heapsize, int suprt)
 		xnheap_free(&kheap, p);
 		return NULL;
 	}
+	xnheap_set_label(p->heap, "rtai heap: 0x%lx", name);
 
 	p->chunk = xnheap_mapped_address(p->heap, 0);
 
@@ -235,13 +234,9 @@ void *_shm_alloc(unsigned long name, int size, int suprt, int in_kheap,
 	*opaque = (unsigned long)p->heap;
 	appendq(&xnshm_allocq, &p->link);
 
-#ifdef CONFIG_XENO_OPT_REGISTRY
-	{
-		p->handle = 0;
-		num2nam(p->name, p->szName);
-		xnregistry_enter(p->szName, p, &p->handle, &__shm_pnode);
-	}
-#endif /* CONFIG_XENO_OPT_REGISTRY */
+	p->handle = 0;
+	num2nam(p->name, p->szName);
+	xnregistry_enter(p->szName, p, &p->handle, &__shm_pnode);
 
 	ret = p->chunk;
 
@@ -266,19 +261,24 @@ void *rt_heap_open(unsigned long name, int size, int suprt)
 	return _shm_alloc(name, size, suprt, 0, &opaque);
 }
 
-#ifndef CONFIG_XENO_OPT_PERVASIVE
+#ifdef CONFIG_XENO_OPT_PERVASIVE
+static void __heap_flush_shared(xnheap_t *heap)
+{
+	xnheap_free(&kheap, heap);
+}
+#else /* !CONFIG_XENO_OPT_PERVASIVE */
 static void __heap_flush_private(xnheap_t *heap,
 				 void *heapmem, u_long heapsize, void *cookie)
 {
 	xnarch_free_host_mem(heapmem, heapsize);
 }
-#endif /* CONFIG_XENO_OPT_PERVASIVE */
+#endif /* !CONFIG_XENO_OPT_PERVASIVE */
 
 static int _shm_free(unsigned long name)
 {
-	int ret = 0;
 	xnholder_t *holder;
 	xnshm_a_t *p;
+	int ret;
 	spl_t s;
 
 	xnlock_get_irqsave(&nklock, s);
@@ -289,42 +289,37 @@ static int _shm_free(unsigned long name)
 		p = link2shma(holder);
 
 		if (p->name == name && --p->ref == 0) {
-#ifdef CONFIG_XENO_OPT_REGISTRY
+			removeq(&xnshm_allocq, &p->link);
 			if (p->handle)
 				xnregistry_remove(p->handle);
-#endif /* CONFIG_XENO_OPT_REGISTRY */
+
+			xnlock_put_irqrestore(&nklock, s);
+
 			if (p->heap == &kheap)
 				xnheap_free(&kheap, p->chunk);
 			else {
-				/* Should release lock here? 
-				 * Can destroy_mapped suspend ?
-				 * [YES!]
-				 */
 #ifdef CONFIG_XENO_OPT_PERVASIVE
-				ret = xnheap_destroy_mapped(p->heap, NULL, NULL);
+				xnheap_destroy_mapped(p->heap,
+						      __heap_flush_shared,
+						      NULL);
 #else /* !CONFIG_XENO_OPT_PERVASIVE */
-				ret =
-				    xnheap_destroy(p->heap,
-						   &__heap_flush_private, NULL);
-#endif /* !CONFIG_XENO_OPT_PERVASIVE */
-				if (ret)
-					goto unlock_and_exit;
+				xnheap_destroy(p->heap,
+					       &__heap_flush_private, NULL);
 				xnheap_free(&kheap, p->heap);
+#endif /* !CONFIG_XENO_OPT_PERVASIVE */
 			}
-			removeq(&xnshm_allocq, &p->link);
 			ret = p->size;
 			xnheap_free(&kheap, p);
-			break;
+
+			return ret;
 		}
 
 		holder = nextq(&xnshm_allocq, holder);
 	}
 
-      unlock_and_exit:
-
 	xnlock_put_irqrestore(&nklock, s);
 
-	return ret;
+	return 0;
 }
 
 int rt_shm_free(unsigned long name)

@@ -19,8 +19,33 @@
 #ifndef _POSIX_MUTEX_H
 #define _POSIX_MUTEX_H
 
+#include <asm/xenomai/atomic.h>
+#include <pthread.h>
+
+struct pse51_mutex;
+
+union __xeno_mutex {
+	pthread_mutex_t native_mutex;
+	struct __shadow_mutex {
+		unsigned magic;
+		unsigned lockcnt;
+		struct pse51_mutex *mutex;
+		xnarch_atomic_t lock;
+#ifdef CONFIG_XENO_FASTSYNCH
+		union {
+			unsigned owner_offset;
+			xnarch_atomic_t *owner;
+		};
+		struct pse51_mutexattr attr;
+#endif /* CONFIG_XENO_FASTSYNCH */
+	} shadow_mutex;
+};
+
+#if defined(__KERNEL__) || defined(__XENO_SIM__)
+
 #include <posix/internal.h>
 #include <posix/thread.h>
+#include <posix/cb_lock.h>
 
 typedef struct pse51_mutex {
 	xnsynch_t synchbase;
@@ -30,11 +55,10 @@ typedef struct pse51_mutex {
 	((pse51_mutex_t *)(((char *)laddr) - offsetof(pse51_mutex_t, link)))
 
 	pthread_mutexattr_t attr;
-	unsigned count;             /* lock count. */
-	unsigned condvars;          /* count of condition variables using this
-				       mutex. */
 	pse51_kqueues_t *owningq;
 } pse51_mutex_t;
+
+extern pthread_mutexattr_t pse51_default_mutex_attr;
 
 void pse51_mutexq_cleanup(pse51_kqueues_t *q);
 
@@ -42,35 +66,20 @@ void pse51_mutex_pkg_init(void);
 
 void pse51_mutex_pkg_cleanup(void);
 
-/* Interruptible versions of pthread_mutex_*. Exposed for use by syscall.c. */
+/* Internal mutex functions, exposed for use by syscall.c. */
 int pse51_mutex_timedlock_break(struct __shadow_mutex *shadow,
 				int timed, xnticks_t to);
 
-/* must be called with nklock locked, interrupts off. */
-static inline int pse51_mutex_trylock_internal(xnthread_t *cur,
-					       struct __shadow_mutex *shadow,
-					       unsigned count)
-{
-	pse51_mutex_t *mutex = shadow->mutex;
+int pse51_mutex_check_init(struct __shadow_mutex *shadow,
+			   const pthread_mutexattr_t *attr);
 
-	if (xnpod_unblockable_p())
-		return EPERM;
+int pse51_mutex_init_internal(struct __shadow_mutex *shadow,
+			      pse51_mutex_t *mutex,
+			      xnarch_atomic_t *ownerp,
+			      const pthread_mutexattr_t *attr);
 
-	if (!pse51_obj_active(shadow, PSE51_MUTEX_MAGIC, struct __shadow_mutex))
-		return EINVAL;
-
-#if XENO_DEBUG(POSIX)
-	if (mutex->owningq != pse51_kqueues(mutex->attr.pshared))
-		return EPERM;
-#endif /* XENO_DEBUG(POSIX) */
-
-	if (mutex->count)
-		return EBUSY;
-
-	xnsynch_set_owner(&mutex->synchbase, cur);
-	mutex->count = count;
-	return 0;
-}
+void pse51_mutex_destroy_internal(pse51_mutex_t *mutex,
+				  pse51_kqueues_t *q);
 
 /* must be called with nklock locked, interrupts off. */
 static inline int pse51_mutex_timedlock_internal(xnthread_t *cur,
@@ -80,33 +89,41 @@ static inline int pse51_mutex_timedlock_internal(xnthread_t *cur,
 						 xnticks_t abs_to)
 
 {
-	pse51_mutex_t *mutex;
-	int err;
+	pse51_mutex_t *mutex = shadow->mutex;
 
-	err = pse51_mutex_trylock_internal(cur, shadow, count);
-	if (err != EBUSY)
-		return err;
+	if (xnpod_unblockable_p())
+		return -EPERM;
 
-	mutex = shadow->mutex;
-	if (xnsynch_owner(&mutex->synchbase) == cur)
-		return EBUSY;
+	if (!pse51_obj_active(shadow, PSE51_MUTEX_MAGIC, struct __shadow_mutex))
+		return -EINVAL;
+
+#if XENO_DEBUG(POSIX)
+	if (mutex->owningq != pse51_kqueues(mutex->attr.pshared))
+		return -EPERM;
+#endif /* XENO_DEBUG(POSIX) */
+
+	if (xnsynch_owner_check(&mutex->synchbase, cur) == 0)
+		return -EBUSY;
 
 	if (timed)
-		xnsynch_sleep_on(&mutex->synchbase, abs_to, XN_REALTIME);
+		xnsynch_acquire(&mutex->synchbase, abs_to, XN_REALTIME);
 	else
-		xnsynch_sleep_on(&mutex->synchbase, XN_INFINITE, XN_RELATIVE);
+		xnsynch_acquire(&mutex->synchbase, XN_INFINITE, XN_RELATIVE);
 
-	if (xnthread_test_info(cur, XNBREAK))
-		return EINTR;
-            
-	if (xnthread_test_info(cur, XNRMID))
-		return EINVAL;
+	if (unlikely(xnthread_test_info(cur, XNBREAK | XNRMID | XNTIMEO))) {
+		if (xnthread_test_info(cur, XNBREAK))
+			return -EINTR;
+		else if (xnthread_test_info(cur, XNTIMEO))
+			return -ETIMEDOUT;
+		else /* XNRMID */
+			return -EINVAL;
+	}
 
-	if (xnthread_test_info(cur, XNTIMEO))
-		return ETIMEDOUT;
-	mutex->count = count;
+	shadow->lockcnt = count;
 
 	return 0;
 }
+
+#endif /* __KERNEL__ */
 
 #endif /* !_POSIX_MUTEX_H */

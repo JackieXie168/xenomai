@@ -28,7 +28,7 @@ static int __rtai_task_sig;
 
 static int __task_get_denormalized_prio(xnthread_t *thread, int coreprio)
 {
-	return XNCORE_HIGH_PRIO - coreprio + 1;
+	return XNSCHED_HIGH_PRIO - coreprio + 1;
 }
 
 static unsigned __task_get_magic(void)
@@ -36,7 +36,7 @@ static unsigned __task_get_magic(void)
 	return RTAI_SKIN_MAGIC;
 }
 
-static xnthrops_t __rtai_task_ops = {
+static struct xnthread_operations __rtai_task_ops = {
 	.get_denormalized_prio = &__task_get_denormalized_prio,
 	.get_magic = &__task_get_magic,
 };
@@ -109,15 +109,18 @@ int rt_task_init(RT_TASK *task,
 		 int stack_size,
 		 int priority, int uses_fpu, void (*sigfn) (void))
 {
+	union xnsched_policy_param param;
+	struct xnthread_start_attr sattr;
+	struct xnthread_init_attr iattr;
 	xnflags_t bflags = 0;
-	int err;
+	int ret;
 	spl_t s;
 
-	if (priority < XNCORE_LOW_PRIO ||
-	    priority > XNCORE_HIGH_PRIO || task->magic == RTAI_TASK_MAGIC)
+	if (priority < XNSCHED_LOW_PRIO ||
+	    priority > XNSCHED_HIGH_PRIO || task->magic == RTAI_TASK_MAGIC)
 		return -EINVAL;
 
-	priority = XNCORE_HIGH_PRIO - priority + 1;	/* Normalize. */
+	priority = XNSCHED_HIGH_PRIO - priority + 1;	/* Normalize. */
 
 	if (uses_fpu)
 #ifdef CONFIG_XENO_HW_FPU
@@ -126,9 +129,15 @@ int rt_task_init(RT_TASK *task,
 		return -EINVAL;
 #endif /* CONFIG_XENO_HW_FPU */
 
-	if (xnpod_init_thread(&task->thread_base, rtai_tbase,
-			      NULL, priority, bflags, stack_size,
-			      &__rtai_task_ops) != 0)
+	iattr.tbase = rtai_tbase;
+	iattr.name = NULL;
+	iattr.flags = bflags;
+	iattr.ops = &__rtai_task_ops;
+	iattr.stacksize = stack_size;
+	param.rt.prio = priority;
+
+	if (xnpod_init_thread(&task->thread_base,
+			      &iattr, &xnsched_class_rt, &param) != 0)
 		/* Assume this is the only possible failure. */
 		return -ENOMEM;
 
@@ -144,13 +153,27 @@ int rt_task_init(RT_TASK *task,
 	
 	xnlock_get_irqsave(&nklock, s);
 
-	err = xnpod_start_thread(&task->thread_base, XNSUSP,	/* Suspend on startup. */
-				 0, task->affinity, &rt_task_trampoline, task);
-	if (err)
+	sattr.mode = XNSUSP;	/* Suspend on startup. */
+	sattr.imask = 0;
+	sattr.affinity = task->affinity;
+	sattr.entry = rt_task_trampoline;
+	sattr.cookie = task;
+	ret = xnpod_start_thread(&task->thread_base, &sattr);
+	if (ret)
 		goto unlock_and_exit;
 
 	task->magic = RTAI_TASK_MAGIC;
 	appendq(&__rtai_task_q, &task->link);
+
+#ifdef CONFIG_XENO_FASTSYNCH
+	/* We need an anonymous registry entry to obtain a handle for fast
+	   mutex locking. */
+	ret = xnthread_register(&task->thread_base, "");
+	if (ret) {
+		xnpod_abort_thread(&task->thread_base);
+		goto unlock_and_exit;
+	}
+#endif /* CONFIG_XENO_FASTSYNCH */
 
 	/* Add a switch hook only if a signal function has been declared
 	   at least once for some created task. */
@@ -162,7 +185,7 @@ int rt_task_init(RT_TASK *task,
 
 	xnlock_put_irqrestore(&nklock, s);
 
-	return err ? -EINVAL : 0;
+	return ret ? -EINVAL : 0;
 }
 
 int __rtai_task_resume(RT_TASK *task)

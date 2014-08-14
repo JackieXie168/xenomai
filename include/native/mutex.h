@@ -32,16 +32,27 @@ struct rt_task;
  */
 typedef struct rt_mutex_info {
 
-	int lockcnt;		/**< Lock nesting level (> 0 means "locked"). */
+	int locked;		/**< > 0 if mutex is locked. */
 
 	int nwaiters;		/**< Number of pending tasks. */
 
 	char name[XNOBJECT_NAME_LEN]; /**< Symbolic name. */
 
+	char owner[XNOBJECT_NAME_LEN]; /**< Symbolic name of the current owner,
+					    empty if unlocked. */
+
 } RT_MUTEX_INFO;
 
 typedef struct rt_mutex_placeholder {
+
 	xnhandle_t opaque;
+
+#ifdef CONFIG_XENO_FASTSYNCH
+	xnarch_atomic_t *fastlock;
+
+	int lockcnt;
+#endif /* CONFIG_XENO_FASTSYNCH */
+
 } RT_MUTEX_PLACEHOLDER;
 
 #if (defined(__KERNEL__) || defined(__XENO_SIM__)) && !defined(DOXYGEN_CPP)
@@ -50,6 +61,8 @@ typedef struct rt_mutex_placeholder {
 #include <native/ppd.h>
 
 #define XENO_MUTEX_MAGIC 0x55550505
+
+#define RT_MUTEX_EXPORTED	XNSYNCH_SPARE0	/* Mutex registered by name */
 
 typedef struct __rt_mutex {
 
@@ -71,7 +84,7 @@ typedef struct __rt_mutex {
 
 #define rlink2mutex(ln)		container_of(ln, RT_MUTEX, rlink)
 
-    xnqueue_t *rqueue;		/* !< Backpointer to resource queue. */
+	xnqueue_t *rqueue;	/* !< Backpointer to resource queue. */
 
 } RT_MUTEX;
 
@@ -89,6 +102,9 @@ static inline void __native_mutex_flush_rq(xnqueue_t *rq)
 {
 	xeno_flush_rq(RT_MUTEX, rq, mutex);
 }
+
+int rt_mutex_acquire_inner(RT_MUTEX *mutex, RTIME timeout,
+			   xntmode_t timeout_mode);
 
 #else /* !CONFIG_XENO_OPT_NATIVE_MUTEX */
 
@@ -131,6 +147,10 @@ static inline int rt_mutex_unbind (RT_MUTEX *mutex)
 extern "C" {
 #endif
 
+int rt_mutex_create_inner(RT_MUTEX *mutex, const char *name,
+			  xnarch_atomic_t *fastlock);
+int rt_mutex_delete_inner(RT_MUTEX *mutex);
+
 /* Public interface. */
 
 int rt_mutex_create(RT_MUTEX *mutex,
@@ -141,31 +161,13 @@ int rt_mutex_delete(RT_MUTEX *mutex);
 int rt_mutex_acquire(RT_MUTEX *mutex,
 		     RTIME timeout);
 
+int rt_mutex_acquire_until(RT_MUTEX *mutex,
+			   RTIME timeout);
+
 int rt_mutex_release(RT_MUTEX *mutex);
 
 int rt_mutex_inquire(RT_MUTEX *mutex,
 		     RT_MUTEX_INFO *info);
-
-#ifdef __KERNEL__
-#if LINUX_VERSION_CODE < KERNEL_VERSION(2,6,18)
-static inline int __deprecated_call__ rt_mutex_lock(RT_MUTEX *mutex, RTIME timeout)
-{
-	return rt_mutex_acquire(mutex, timeout);
-}
-
-static inline int __deprecated_call__ rt_mutex_unlock(RT_MUTEX *mutex)
-{
-	return rt_mutex_release(mutex);
-}
-#endif /* LINUX_VERSION_CODE < KERNEL_VERSION(2,6,18) */
-#else /* !__KERNEL__ */
-
-int rt_mutex_lock(RT_MUTEX *mutex,
-		  RTIME timeout);
-
-int rt_mutex_unlock(RT_MUTEX *mutex);
-
-#endif /* __KERNEL__ */
 
 #ifdef __cplusplus
 }

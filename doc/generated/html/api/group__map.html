@@ -35,6 +35,7 @@ Collaboration diagram for Lightweight key-to-object mapping service:</div>
 </p>
 <table border="0" cellpadding="0" cellspacing="0">
 <tr><td colspan="2"><h2>Files</h2></td></tr>
+<tr><td class="memItemLeft" align="right" valign="top">file &nbsp;</td><td class="memItemRight" valign="bottom"><a class="el" href="bufd_8h.html">bufd.h</a></td></tr>
 <tr><td class="memItemLeft" align="right" valign="top">file &nbsp;</td><td class="memItemRight" valign="bottom"><a class="el" href="map_8h.html">map.h</a></td></tr>
 <tr><td class="memItemLeft" align="right" valign="top">file &nbsp;</td><td class="memItemRight" valign="bottom"><a class="el" href="map_8c.html">map.c</a></td></tr>
 <tr><td colspan="2"><h2>Functions</h2></td></tr>
@@ -46,8 +47,10 @@ Collaboration diagram for Lightweight key-to-object mapping service:</div>
 <tr><td class="mdescLeft">&nbsp;</td><td class="mdescRight">Index an object into a map.  <a href="#gadc5657b93b294c935ac6864fac5fdaa4"></a><br/></td></tr>
 <tr><td class="memItemLeft" align="right" valign="top">int&nbsp;</td><td class="memItemRight" valign="bottom"><a class="el" href="group__map.html#ga06ec1012c075be6dbbadd2d88220abf5">xnmap_remove</a> (xnmap_t *map, int key)</td></tr>
 <tr><td class="mdescLeft">&nbsp;</td><td class="mdescRight">Remove an object reference from a map.  <a href="#ga06ec1012c075be6dbbadd2d88220abf5"></a><br/></td></tr>
-<tr><td class="memItemLeft" align="right" valign="top">void *&nbsp;</td><td class="memItemRight" valign="bottom"><a class="el" href="group__map.html#ga283c9dc07d28afa30ab42c833d432a38">xnmap_fetch</a> (xnmap_t *map, int key)</td></tr>
-<tr><td class="mdescLeft">&nbsp;</td><td class="mdescRight">Search an object into a map.  <a href="#ga283c9dc07d28afa30ab42c833d432a38"></a><br/></td></tr>
+<tr><td class="memItemLeft" align="right" valign="top">static void *&nbsp;</td><td class="memItemRight" valign="bottom"><a class="el" href="group__map.html#ga651ded315d1eec00d1e661e52ce4a10e">xnmap_fetch_nocheck</a> (xnmap_t *map, int key)</td></tr>
+<tr><td class="mdescLeft">&nbsp;</td><td class="mdescRight">Search an object into a map - unchecked form.  <a href="#ga651ded315d1eec00d1e661e52ce4a10e"></a><br/></td></tr>
+<tr><td class="memItemLeft" align="right" valign="top">static void *&nbsp;</td><td class="memItemRight" valign="bottom"><a class="el" href="group__map.html#ga52a2727670d06e52b9b73b0c2c1d60d7">xnmap_fetch</a> (xnmap_t *map, int key)</td></tr>
+<tr><td class="mdescLeft">&nbsp;</td><td class="mdescRight">Search an object into a map.  <a href="#ga52a2727670d06e52b9b73b0c2c1d60d7"></a><br/></td></tr>
 </table>
 <hr/><a name="_details"></a><h2>Detailed Description</h2>
 <p>A map is a simple indexing structure which associates unique integer keys with pointers to objects. The current implementation supports reservation, for naming/indexing the real-time objects skins create, either on a fixed, user-provided integer (i.e. a reserved key value), or by drawing the next available key internally if the caller did not specify any fixed key. For instance, in some given map, the key space ranging from 0 to 255 could be reserved for fixed keys, whilst the range from 256 to 511 could be available for drawing free keys dynamically.</p>
@@ -179,7 +182,7 @@ Collaboration diagram for Lightweight key-to-object mapping service:</div>
   <table border="0" cellspacing="2" cellpadding="0">
     <tr><td valign="top"></td><td valign="top"><em>map</em>&nbsp;</td><td>The address of the map to insert into.</td></tr>
     <tr><td valign="top"></td><td valign="top"><em>key</em>&nbsp;</td><td>The key to index the object on. If this key is within the valid index range [ 0 - offset .. nkeys - offset - 1 ], then an attempt to reserve this exact key is made. If <em>key</em> has an out-of-range value lower or equal to 0 - offset - 1, then an attempt is made to draw a free key from the unreserved index space.</td></tr>
-    <tr><td valign="top"></td><td valign="top"><em>objaddr</em>&nbsp;</td><td>The address of the object to index on the key. This value will be returned by a successful call to <a class="el" href="group__map.html#ga283c9dc07d28afa30ab42c833d432a38" title="Search an object into a map.">xnmap_fetch()</a> with the same key.</td></tr>
+    <tr><td valign="top"></td><td valign="top"><em>objaddr</em>&nbsp;</td><td>The address of the object to index on the key. This value will be returned by a successful call to <a class="el" href="group__map.html#ga52a2727670d06e52b9b73b0c2c1d60d7" title="Search an object into a map.">xnmap_fetch()</a> with the same key.</td></tr>
   </table>
   </dd>
 </dl>
@@ -202,12 +205,12 @@ Collaboration diagram for Lightweight key-to-object mapping service:</div>
 
 </div>
 </div>
-<a class="anchor" id="ga283c9dc07d28afa30ab42c833d432a38"></a><!-- doxytag: member="map.h::xnmap_fetch" ref="ga283c9dc07d28afa30ab42c833d432a38" args="(xnmap_t *map, int key)" -->
+<a class="anchor" id="ga52a2727670d06e52b9b73b0c2c1d60d7"></a><!-- doxytag: member="map.h::xnmap_fetch" ref="ga52a2727670d06e52b9b73b0c2c1d60d7" args="(xnmap_t *map, int key)" -->
 <div class="memitem">
 <div class="memproto">
       <table class="memname">
         <tr>
-          <td class="memname">void * xnmap_fetch </td>
+          <td class="memname">void xnmap_fetch </td>
           <td>(</td>
           <td class="paramtype">xnmap_t *&nbsp;</td>
           <td class="paramname"> <em>map</em>, </td>
@@ -221,7 +224,7 @@ Collaboration diagram for Lightweight key-to-object mapping service:</div>
         <tr>
           <td></td>
           <td>)</td>
-          <td></td><td></td><td></td>
+          <td></td><td></td><td><code> [inline, static]</code></td>
         </tr>
       </table>
 </div>
@@ -237,6 +240,53 @@ Collaboration diagram for Lightweight key-to-object mapping service:</div>
   </dd>
 </dl>
 <dl class="return"><dt><b>Returns:</b></dt><dd>The indexed object address is returned on success, otherwise NULL is returned when <em>key</em> is invalid or no object is currently indexed on it.</dd></dl>
+<p>Environments:</p>
+<p>This service can be called from:</p>
+<ul>
+<li>Kernel module initialization/cleanup code</li>
+<li>Interrupt service routine</li>
+<li>Kernel-based task</li>
+<li>User-space task</li>
+</ul>
+<p>Rescheduling: never. </p>
+
+</div>
+</div>
+<a class="anchor" id="ga651ded315d1eec00d1e661e52ce4a10e"></a><!-- doxytag: member="map.h::xnmap_fetch_nocheck" ref="ga651ded315d1eec00d1e661e52ce4a10e" args="(xnmap_t *map, int key)" -->
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">void xnmap_fetch_nocheck </td>
+          <td>(</td>
+          <td class="paramtype">xnmap_t *&nbsp;</td>
+          <td class="paramname"> <em>map</em>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">int&nbsp;</td>
+          <td class="paramname"> <em>key</em></td><td>&nbsp;</td>
+        </tr>
+        <tr>
+          <td></td>
+          <td>)</td>
+          <td></td><td></td><td><code> [inline, static]</code></td>
+        </tr>
+      </table>
+</div>
+<div class="memdoc">
+
+<p>Search an object into a map - unchecked form. </p>
+<p>Retrieve an object reference from the given map by its index key, but does not perform any sanity check on the provided key.</p>
+<dl><dt><b>Parameters:</b></dt><dd>
+  <table border="0" cellspacing="2" cellpadding="0">
+    <tr><td valign="top"></td><td valign="top"><em>map</em>&nbsp;</td><td>The address of the map to retrieve from.</td></tr>
+    <tr><td valign="top"></td><td valign="top"><em>key</em>&nbsp;</td><td>The key to be searched for in the map index.</td></tr>
+  </table>
+  </dd>
+</dl>
+<dl class="return"><dt><b>Returns:</b></dt><dd>The indexed object address is returned on success, otherwise NULL is returned when no object is currently indexed on <em>key</em>.</dd></dl>
 <p>Environments:</p>
 <p>This service can be called from:</p>
 <ul>
@@ -300,7 +350,7 @@ Collaboration diagram for Lightweight key-to-object mapping service:</div>
 </div>
 </div>
 </div>
-<hr size="1"/><address style="text-align: right;"><small>Generated on Tue Oct 27 19:18:53 2009 for Xenomai API by&nbsp;
+<hr size="1"/><address style="text-align: right;"><small>Generated on Fri Jan 1 10:45:16 2010 for Xenomai API by&nbsp;
 <a href="http://www.doxygen.org/index.html">
 <img class="footer" src="doxygen.png" alt="doxygen"/></a> 1.6.1 </small></address>
 </body>

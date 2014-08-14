@@ -134,14 +134,14 @@ typedef xntlholder_t xntimerh_t;
 #define xntimerh_prio(h)       xntlholder_prio(h)
 #define xntimerh_init(h)       xntlholder_init(h)
 
-typedef struct {
+typedef struct xntimerq {
 	unsigned date_shift;
 	unsigned long long next_shot;
 	unsigned long long shot_wrap;
 	xnqueue_t bucket[XNTIMER_WHEELSIZE];
 } xntimerq_t;
 
-typedef struct {
+typedef struct xntimerq_it {
 	unsigned bucket;
 } xntimerq_it_t;
 
@@ -339,7 +339,6 @@ typedef struct xntimed_slave {
 #define xntimer_sched(t)	xnpod_current_sched()
 #endif /* !CONFIG_SMP */
 #define xntimer_interval(t)	((t)->interval)
-#define xntimer_set_cookie(t,c)	((t)->cookie = (c))
 #define xntimer_pexpect(t)      ((t)->pexpect)
 #define xntimer_pexpect_forward(t,delta) ((t)->pexpect += delta)
 
@@ -363,7 +362,7 @@ static inline int xntimer_active_p (xntimer_t *timer)
 	return timer->sched != NULL;
 }
 
-static inline int xntimer_running_p (xntimer_t *timer)
+static inline int xntimer_running_p(xntimer_t *timer)
 {
 	return !testbits(timer->status,XNTIMER_DEQUEUED);
 }
@@ -392,9 +391,15 @@ extern xntbops_t nktimer_ops_aperiodic,
 #define xntimer_init	__xntimer_init
 #endif /* !CONFIG_XENO_OPT_STATS */
 
-void __xntimer_init(xntimer_t *timer,
-		  xntbase_t *base,
-		  void (*handler)(xntimer_t *timer));
+#define xntimer_init_noblock(timer, base, handler)	\
+	do {						\
+		xntimer_init(timer, base, handler);	\
+		(timer)->status |= XNTIMER_NOBLCK;	\
+	} while(0)
+
+void __xntimer_init(struct xntimer *timer,
+		    struct xntbase *base,
+		    void (*handler)(struct xntimer *timer));
 
 void xntimer_destroy(xntimer_t *timer);
 
@@ -404,6 +409,8 @@ static inline void xntimer_set_name(xntimer_t *timer, const char *name)
 	strncpy(timer->name, name, sizeof(timer->name));
 #endif /* CONFIG_XENO_OPT_STATS */
 }
+
+void xntimer_next_local_shot(struct xnsched *sched);
 
 /*!
  * \addtogroup timer
@@ -713,6 +720,10 @@ static inline xnticks_t xntimer_get_raw_expiry (xntimer_t *timer)
 
 /*@}*/
 
+void xntimer_init_proc(void);
+
+void xntimer_cleanup_proc(void);
+
 unsigned long xntimer_get_overruns(xntimer_t *timer, xnticks_t now);
 
 void xntimer_freeze(void);
@@ -734,6 +745,8 @@ int xntimer_migrate(xntimer_t *timer,
 
 #define xntimer_set_sched(timer, sched)	xntimer_migrate(timer, sched)
 
+char *xntimer_format_time(xnticks_t value, int periodic,
+			  char *buf, size_t bufsz);
 #ifdef __cplusplus
 }
 #endif

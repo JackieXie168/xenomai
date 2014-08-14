@@ -49,7 +49,7 @@
 #include <native/task.h>
 #include <native/heap.h>
 
-#ifdef CONFIG_XENO_EXPORT_REGISTRY
+#ifdef CONFIG_PROC_FS
 
 static int __heap_read_proc(char *page,
 			    char **start,
@@ -60,11 +60,12 @@ static int __heap_read_proc(char *page,
 	int len;
 	spl_t s;
 
-	p += sprintf(p, "type=%s:size=%lu:used=%lu:numaps=%d\n",
+	p += sprintf(p, "type=%s:size=%lu:used=%lu:numaps=%lu\n",
 		     (heap->mode & H_SHARED) == H_SHARED ? "shared" :
 		     (heap->mode & H_MAPPABLE) ? "mappable" : "kernel",
-		     xnheap_usable_mem(&heap->heap_base), xnheap_used_mem(&heap->heap_base),
-		     atomic_read(&heap->heap_base.archdep.numaps));
+		     xnheap_usable_mem(&heap->heap_base),
+		     xnheap_used_mem(&heap->heap_base),
+		     heap->heap_base.archdep.numaps);
 
 	xnlock_get_irqsave(&nklock, s);
 
@@ -77,8 +78,7 @@ static int __heap_read_proc(char *page,
 
 		while (holder) {
 			xnthread_t *sleeper = link2thread(holder, plink);
-			RT_TASK *task = thread2rtask(sleeper);
-			size_t size = task->wait_args.heap.size;
+			size_t size = sleeper->wait_u.buffer.size;
 			p += sprintf(p, "+%s (size=%zd)\n",
 				     xnthread_name(sleeper), size);
 			holder =
@@ -113,14 +113,14 @@ static xnpnode_t __heap_pnode = {
 	.root = &__native_ptree,
 };
 
-#elif defined(CONFIG_XENO_OPT_REGISTRY)
+#else /* !CONFIG_PROC_FS */
 
 static xnpnode_t __heap_pnode = {
 
 	.type = "heaps"
 };
 
-#endif /* CONFIG_XENO_EXPORT_REGISTRY */
+#endif /* !CONFIG_PROC_FS */
 
 static void __heap_flush_private(xnheap_t *heap,
 				 void *heapmem, u_long heapsize, void *cookie)
@@ -175,7 +175,7 @@ static void __heap_flush_private(xnheap_t *heap,
  * claimed and released to this pool.  The block pool is not
  * extensible, so this value must be compatible with the highest
  * memory pressure that could be expected. A minimum of 2 * PAGE_SIZE
- * will be enforced for mappable heaps, 2 * XNCORE_PAGE_SIZE
+ * will be enforced for mappable heaps, 2 * XNHEAP_PAGE_SIZE
  * otherwise.
  *
  * @param mode The heap creation mode. The following flags can be
@@ -202,8 +202,8 @@ static void __heap_flush_private(xnheap_t *heap,
  *
  * - H_DMA causes the block pool associated to the heap to be
  * allocated in physically contiguous memory, suitable for DMA
- * operations with I/O devices. @a heapsize beyond 128KiB will
- * be rounded up to a two expononent allocation.
+ * operations with I/O devices. The physical address of the
+ * heap can be obtained by a call to rt_heap_inquire().
  *
  * - H_NONCACHED causes the heap not to be cached. This is necessary on
  * platforms such as ARM to share a heap between kernel and user-space.
@@ -279,21 +279,22 @@ int rt_heap_create(RT_HEAP *heap, const char *name, size_t heapsize, int mode)
 	{
 		void *heapmem;
 
-		heapsize = xnheap_rounded_size(heapsize, XNCORE_PAGE_SIZE);
+		heapsize = xnheap_rounded_size(heapsize, XNHEAP_PAGE_SIZE);
 
 		heapmem = xnarch_alloc_host_mem(heapsize);
 
 		if (!heapmem)
 			return -ENOMEM;
 
-		err = xnheap_init(&heap->heap_base, heapmem, heapsize, XNCORE_PAGE_SIZE);
+		err = xnheap_init(&heap->heap_base, heapmem, heapsize, XNHEAP_PAGE_SIZE);
 		if (err) {
 			xnarch_free_host_mem(heapmem, heapsize);
 			return err;
 		}
 	}
+	xnheap_set_label(&heap->heap_base, "rt_heap: %s", name);
 
-	xnsynch_init(&heap->synch_base, mode & (H_PRIO | H_FIFO));
+	xnsynch_init(&heap->synch_base, mode & (H_PRIO | H_FIFO), NULL);
 	heap->handle = 0;	/* i.e. (still) unregistered heap. */
 	heap->magic = XENO_HEAP_MAGIC;
 	heap->mode = mode;
@@ -305,34 +306,23 @@ int rt_heap_create(RT_HEAP *heap, const char *name, size_t heapsize, int mode)
 	appendq(heap->rqueue, &heap->rlink);
 	xnlock_put_irqrestore(&nklock, s);
 
-#ifdef CONFIG_XENO_OPT_REGISTRY
-	/* <!> Since xnregister_enter() may reschedule, only register
-	   complete objects, so that the registry cannot return handles to
-	   half-baked objects... */
-
+	/*
+	 * <!> Since xnregister_enter() may reschedule, only register
+	 * complete objects, so that the registry cannot return
+	 * handles to half-baked objects...
+	 */
 	if (name) {
-		xnpnode_t *pnode = &__heap_pnode;
-
-		if (!*name) {
-			/* Since this is an anonymous object (empty name on entry)
-			   from user-space, it gets registered under an unique
-			   internal name but is not exported through /proc. */
-			xnobject_create_name(heap->name, sizeof(heap->name),
-					     (void *)heap);
-			pnode = NULL;
-		}
-
-		err = xnregistry_enter(heap->name, heap, &heap->handle, pnode);
+		err = xnregistry_enter(heap->name, heap, &heap->handle,
+				       &__heap_pnode);
 
 		if (err)
 			rt_heap_delete(heap);
 	}
-#endif /* CONFIG_XENO_OPT_REGISTRY */
 
 	return err;
 }
 
-static void __heap_post_release(struct xnheap *h) /* nklock held, IRQs off */
+static void __heap_post_release(struct xnheap *h)
 {
 	RT_HEAP *heap = container_of(h, RT_HEAP, heap_base);
 	spl_t s;
@@ -341,10 +331,8 @@ static void __heap_post_release(struct xnheap *h) /* nklock held, IRQs off */
 
 	removeq(heap->rqueue, &heap->rlink);
 
-#ifdef CONFIG_XENO_OPT_REGISTRY
 	if (heap->handle)
 		xnregistry_remove(heap->handle);
-#endif /* CONFIG_XENO_OPT_REGISTRY */
 
 	if (xnsynch_destroy(&heap->synch_base) == XNSYNCH_RESCHED)
 		/*
@@ -375,9 +363,6 @@ static void __heap_post_release(struct xnheap *h) /* nklock held, IRQs off */
  *
  * @return 0 is returned upon success. Otherwise:
  *
- * - -EBUSY is returned if @a heap is in use by another process and the
- * descriptor is not destroyed.
- *
  * - -EINVAL is returned if @a heap is not a heap descriptor.
  *
  * - -EIDRM is returned if @a heap is a deleted heap descriptor.
@@ -397,7 +382,7 @@ static void __heap_post_release(struct xnheap *h) /* nklock held, IRQs off */
 
 int rt_heap_delete_inner(RT_HEAP *heap, void __user *mapaddr)
 {
-	int err = 0;
+	int err;
 	spl_t s;
 
 	if (!xnpod_root_p())
@@ -423,29 +408,23 @@ int rt_heap_delete_inner(RT_HEAP *heap, void __user *mapaddr)
 
 	/*
 	 * The heap descriptor has been marked as deleted before we
-	 * released the superlock thus preventing any sucessful
-	 * subsequent calls of rt_heap_delete(), so now we can
-	 * actually destroy it safely.
+	 * released the superlock thus preventing any subsequent call
+	 * to rt_heap_delete() to succeed, so now we can actually
+	 * destroy it safely.
 	 */
 
 #ifdef CONFIG_XENO_OPT_PERVASIVE
 	if (heap->mode & H_MAPPABLE)
-		err = xnheap_destroy_mapped(&heap->heap_base,
-					    __heap_post_release, mapaddr);
+		xnheap_destroy_mapped(&heap->heap_base,
+				      __heap_post_release, mapaddr);
 	else
 #endif /* CONFIG_XENO_OPT_PERVASIVE */
-		err = xnheap_destroy(&heap->heap_base, &__heap_flush_private, NULL);
-
-	xnlock_get_irqsave(&nklock, s);
-
-	if (err)
-		heap->magic = XENO_HEAP_MAGIC;
-	else if (!(heap->mode & H_MAPPABLE))
+	{
+		xnheap_destroy(&heap->heap_base, &__heap_flush_private, NULL);
 		__heap_post_release(&heap->heap_base);
+	}
 
-	xnlock_put_irqrestore(&nklock, s);
-
-	return err;
+	return 0;
 }
 
 int rt_heap_delete(RT_HEAP *heap)
@@ -506,8 +485,8 @@ int rt_heap_delete(RT_HEAP *heap)
  * waiting task before any block was available.
  *
  * - -EPERM is returned if this service should block but was called
- * from a context which cannot sleep (e.g. interrupt, non-realtime or
- * scheduler locked).
+ * from a context which cannot sleep (e.g. interrupt, non-realtime
+ * context).
  *
  * Environments:
  *
@@ -533,7 +512,8 @@ int rt_heap_delete(RT_HEAP *heap)
 int rt_heap_alloc(RT_HEAP *heap, size_t size, RTIME timeout, void **blockp)
 {
 	void *block = NULL;
-	RT_TASK *task;
+	xnthread_t *thread;
+	xnflags_t info;
 	int err = 0;
 	spl_t s;
 
@@ -592,19 +572,18 @@ int rt_heap_alloc(RT_HEAP *heap, size_t size, RTIME timeout, void **blockp)
 		goto unlock_and_exit;
 	}
 
-	task = xeno_current_task();
-	task->wait_args.heap.size = size;
-	task->wait_args.heap.block = NULL;
-	xnsynch_sleep_on(&heap->synch_base, timeout, XN_RELATIVE);
-
-	if (xnthread_test_info(&task->thread_base, XNRMID))
+	thread = xnpod_current_thread();
+	thread->wait_u.buffer.size = size;
+	thread->wait_u.buffer.ptr = NULL;
+	info = xnsynch_sleep_on(&heap->synch_base, timeout, XN_RELATIVE);
+	if (info & XNRMID)
 		err = -EIDRM;	/* Heap deleted while pending. */
-	else if (xnthread_test_info(&task->thread_base, XNTIMEO))
+	else if (info & XNTIMEO)
 		err = -ETIMEDOUT;	/* Timeout. */
-	else if (xnthread_test_info(&task->thread_base, XNBREAK))
+	else if (info & XNBREAK)
 		err = -EINTR;	/* Unblocked. */
 	else
-		block = task->wait_args.heap.block;
+		block = thread->wait_u.buffer.ptr;
 
       unlock_and_exit:
 
@@ -680,18 +659,17 @@ int rt_heap_free(RT_HEAP *heap, void *block)
 		nwake = 0;
 
 		while ((holder = nholder) != NULL) {
-			RT_TASK *sleeper =
-			    thread2rtask(link2thread(holder, plink));
+			xnthread_t *sleeper = link2thread(holder, plink);
 			void *block;
 
 			block = xnheap_alloc(&heap->heap_base,
-					     sleeper->wait_args.heap.size);
+					     sleeper->wait_u.buffer.size);
 			if (block) {
 				nholder =
 				    xnsynch_wakeup_this_sleeper(&heap->
 								synch_base,
 								holder);
-				sleeper->wait_args.heap.block = block;
+				sleeper->wait_u.buffer.ptr = block;
 				nwake++;
 			} else
 				nholder =
@@ -761,6 +739,11 @@ int rt_heap_inquire(RT_HEAP *heap, RT_HEAP_INFO *info)
 	info->usablemem = xnheap_usable_mem(&heap->heap_base);
 	info->usedmem = xnheap_used_mem(&heap->heap_base);
 	info->mode = heap->mode;
+#ifdef __XENO_SIM__
+	info->phys_addr = 0;
+#else
+	info->phys_addr = (heap->mode & H_SINGLE) ? virt_to_phys(heap->sba):0;
+#endif
 
       unlock_and_exit:
 
@@ -807,8 +790,8 @@ int rt_heap_inquire(RT_HEAP *heap, RT_HEAP_INFO *info)
  * the specified amount of time.
  *
  * - -EPERM is returned if this service should block, but was called
- * from a context which cannot sleep (e.g. interrupt, non-realtime or
- * scheduler locked).
+ * from a context which cannot sleep (e.g. interrupt, non-realtime
+ * context).
  *
  * - -ENOENT is returned if the special file /dev/rtheap
  * (character-mode, major 10, minor 254) is not available from the

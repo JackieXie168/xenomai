@@ -46,6 +46,7 @@
 #define __pse51_mutex_lock            20
 #define __pse51_mutex_timedlock       21
 #define __pse51_mutex_trylock         22
+#define __pse51_check_init            __pse51_mutex_trylock
 #define __pse51_mutex_unlock          23
 #define __pse51_cond_init             24
 #define __pse51_cond_destroy          25
@@ -101,6 +102,8 @@
 #define __pse51_thread_getschedparam  75
 #define __pse51_thread_kill           76
 #define __pse51_select                77
+#define __pse51_thread_setschedparam_ex	78
+#define __pse51_thread_getschedparam_ex	79
 
 #ifdef __KERNEL__
 

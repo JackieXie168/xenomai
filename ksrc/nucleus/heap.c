@@ -69,15 +69,15 @@ HEAP {
 #include <nucleus/assert.h>
 #include <asm/xenomai/bits/heap.h>
 
-#ifndef CONFIG_XENO_OPT_DEBUG_NUCLEUS
-#define CONFIG_XENO_OPT_DEBUG_NUCLEUS 0
-#endif
-
-xnheap_t kheap;			/* System heap */
+xnheap_t kheap;		/* System heap */
+EXPORT_SYMBOL_GPL(kheap);
 
 #if CONFIG_XENO_OPT_SYS_STACKPOOLSZ > 0
-xnheap_t kstacks;		/* Private stack pool */
+xnheap_t kstacks;	/* Private stack pool */
 #endif
+
+static DEFINE_XNQUEUE(heapq);	/* Heap list for /proc reporting */
+static unsigned long heapq_rev;
 
 static void init_extent(xnheap_t *heap, xnextent_t *extent)
 {
@@ -167,8 +167,10 @@ static void init_extent(xnheap_t *heap, xnextent_t *extent)
 int xnheap_init(xnheap_t *heap,
 		void *heapaddr, u_long heapsize, u_long pagesize)
 {
+	unsigned cpu, nr_cpus = xnarch_num_online_cpus();
 	u_long hdrsize, shiftsize, pageshift;
 	xnextent_t *extent;
+	spl_t s;
 
 	/*
 	 * Perform some parametrical checks first.
@@ -222,8 +224,10 @@ int xnheap_init(xnheap_t *heap,
 
 	heap->ubytes = 0;
 	heap->maxcont = heap->npages * pagesize;
-	heap->idleq = NULL;
+	for (cpu = 0; cpu < nr_cpus; cpu++)
+		heap->idleq[cpu] = NULL;
 	inith(&heap->link);
+	inith(&heap->stat_link);
 	initq(&heap->extents);
 	xnlock_init(&heap->lock);
 	xnarch_init_heapcb(&heap->archdep);
@@ -233,10 +237,56 @@ int xnheap_init(xnheap_t *heap,
 
 	appendq(&heap->extents, &extent->link);
 
+	snprintf(heap->label, sizeof(heap->label), "unlabeled @0x%p", heap);
+
+	xnlock_get_irqsave(&nklock, s);
+	appendq(&heapq, &heap->stat_link);
+	heapq_rev++;
+	xnlock_put_irqrestore(&nklock, s);
+
 	xnarch_init_display_context(heap);
 
 	return 0;
 }
+EXPORT_SYMBOL_GPL(xnheap_init);
+
+/*!
+ * \fn xnheap_set_label(xnheap_t *heap,const char *label,...)
+ * \brief Set the heap's label string.
+ *
+ * Set the heap label that will be used in statistic outputs.
+ *
+ * @param heap The address of a heap descriptor.
+ *
+ * @param label Label string displayed in statistic outputs. This parameter
+ * can be a format string, in which case succeeding parameters will be used
+ * to resolve the final label.
+ *
+ * Environments:
+ *
+ * This service can be called from:
+ *
+ * - Kernel module initialization/cleanup code
+ * - Kernel-based task
+ * - User-space task
+ *
+ * Rescheduling: never.
+ */
+
+void xnheap_set_label(xnheap_t *heap, const char *label, ...)
+{
+	va_list args;
+	spl_t s;
+
+	va_start(args, label);
+
+	xnlock_get_irqsave(&nklock, s);
+	vsnprintf(heap->label, sizeof(heap->label), label, args);
+	xnlock_put_irqrestore(&nklock, s);
+
+	va_end(args);
+}
+EXPORT_SYMBOL_GPL(xnheap_set_label);
 
 /*! 
  * \fn void xnheap_destroy(xnheap_t *heap, void (*flushfn)(xnheap_t *heap, void *extaddr, u_long extsize, void *cookie), void *cookie)
@@ -253,9 +303,6 @@ int xnheap_init(xnheap_t *heap,
  * @param cookie If @a flushfn is non-NULL, @a cookie is an opaque
  * pointer which will be passed unmodified to @a flushfn.
  *
- * @return 0 is returned on success, or -EBUSY if external mappings
- * are still pending on the heap memory.
- *
  * Environments:
  *
  * This service can be called from:
@@ -267,16 +314,22 @@ int xnheap_init(xnheap_t *heap,
  * Rescheduling: never.
  */
 
-int xnheap_destroy(xnheap_t *heap,
-		   void (*flushfn) (xnheap_t *heap,
+void xnheap_destroy(xnheap_t *heap,
+		    void (*flushfn)(xnheap_t *heap,
 				    void *extaddr,
-				    u_long extsize, void *cookie), void *cookie)
+				    u_long extsize, void *cookie),
+		    void *cookie)
 {
 	xnholder_t *holder;
 	spl_t s;
 
+	xnlock_get_irqsave(&nklock, s);
+	removeq(&heapq, &heap->stat_link);
+	heapq_rev++;
+	xnlock_put_irqrestore(&nklock, s);
+
 	if (!flushfn)
-		return 0;
+		return;
 
 	xnlock_get_irqsave(&heap->lock, s);
 
@@ -287,9 +340,8 @@ int xnheap_destroy(xnheap_t *heap,
 	}
 
 	xnlock_put_irqrestore(&heap->lock, s);
-
-	return 0;
 }
+EXPORT_SYMBOL_GPL(xnheap_destroy);
 
 /*
  * get_free_range() -- Obtain a range of contiguous free pages to
@@ -525,6 +577,7 @@ void *xnheap_alloc(xnheap_t *heap, u_long size)
 
 	return block;
 }
+EXPORT_SYMBOL_GPL(xnheap_alloc);
 
 /*! 
  * \fn int xnheap_test_and_free(xnheap_t *heap,void *block,int (*ckfn)(void *block))
@@ -751,6 +804,7 @@ int xnheap_test_and_free(xnheap_t *heap, void *block, int (*ckfn) (void *block))
 
 	return 0;
 }
+EXPORT_SYMBOL_GPL(xnheap_test_and_free);
 
 /*! 
  * \fn int xnheap_free(xnheap_t *heap, void *block)
@@ -789,6 +843,7 @@ int xnheap_free(xnheap_t *heap, void *block)
 {
 	return xnheap_test_and_free(heap, block, NULL);
 }
+EXPORT_SYMBOL_GPL(xnheap_free);
 
 /*! 
  * \fn int xnheap_extend(xnheap_t *heap, void *extaddr, u_long extsize)
@@ -834,6 +889,7 @@ int xnheap_extend(xnheap_t *heap, void *extaddr, u_long extsize)
 
 	return 0;
 }
+EXPORT_SYMBOL_GPL(xnheap_extend);
 
 /*! 
  * \fn int xnheap_schedule_free(xnheap_t *heap, void *block, xnholder_t *link)
@@ -870,6 +926,7 @@ int xnheap_extend(xnheap_t *heap, void *extaddr, u_long extsize)
 
 void xnheap_schedule_free(xnheap_t *heap, void *block, xnholder_t *link)
 {
+	unsigned cpu;
 	spl_t s;
 
 	xnlock_get_irqsave(&heap->lock, s);
@@ -877,26 +934,24 @@ void xnheap_schedule_free(xnheap_t *heap, void *block, xnholder_t *link)
 	   idle objects through the 'next' field, so the 'last' field of
 	   the link is used to point at the beginning of the freed
 	   memory. */
+	cpu = xnarch_current_cpu();
 	link->last = (xnholder_t *)block;
-	link->next = heap->idleq;
-	heap->idleq = link;
+	link->next = heap->idleq[cpu];
+	heap->idleq[cpu] = link;
 	xnlock_put_irqrestore(&heap->lock, s);
 }
+EXPORT_SYMBOL_GPL(xnheap_schedule_free);
 
-void xnheap_finalize_free_inner(xnheap_t *heap)
+void xnheap_finalize_free_inner(xnheap_t *heap, int cpu)
 {
 	xnholder_t *holder;
-	spl_t s;
 
-	xnlock_get_irqsave(&heap->lock, s);
-
-	while ((holder = heap->idleq) != NULL) {
-		heap->idleq = holder->next;
+	while ((holder = heap->idleq[cpu]) != NULL) {
+		heap->idleq[cpu] = holder->next;
 		xnheap_free(heap, holder->last);
 	}
-
-	xnlock_put_irqrestore(&heap->lock, s);
 }
+EXPORT_SYMBOL_GPL(xnheap_finalize_free_inner);
 
 int xnheap_check_block(xnheap_t *heap, void *block)
 {
@@ -938,6 +993,7 @@ int xnheap_check_block(xnheap_t *heap, void *block)
 
 	return err;
 }
+EXPORT_SYMBOL_GPL(xnheap_check_block);
 
 #ifdef CONFIG_XENO_OPT_PERVASIVE
 
@@ -946,8 +1002,10 @@ int xnheap_check_block(xnheap_t *heap, void *block)
 #include <linux/device.h>
 #include <linux/vmalloc.h>
 #include <linux/mm.h>
+#include <linux/spinlock.h>
 
 static DEFINE_XNQUEUE(kheapq);	/* Shared heap queue. */
+static DEFINE_SPINLOCK(kheapq_lock);
 
 static inline void *__alloc_and_reserve_heap(size_t size, int kmflags)
 {
@@ -1014,30 +1072,37 @@ static void __unreserve_and_free_heap(void *ptr, size_t size, int kmflags)
 	}
 }
 
+static void xnheap_vmopen(struct vm_area_struct *vma)
+{
+	xnheap_t *heap = vma->vm_private_data;
+
+	spin_lock(&kheapq_lock);
+	heap->archdep.numaps++;
+	spin_unlock(&kheapq_lock);
+}
+
 static void xnheap_vmclose(struct vm_area_struct *vma)
 {
 	xnheap_t *heap = vma->vm_private_data;
-	spl_t s;
 
-	xnlock_get_irqsave(&nklock, s);
+	spin_lock(&kheapq_lock);
 
-	if (atomic_dec_and_test(&heap->archdep.numaps)) {
-		if (heap->archdep.release) {
-			removeq(&kheapq, &heap->link);
-			xnlock_put_irqrestore(&nklock, s);
-			__unreserve_and_free_heap(heap->archdep.heapbase,
-						  xnheap_extentsize(heap),
-						  heap->archdep.kmflags);
-			heap->archdep.release(heap);
-			return;
-		}
+	if (--heap->archdep.numaps == 0 && heap->archdep.release) {
+		removeq(&kheapq, &heap->link);
+		spin_unlock(&kheapq_lock);
+		__unreserve_and_free_heap(heap->archdep.heapbase,
+					  xnheap_extentsize(heap),
+					  heap->archdep.kmflags);
+		heap->archdep.release(heap);
+		return;
 	}
 
-	xnlock_put_irqrestore(&nklock, s);
+	spin_unlock(&kheapq_lock);
 }
 
 static struct vm_operations_struct xnheap_vmops = {
-      .close = &xnheap_vmclose
+	.open = &xnheap_vmopen,
+	.close = &xnheap_vmclose
 };
 
 static int xnheap_open(struct inode *inode, struct file *file)
@@ -1046,14 +1111,16 @@ static int xnheap_open(struct inode *inode, struct file *file)
 	return 0;
 }
 
-static inline xnheap_t *__validate_heap_addr(void *addr)
+static inline struct xnheap *__validate_heap_addr(void *addr)
 {
-	xnholder_t *holder;
+	struct xnheap *heap;
+	struct xnholder *h;
 
-	for (holder = getheadq(&kheapq); holder;
-	     holder = nextq(&kheapq, holder))
-		if (link2heap(holder) == addr)
-			return addr;
+	for (h = getheadq(&kheapq); h; h = nextq(&kheapq, h)) {
+		heap = link2heap(h);
+		if (heap == addr && heap->archdep.release == NULL)
+			return heap;
+	}
 
 	return NULL;
 }
@@ -1061,32 +1128,15 @@ static inline xnheap_t *__validate_heap_addr(void *addr)
 static int xnheap_ioctl(struct inode *inode,
 			struct file *file, unsigned int cmd, unsigned long arg)
 {
-	xnheap_t *heap;
-	int err = 0;
-	spl_t s;
-
-	xnlock_get_irqsave(&nklock, s);
-
-	heap = __validate_heap_addr((void *)arg);
-
-	if (!heap) {
-		err = -EINVAL;
-		goto unlock_and_exit;
-	}
-
-	file->private_data = heap;
-
-      unlock_and_exit:
-
-	xnlock_put_irqrestore(&nklock, s);
-
-	return err;
+	file->private_data = (void *)arg;
+	return 0;
 }
 
 static int xnheap_mmap(struct file *file, struct vm_area_struct *vma)
 {
 	unsigned long offset, size, vaddr;
 	xnheap_t *heap;
+	int err;
 
 	if (vma->vm_ops != NULL || file->private_data == NULL)
 		/* Caller should mmap() once for a given file instance, after
@@ -1098,21 +1148,36 @@ static int xnheap_mmap(struct file *file, struct vm_area_struct *vma)
 
 	offset = vma->vm_pgoff << PAGE_SHIFT;
 	size = vma->vm_end - vma->vm_start;
-	heap = (xnheap_t *)file->private_data;
 
+	spin_lock(&kheapq_lock);
+
+	heap = __validate_heap_addr(file->private_data);
+	if (heap == NULL) {
+		spin_unlock(&kheapq_lock);
+		return -EINVAL;
+	}
+
+	heap->archdep.numaps++;
+
+	spin_unlock(&kheapq_lock);
+
+	vma->vm_private_data = file->private_data;
+
+	err = -ENXIO;
 	if (offset + size > xnheap_extentsize(heap))
-		return -ENXIO;
+		goto deref_out;
 
 	if (countq(&heap->extents) > 1)
 		/* Cannot map multi-extent heaps, we need the memory
 		   area we map from to be contiguous. */
-		return -ENXIO;
+		goto deref_out;
 
 	vma->vm_ops = &xnheap_vmops;
-	vma->vm_private_data = file->private_data;
 
+#ifdef CONFIG_MMU
 	vaddr = (unsigned long)heap->archdep.heapbase + offset;
 
+	err = -EAGAIN;
 	if ((heap->archdep.kmflags & ~XNHEAP_GFP_NONCACHED) == 0) {
 		unsigned long maddr = vma->vm_start;
 
@@ -1121,7 +1186,7 @@ static int xnheap_mmap(struct file *file, struct vm_area_struct *vma)
 
 		while (size > 0) {
 			if (xnarch_remap_vm_page(vma, maddr, vaddr))
-				return -EAGAIN;
+				goto deref_out;
 
 			maddr += PAGE_SIZE;
 			vaddr += PAGE_SIZE;
@@ -1131,19 +1196,62 @@ static int xnheap_mmap(struct file *file, struct vm_area_struct *vma)
 					      vma->vm_start,
 					      virt_to_phys((void *)vaddr),
 					      size, vma->vm_page_prot))
-		return -EAGAIN;
+		goto deref_out;
 
 	xnarch_fault_range(vma);
-
-	atomic_inc(&heap->archdep.numaps);
+#else /* !CONFIG_MMU */
+	(void)vaddr;
+	if ((heap->archdep.kmflags & ~XNHEAP_GFP_NONCACHED) != 0 ||
+	    heap->archdep.kmflags == XNHEAP_GFP_NONCACHED)
+		vma->vm_page_prot = pgprot_noncached(vma->vm_page_prot);
+#endif /* !CONFIG_MMU */
 
 	return 0;
+
+deref_out:
+	xnheap_vmclose(vma);
+	return err;
 }
+
+#ifndef CONFIG_MMU
+static unsigned long xnheap_get_unmapped_area(struct file *file,
+					      unsigned long addr,
+					      unsigned long len,
+					      unsigned long pgoff,
+					      unsigned long flags)
+{
+	unsigned long uaddr, offset;
+	struct xnheap *heap;
+	int ret;
+
+	spin_lock(&kheapq_lock);
+
+	ret = -EINVAL;
+	heap = __validate_heap_addr(file->private_data);
+	if (heap == NULL)
+		goto fail;
+
+	offset = pgoff << PAGE_SHIFT;
+	if (offset + len > xnheap_extentsize(heap))
+		goto fail;
+
+	uaddr = (unsigned long)heap->archdep.heapbase + offset;
+
+	spin_unlock(&kheapq_lock);
+
+	return uaddr;
+fail:
+	spin_unlock(&kheapq_lock);
+
+	return (unsigned long)ret;
+}
+#else /* CONFIG_MMU */
+#define xnheap_get_unmapped_area  NULL
+#endif /* CONFIG_MMU */
 
 int xnheap_init_mapped(xnheap_t *heap, u_long heapsize, int memflags)
 {
 	void *heapbase;
-	spl_t s;
 	int err;
 
 	/* Caller must have accounted for internal overhead. */
@@ -1154,7 +1262,7 @@ int xnheap_init_mapped(xnheap_t *heap, u_long heapsize, int memflags)
 		return -EINVAL;
 
 	heapbase = __alloc_and_reserve_heap(heapsize, memflags);
-	if (!heapbase)
+	if (heapbase == NULL)
 		return -ENOMEM;
 
 	err = xnheap_init(heap, heapbase, heapsize, PAGE_SIZE);
@@ -1167,57 +1275,86 @@ int xnheap_init_mapped(xnheap_t *heap, u_long heapsize, int memflags)
 	heap->archdep.heapbase = heapbase;
 	heap->archdep.release = NULL;
 
-	xnlock_get_irqsave(&nklock, s);
+	spin_lock(&kheapq_lock);
 	appendq(&kheapq, &heap->link);
-	xnlock_put_irqrestore(&nklock, s);
+	spin_unlock(&kheapq_lock);
 
 	return 0;
 }
 
-int xnheap_destroy_mapped(xnheap_t *heap, void (*release)(struct xnheap *heap),
-			  void __user *mapaddr)
+void xnheap_destroy_mapped(xnheap_t *heap,
+			   void (*release)(struct xnheap *heap),
+			   void __user *mapaddr)
 {
-	int ret = 0, ccheck;
 	unsigned long len;
 	spl_t s;
 
-	ccheck = mapaddr ? 1 : 0;
+	/*
+	 * Trying to unmap user memory without providing a release
+	 * handler for deferred cleanup is a bug.
+	 */
+	XENO_ASSERT(NUCLEUS, mapaddr == NULL || release, /* nop */);
 
 	xnlock_get_irqsave(&nklock, s);
-
-	if (atomic_read(&heap->archdep.numaps) > ccheck) {
-		heap->archdep.release = release;
-		xnlock_put_irqrestore(&nklock, s);
-		return -EBUSY;
-	}
-
-	removeq(&kheapq, &heap->link); /* Prevent further mapping. */
+	removeq(&heapq, &heap->stat_link);
+	heapq_rev++;
 	xnlock_put_irqrestore(&nklock, s);
 
 	len = xnheap_extentsize(heap);
 
+	/*
+	 * If the caller has an active mapping on that heap, remove it
+	 * now. Note that we don't want to run the release handler
+	 * indirectly on top of vmclose() by calling do_munmap(); we
+	 * just clear it so that we may fall down to the common
+	 * epilogue in case no more mapping exists.
+	 */
 	if (mapaddr) {
 		down_write(&current->mm->mmap_sem);
 		heap->archdep.release = NULL;
-		ret = do_munmap(current->mm, (unsigned long)mapaddr, len);
+		do_munmap(current->mm, (unsigned long)mapaddr, len);
 		up_write(&current->mm->mmap_sem);
 	}
 
-	if (ret == 0) {
-		__unreserve_and_free_heap(heap->archdep.heapbase, len,
-					  heap->archdep.kmflags);
-		if (release)
-			release(heap);
+	/*
+	 * At that point, the caller dropped its mapping. Return if
+	 * some mapping still remains on the same heap, arming the
+	 * deferred release handler to clean it up via vmclose().
+	 */
+	spin_lock(&kheapq_lock);
+
+	if (heap->archdep.numaps > 0) {
+		/* The release handler is supposed to clean up the rest. */
+		heap->archdep.release = release;
+		spin_unlock(&kheapq_lock);
+		XENO_ASSERT(NUCLEUS, release != NULL, /* nop */);
+		return;
 	}
 
-	return ret;
+	/*
+	 * No more mapping, remove the heap from the global queue,
+	 * unreserve its memory and release its descriptor if a
+	 * cleanup handler is available. Note that we may allow the
+	 * heap to linger in the global queue until all mappings have
+	 * been removed, because __validate_heap_addr() will deny
+	 * access to heaps pending a release.
+	 */
+	removeq(&kheapq, &heap->link);
+
+	spin_unlock(&kheapq_lock);
+
+	__unreserve_and_free_heap(heap->archdep.heapbase, len,
+				  heap->archdep.kmflags);
+	if (release)
+		release(heap);
 }
 
 static struct file_operations xnheap_fops = {
 	.owner = THIS_MODULE,
-	.open = &xnheap_open,
-	.ioctl = &xnheap_ioctl,
-	.mmap = &xnheap_mmap
+	.open = xnheap_open,
+	.ioctl = xnheap_ioctl,
+	.mmap = xnheap_mmap,
+	.get_unmapped_area = xnheap_get_unmapped_area
 };
 
 static struct miscdevice xnheap_dev = {
@@ -1234,21 +1371,112 @@ void xnheap_umount(void)
 	misc_deregister(&xnheap_dev);
 }
 
-EXPORT_SYMBOL(xnheap_init_mapped);
-EXPORT_SYMBOL(xnheap_destroy_mapped);
+#elif !defined(__XENO_SIM__) /* !CONFIG_XENO_OPT_PERVASIVE */
+static void xnheap_free_extent(xnheap_t *heap,
+			       void *extent, u_long size, void *cookie)
+{
+	xnarch_free_host_mem(extent, size);
+}
 
-#endif /* CONFIG_XENO_OPT_PERVASIVE */
+int xnheap_init_mapped(xnheap_t *heap, u_long heapsize, int memflags)
+{
+	void *heapaddr;
+	int ret;
+
+	if ((memflags & XNHEAP_GFP_NONCACHED)
+	    && memflags != XNHEAP_GFP_NONCACHED)
+		return -EINVAL;
+
+	heapaddr = xnarch_alloc_host_mem(heapsize);
+	if (heapaddr) {
+		ret = xnheap_init(heap, heapaddr, heapsize, XNHEAP_PAGE_SIZE);
+		if (ret)
+			xnarch_free_host_mem(heapaddr, heapsize);
+
+		return ret;
+	}
+
+	return -ENOMEM;
+}
+
+void xnheap_destroy_mapped(xnheap_t *heap,
+			   void (*release)(struct xnheap *heap),
+			   void __user *mapaddr)
+{
+	xnheap_destroy(heap, &xnheap_free_extent, NULL);
+}
+#endif /* !CONFIG_XENO_OPT_PERVASIVE */
+
+#ifdef CONFIG_PROC_FS
+
+#include <linux/proc_fs.h>
+
+static int heap_read_proc(char *page,
+			  char **start,
+			  off_t off, int count, int *eof, void *data)
+{
+	unsigned long rev;
+	xnholder_t *entry;
+	xnheap_t *heap;
+	int len;
+	spl_t s;
+
+	if (!xnpod_active_p())
+		return -ESRCH;
+
+	xnlock_get_irqsave(&nklock, s);
+
+restart:
+	len = 0;
+
+	entry = getheadq(&heapq);
+	while (entry) {
+		heap = container_of(entry, xnheap_t, stat_link);
+		len += sprintf(page + len,
+			       "size=%lu:used=%lu:pagesz=%lu  (%s)\n",
+			       xnheap_usable_mem(heap),
+			       xnheap_used_mem(heap),
+			       xnheap_page_size(heap),
+			       heap->label);
+
+		rev = heapq_rev;
+
+		xnlock_sync_irq(&nklock, s);
+
+		if (heapq_rev != rev)
+			goto restart;
+
+		entry = nextq(&heapq, entry);
+	}
+
+	xnlock_put_irqrestore(&nklock, s);
+
+	len -= off;
+	if (len <= off + count)
+		*eof = 1;
+	*start = page + off;
+	if (len > count)
+		len = count;
+	if (len < 0)
+		len = 0;
+
+	return len;
+}
+
+void xnheap_init_proc(void)
+{
+	rthal_add_proc_leaf("heap", &heap_read_proc, NULL, NULL,
+			    rthal_proc_root);
+}
+
+void xnheap_cleanup_proc(void)
+{
+	remove_proc_entry("heap", rthal_proc_root);
+}
+
+#endif /* CONFIG_PROC_FS */
+
+EXPORT_SYMBOL_GPL(xnheap_init_mapped);
+EXPORT_SYMBOL_GPL(xnheap_destroy_mapped);
 
 /*@}*/
-
-EXPORT_SYMBOL(xnheap_alloc);
-EXPORT_SYMBOL(xnheap_destroy);
-EXPORT_SYMBOL(xnheap_extend);
-EXPORT_SYMBOL(xnheap_test_and_free);
-EXPORT_SYMBOL(xnheap_free);
-EXPORT_SYMBOL(xnheap_init);
-EXPORT_SYMBOL(xnheap_schedule_free);
-EXPORT_SYMBOL(xnheap_finalize_free_inner);
-EXPORT_SYMBOL(xnheap_check_block);
-
-EXPORT_SYMBOL(kheap);

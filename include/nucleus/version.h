@@ -26,8 +26,8 @@
 					    CONFIG_XENO_VERSION_MINOR, \
 					    CONFIG_XENO_REVISION_LEVEL)
 
-#define XENO_VERSION_NAME	"Flavor Crystal 7"
+#define XENO_VERSION_NAME	"Flying In A Blue Dream"
 
-#define XENO_VERSION_STRING	"2.4.10"
+#define XENO_VERSION_STRING	"2.5.0"
 
 #endif /* _XENO_NUCLEUS_VERSION_H */

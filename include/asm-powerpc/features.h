@@ -22,11 +22,11 @@
 #include <asm-generic/xenomai/features.h>
 
 /* The ABI revision level we use on this arch. */
-#define XENOMAI_ABI_REV   1UL
+#define XENOMAI_ABI_REV   3UL
 
 #define XENOMAI_FEAT_DEP  __xn_feat_generic_mask
 
-#define XENOMAI_FEAT_MAN  0
+#define XENOMAI_FEAT_MAN  __xn_feat_generic_man_mask
 
 static inline int check_abi_revision(unsigned long abirev)
 {
@@ -39,5 +39,7 @@ static inline const char *get_feature_label(unsigned feature)
 }
 
 #define XNARCH_HAVE_LLMULSHFT    1
+#define XNARCH_HAVE_NODIV_LLIMD  1
+#define XNARCH_HAVE_NONPRIV_TSC  1
 
 #endif /* !_XENO_ASM_POWERPC_FEATURES_H */

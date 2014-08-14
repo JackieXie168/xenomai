@@ -566,7 +566,7 @@ typedef unsigned long&nbsp;</td><td class="memItemRight" valign="bottom"><a clas
 </ul>
 <p>Rescheduling: never. </p>
 
-<p>References <a class="el" href="select_8c_source.html#l00067">xnselect_init()</a>, and <a class="el" href="synch_8c_source.html#l00087">xnsynch_init()</a>.</p>
+<p>References <a class="el" href="select_8c_source.html#l00070">xnselect_init()</a>, and <a class="el" href="synch_8c_source.html#l00106">xnsynch_init()</a>.</p>
 
 </div>
 </div>
@@ -673,7 +673,7 @@ typedef unsigned long&nbsp;</td><td class="memItemRight" valign="bottom"><a clas
 </ul>
 <p>Rescheduling: never. </p>
 
-<p>References <a class="el" href="select_8c_source.html#l00107">xnselect_bind()</a>.</p>
+<p>References <a class="el" href="select_8c_source.html#l00110">xnselect_bind()</a>.</p>
 
 </div>
 </div>
@@ -711,7 +711,7 @@ typedef unsigned long&nbsp;</td><td class="memItemRight" valign="bottom"><a clas
 </ul>
 <p>Rescheduling: possible. </p>
 
-<p>References <a class="el" href="pod_8c_source.html#l02379">xnpod_schedule()</a>, and <a class="el" href="synch_8c_source.html#l00571">xnsynch_flush()</a>.</p>
+<p>References <a class="el" href="pod_8h_source.html#l00251">xnpod_schedule()</a>, and <a class="el" href="synch_8c_source.html#l00852">xnsynch_flush()</a>.</p>
 
 </div>
 </div>
@@ -769,6 +769,9 @@ typedef unsigned long&nbsp;</td><td class="memItemRight" valign="bottom"><a clas
 <ul>
 <li>-EPERM <em>may</em> be returned if an illegal invocation environment is detected.</li>
 </ul>
+<ul>
+<li>-EWOULDBLOCK is returned if a negative <em>timeout</em> (i.e., non-blocking operation) has been specified.</li>
+</ul>
 <p>Environments:</p>
 <p>This service can be called from:</p>
 <ul>
@@ -777,9 +780,9 @@ typedef unsigned long&nbsp;</td><td class="memItemRight" valign="bottom"><a clas
 </ul>
 <p>Rescheduling: possible. </p>
 
-<p>References <a class="el" href="include_2nucleus_2thread_8h_source.html#l00112">XNBREAK</a>, <a class="el" href="include_2nucleus_2thread_8h_source.html#l00111">XNRMID</a>, <a class="el" href="synch_8c_source.html#l00168">xnsynch_sleep_on()</a>, and <a class="el" href="include_2nucleus_2thread_8h_source.html#l00110">XNTIMEO</a>.</p>
+<p>References <a class="el" href="include_2nucleus_2thread_8h_source.html#l00110">XNBREAK</a>, <a class="el" href="include_2nucleus_2thread_8h_source.html#l00109">XNRMID</a>, <a class="el" href="synch_8c_source.html#l00175">xnsynch_sleep_on()</a>, and <a class="el" href="include_2nucleus_2thread_8h_source.html#l00108">XNTIMEO</a>.</p>
 
-<p>Referenced by <a class="el" href="drvlib_8c_source.html#l00878">rtdm_event_wait()</a>.</p>
+<p>Referenced by <a class="el" href="drvlib_8c_source.html#l00898">rtdm_event_wait()</a>.</p>
 
 </div>
 </div>
@@ -825,7 +828,7 @@ typedef unsigned long&nbsp;</td><td class="memItemRight" valign="bottom"><a clas
 </ul>
 <p>Rescheduling: possible. </p>
 
-<p>References <a class="el" href="drvlib_8c_source.html#l00920">rtdm_event_timedwait()</a>.</p>
+<p>References <a class="el" href="drvlib_8c_source.html#l00943">rtdm_event_timedwait()</a>.</p>
 
 </div>
 </div>
@@ -896,7 +899,7 @@ typedef unsigned long&nbsp;</td><td class="memItemRight" valign="bottom"><a clas
 </ul>
 <p>Rescheduling: never. </p>
 
-<p>References <a class="el" href="synch_8c_source.html#l00087">xnsynch_init()</a>.</p>
+<p>References <a class="el" href="synch_8c_source.html#l00106">xnsynch_init()</a>.</p>
 
 </div>
 </div>
@@ -939,7 +942,7 @@ typedef unsigned long&nbsp;</td><td class="memItemRight" valign="bottom"><a clas
 </ul>
 <p>Rescheduling: possible. </p>
 
-<p>References <a class="el" href="drvlib_8c_source.html#l01497">rtdm_mutex_timedlock()</a>.</p>
+<p>References <a class="el" href="drvlib_8c_source.html#l01521">rtdm_mutex_timedlock()</a>.</p>
 
 </div>
 </div>
@@ -1005,9 +1008,9 @@ typedef unsigned long&nbsp;</td><td class="memItemRight" valign="bottom"><a clas
 </ul>
 <p>Rescheduling: possible. </p>
 
-<p>References <a class="el" href="include_2nucleus_2thread_8h_source.html#l00112">XNBREAK</a>, <a class="el" href="include_2nucleus_2thread_8h_source.html#l00111">XNRMID</a>, <a class="el" href="synch_8c_source.html#l00168">xnsynch_sleep_on()</a>, and <a class="el" href="include_2nucleus_2thread_8h_source.html#l00110">XNTIMEO</a>.</p>
+<p>References <a class="el" href="include_2nucleus_2thread_8h_source.html#l00110">XNBREAK</a>, <a class="el" href="include_2nucleus_2thread_8h_source.html#l00109">XNRMID</a>, <a class="el" href="synch_8c_source.html#l00410">xnsynch_acquire()</a>, and <a class="el" href="include_2nucleus_2thread_8h_source.html#l00108">XNTIMEO</a>.</p>
 
-<p>Referenced by <a class="el" href="drvlib_8c_source.html#l01456">rtdm_mutex_lock()</a>.</p>
+<p>Referenced by <a class="el" href="drvlib_8c_source.html#l01480">rtdm_mutex_lock()</a>.</p>
 
 </div>
 </div>
@@ -1108,7 +1111,7 @@ Environments:This service can be called from:<ul>
 </ul>
 Rescheduling: never. </p>
 
-<p>References <a class="el" href="rtdm__driver_8h_source.html#l00382">rtdm_dev_context::ops</a>, <a class="el" href="ksrc_2skins_2rtdm_2core_8c_source.html#l00073">rtdm_context_get()</a>, <a class="el" href="group__interdrv.html#gaa48a3e04fd74cec81691d5d2187d7ef2">rtdm_context_unlock()</a>, and <a class="el" href="rtdm__driver_8h_source.html#l00325">rtdm_operations::select_bind</a>.</p>
+<p>References <a class="el" href="rtdm__driver_8h_source.html#l00399">rtdm_dev_context::ops</a>, <a class="el" href="ksrc_2skins_2rtdm_2core_8c_source.html#l00073">rtdm_context_get()</a>, <a class="el" href="group__interdrv.html#gaa48a3e04fd74cec81691d5d2187d7ef2">rtdm_context_unlock()</a>, and <a class="el" href="rtdm__driver_8h_source.html#l00342">rtdm_operations::select_bind</a>.</p>
 
 </div>
 </div>
@@ -1188,7 +1191,7 @@ Rescheduling: never. </p>
 </ul>
 <p>Rescheduling: possible. </p>
 
-<p>References <a class="el" href="drvlib_8c_source.html#l01205">rtdm_sem_timeddown()</a>.</p>
+<p>References <a class="el" href="drvlib_8c_source.html#l01228">rtdm_sem_timeddown()</a>.</p>
 
 </div>
 </div>
@@ -1234,7 +1237,7 @@ Rescheduling: never. </p>
 </ul>
 <p>Rescheduling: never. </p>
 
-<p>References <a class="el" href="ksrc_2skins_2posix_2sem_8c_source.html#l00139">sem_init()</a>, <a class="el" href="select_8c_source.html#l00067">xnselect_init()</a>, and <a class="el" href="synch_8c_source.html#l00087">xnsynch_init()</a>.</p>
+<p>References <a class="el" href="ksrc_2skins_2posix_2sem_8c_source.html#l00139">sem_init()</a>, <a class="el" href="select_8c_source.html#l00070">xnselect_init()</a>, and <a class="el" href="synch_8c_source.html#l00106">xnsynch_init()</a>.</p>
 
 </div>
 </div>
@@ -1305,7 +1308,7 @@ Rescheduling: never. </p>
 </ul>
 <p>Rescheduling: never. </p>
 
-<p>References <a class="el" href="select_8c_source.html#l00107">xnselect_bind()</a>.</p>
+<p>References <a class="el" href="select_8c_source.html#l00110">xnselect_bind()</a>.</p>
 
 </div>
 </div>
@@ -1374,9 +1377,9 @@ Rescheduling: never. </p>
 </ul>
 <p>Rescheduling: possible. </p>
 
-<p>References <a class="el" href="ksrc_2skins_2posix_2sem_8c_source.html#l00670">sem_timedwait()</a>, <a class="el" href="include_2nucleus_2thread_8h_source.html#l00112">XNBREAK</a>, <a class="el" href="include_2nucleus_2thread_8h_source.html#l00111">XNRMID</a>, <a class="el" href="synch_8c_source.html#l00168">xnsynch_sleep_on()</a>, and <a class="el" href="include_2nucleus_2thread_8h_source.html#l00110">XNTIMEO</a>.</p>
+<p>References <a class="el" href="ksrc_2skins_2posix_2sem_8c_source.html#l00670">sem_timedwait()</a>, <a class="el" href="include_2nucleus_2thread_8h_source.html#l00110">XNBREAK</a>, <a class="el" href="include_2nucleus_2thread_8h_source.html#l00109">XNRMID</a>, <a class="el" href="synch_8c_source.html#l00175">xnsynch_sleep_on()</a>, and <a class="el" href="include_2nucleus_2thread_8h_source.html#l00108">XNTIMEO</a>.</p>
 
-<p>Referenced by <a class="el" href="drvlib_8c_source.html#l01160">rtdm_sem_down()</a>.</p>
+<p>Referenced by <a class="el" href="drvlib_8c_source.html#l01183">rtdm_sem_down()</a>.</p>
 
 </div>
 </div>
@@ -1414,7 +1417,7 @@ Rescheduling: never. </p>
 </ul>
 <p>Rescheduling: possible. </p>
 
-<p>References <a class="el" href="pod_8c_source.html#l02379">xnpod_schedule()</a>, and <a class="el" href="synch_8c_source.html#l00376">xnsynch_wakeup_one_sleeper()</a>.</p>
+<p>References <a class="el" href="pod_8h_source.html#l00251">xnpod_schedule()</a>, and <a class="el" href="synch_8c_source.html#l00241">xnsynch_wakeup_one_sleeper()</a>.</p>
 
 </div>
 </div>
@@ -1482,7 +1485,7 @@ Rescheduling: never. </p>
 </div>
 </div>
 </div>
-<hr size="1"/><address style="text-align: right;"><small>Generated on Tue Oct 27 19:18:55 2009 for Xenomai API by&nbsp;
+<hr size="1"/><address style="text-align: right;"><small>Generated on Fri Jan 1 10:45:18 2010 for Xenomai API by&nbsp;
 <a href="http://www.doxygen.org/index.html">
 <img class="footer" src="doxygen.png" alt="doxygen"/></a> 1.6.1 </small></address>
 </body>

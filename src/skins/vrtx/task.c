@@ -27,10 +27,17 @@
 #include <signal.h>
 #include <errno.h>
 #include <limits.h>
+#include <nucleus/sched.h>
 #include <vrtx/vrtx.h>
+#include <asm-generic/bits/sigshadow.h>
+#include <asm-generic/bits/current.h>
 #include "wrappers.h"
 
+#ifdef HAVE___THREAD
+__thread TCB __vrtx_tcb __attribute__ ((tls_model ("initial-exec")));
+#else /* !HAVE___THREAD */
 extern pthread_key_t __vrtx_tskey;
+#endif /* !HAVE___THREAD */
 
 extern int __vrtx_muxid;
 
@@ -44,17 +51,6 @@ struct vrtx_task_iargs {
 	void *param;
 	sem_t sync;
 };
-
-static void (*old_sigharden_handler)(int sig);
-
-static void vrtx_task_sigharden(int sig)
-{
-	if (old_sigharden_handler &&
-	    old_sigharden_handler != &vrtx_task_sigharden)
-		old_sigharden_handler(sig);
-
-	XENOMAI_SYSCALL1(__xn_sys_migrate, XENOMAI_XENO_DOMAIN);
-}
 
 static int vrtx_task_set_posix_priority(int prio, struct sched_param *param)
 {
@@ -76,23 +72,17 @@ static int vrtx_task_set_posix_priority(int prio, struct sched_param *param)
 static void *vrtx_task_trampoline(void *cookie)
 {
 	struct vrtx_task_iargs *iargs = cookie;
-	void (*entry)(void *arg), *arg;
+ 	void (*entry)(void *arg), *arg;
 	struct vrtx_arg_bulk bulk;
-	struct sched_param param;
-	int policy;
 	long err;
+#ifndef HAVE___THREAD
 	TCB *tcb;
-
-	/*
-	 * Apply sched params here as some libpthread implementations
-	 * fail doing this properly via pthread_create.
-	 */
-	policy = vrtx_task_set_posix_priority(iargs->prio, &param);
-	__real_pthread_setschedparam(pthread_self(), policy, &param);
+#endif /* !HAVE___THREAD */
 
 	/* vrtx_task_delete requires asynchronous cancellation */
 	pthread_setcanceltype(PTHREAD_CANCEL_ASYNCHRONOUS, NULL);
 
+#ifndef HAVE___THREAD
 	tcb = malloc(sizeof(*tcb));
 	if (tcb == NULL) {
 		fprintf(stderr, "Xenomai: failed to allocate local TCB?!\n");
@@ -101,23 +91,31 @@ static void *vrtx_task_trampoline(void *cookie)
 	}
 
 	pthread_setspecific(__vrtx_tskey, tcb);
+#endif /* !HAVE___THREAD */
 
-	old_sigharden_handler = signal(SIGHARDEN, &vrtx_task_sigharden);
+	sigshadow_install_once();
 
 	bulk.a1 = (u_long)iargs->tid;
 	bulk.a2 = (u_long)iargs->prio;
 	bulk.a3 = (u_long)iargs->mode;
+	bulk.a4 = (u_long)xeno_init_current_mode();
+	if (bulk.a4 == 0) {
+		err = -ENOMEM;
+		goto fail;
+	}
 
-	err = XENOMAI_SKINCALL3(__vrtx_muxid, __vrtx_tecreate,
-				&bulk, &iargs->tid, NULL);
+ 	err = XENOMAI_SKINCALL2(__vrtx_muxid, __vrtx_tecreate,
+ 				&bulk, &iargs->tid);
 
-	/* Prevent stale memory access after our parent is released. */
-	entry = iargs->entry;
-	arg = iargs->param;
-	__real_sem_post(&iargs->sync);
-
-	if (err == 0)
-		entry(arg);
+ 	/* Prevent stale memory access after our parent is released. */
+ 	entry = iargs->entry;
+ 	arg = iargs->param;
+ 	__real_sem_post(&iargs->sync);
+ 
+  	if (err == 0) {
+	  xeno_set_current();
+	  entry(arg);
+	}
 fail:
 	pthread_exit((void *)err);
 }
@@ -207,7 +205,11 @@ TCB *sc_tinquiry(int pinfo[], int tid, int *errp)
 {
 	TCB *tcb;
 
-	tcb = (TCB *) pthread_getspecific(__vrtx_tskey);	/* Cannot fail. */
+#ifdef HAVE___THREAD
+	tcb = &__vrtx_tcb;
+#else /* !HAVE___THREAD */
+	tcb = (TCB *) pthread_getspecific(__vrtx_tskey); /* Cannot fail. */
+#endif /* !HAVE___THREAD */
 
 	*errp = XENOMAI_SKINCALL3(__vrtx_muxid,
 				  __vrtx_tinquiry, pinfo, tcb, tid);

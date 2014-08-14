@@ -55,18 +55,57 @@ static inline void xntimer_dequeue_aperiodic(xntimer_t *timer)
 	__setbits(timer->status, XNTIMER_DEQUEUED);
 }
 
-static void xntimer_next_local_shot(xnsched_t *this_sched)
+void xntimer_next_local_shot(xnsched_t *sched)
 {
-	xntimerh_t *holder = xntimerq_head(&this_sched->timerqueue);
+	struct xntimer *timer;
 	xnsticks_t delay;
-	xntimer_t *timer;
+	xntimerq_it_t it;
+	xntimerh_t *h;
 
-	/* Do not reprogram locally when inside the tick handler - will be
-	   done on exit anyway. Also exit if there is no pending timer. */
-	if (testbits(this_sched->status, XNINTCK) || !holder)
+	/*
+	 * Do not reprogram locally when inside the tick handler -
+	 * will be done on exit anyway. Also exit if there is no
+	 * pending timer.
+	 */
+	if (testbits(sched->status, XNINTCK))
 		return;
 
-	timer = aplink2timer(holder);
+	h = xntimerq_it_begin(&sched->timerqueue, &it);
+	if (h == NULL)
+		return;
+
+	/*
+	 * Here we try to defer the host tick heading the timer queue,
+	 * so that it does not preempt a real-time activity uselessly,
+	 * in two cases:
+	 *
+	 * 1) a rescheduling is pending for the current CPU. We may
+	 * assume that a real-time thread is about to resume, so we
+	 * want to move the host tick out of the way until the host
+	 * kernel resumes, unless there is no other outstanding
+	 * timers.
+	 *
+	 * 2) the current thread is running in primary mode, in which
+	 * case we may also defer the host tick until the host kernel
+	 * resumes.
+	 *
+	 * The host tick deferral is cleared whenever Xenomai is about
+	 * to yield control to the host kernel (see
+	 * __xnpod_schedule()), or a timer with an earlier timeout
+	 * date is scheduled, whichever comes first.
+	 */
+	__clrbits(sched->status, XNHDEFER);
+	timer = aplink2timer(h);
+	if (unlikely(timer == &sched->htimer)) {
+		if (xnsched_self_resched_p(sched) ||
+		    !xnthread_test_state(sched->curr, XNROOT)) {
+			h = xntimerq_it_next(&sched->timerqueue, &it, h);
+			if (h) {
+				__setbits(sched->status, XNHDEFER);
+				timer = aplink2timer(h);
+			}
+		}
+	}
 
 	delay = xntimerh_date(&timer->aplink) -
 		(xnarch_get_cpu_tsc() + nklatency);
@@ -81,9 +120,23 @@ static void xntimer_next_local_shot(xnsched_t *this_sched)
 	xnarch_program_timer_shot(delay);
 }
 
-static inline int xntimer_heading_p(xntimer_t *timer)
+static inline int xntimer_heading_p(struct xntimer *timer)
 {
-	return xntimerq_head(&timer->sched->timerqueue) == &timer->aplink;
+	struct xnsched *sched = timer->sched;
+	xntimerq_it_t it;
+	xntimerh_t *h;
+
+	h = xntimerq_it_begin(&sched->timerqueue, &it);
+	if (h == &timer->aplink)
+		return 1;
+
+	if (testbits(sched->status, XNHDEFER)) {
+		h = xntimerq_it_next(&sched->timerqueue, &it, h);
+		if (h == &timer->aplink)
+			return 1;
+	}
+
+	return 0;
 }
 
 static inline void xntimer_next_remote_shot(xnsched_t *sched)
@@ -219,6 +272,7 @@ int xntimer_start_aperiodic(xntimer_t *timer,
 
 	return 0;
 }
+EXPORT_SYMBOL_GPL(xntimer_start_aperiodic);
 
 void xntimer_stop_aperiodic(xntimer_t *timer)
 {
@@ -234,11 +288,13 @@ void xntimer_stop_aperiodic(xntimer_t *timer)
 	if (heading && xntimer_sched(timer) == xnpod_current_sched())
 		xntimer_next_local_shot(xntimer_sched(timer));
 }
+EXPORT_SYMBOL_GPL(xntimer_stop_aperiodic);
 
 xnticks_t xntimer_get_date_aperiodic(xntimer_t *timer)
 {
 	return xnarch_tsc_to_ns(xntimerh_date(&timer->aplink));
 }
+EXPORT_SYMBOL_GPL(xntimer_get_date_aperiodic);
 
 xnticks_t xntimer_get_timeout_aperiodic(xntimer_t *timer)
 {
@@ -249,16 +305,19 @@ xnticks_t xntimer_get_timeout_aperiodic(xntimer_t *timer)
 
 	return xnarch_tsc_to_ns(xntimerh_date(&timer->aplink) - tsc);
 }
+EXPORT_SYMBOL_GPL(xntimer_get_timeout_aperiodic);
 
 xnticks_t xntimer_get_interval_aperiodic(xntimer_t *timer)
 {
 	return xnarch_tsc_to_ns_rounded(timer->interval);
 }
+EXPORT_SYMBOL_GPL(xntimer_get_interval_aperiodic);
 
 xnticks_t xntimer_get_raw_expiry_aperiodic(xntimer_t *timer)
 {
 	return xntimerh_date(&timer->aplink);
 }
+EXPORT_SYMBOL_GPL(xntimer_get_raw_expiry_aperiodic);
 
 /*!
  * @internal
@@ -285,21 +344,28 @@ void xntimer_tick_aperiodic(void)
 	xntimerq_t *timerq = &sched->timerqueue;
 	xntimerh_t *holder;
 	xntimer_t *timer;
+	xnsticks_t delta;
 	xnticks_t now;
 
-	/* Optimisation: any local timer reprogramming triggered by invoked
-	   timer handlers can wait until we leave the tick handler. Use this
-	   status flag as hint to xntimer_start_aperiodic. */
+	/*
+	 * Optimisation: any local timer reprogramming triggered by
+	 * invoked timer handlers can wait until we leave the tick
+	 * handler. Use this status flag as hint to
+	 * xntimer_start_aperiodic.
+	 */
 	__setbits(sched->status, XNINTCK);
 
 	now = xnarch_get_cpu_tsc();
 	while ((holder = xntimerq_head(timerq)) != NULL) {
 		timer = aplink2timer(holder);
-
-		if ((xnsticks_t) (xntimerh_date(&timer->aplink) - now)
-		    > (xnsticks_t)nklatency)
-			/* No need to continue in aperiodic mode since timeout
-			   dates are ordered by increasing values. */
+		/*
+		 * If the delay to the next shot is greater than the
+		 * intrinsic latency value, we may stop scanning the
+		 * timer queue there, since timeout dates are ordered
+		 * by increasing values.
+		 */
+		delta = (xnsticks_t)(xntimerh_date(&timer->aplink) - now);
+		if (delta > (xnsticks_t)nklatency)
 			break;
 
 		trace_mark(xn_nucleus, timer_expire, "timer %p", timer);
@@ -312,27 +378,35 @@ void xntimer_tick_aperiodic(void)
 				   || testbits(timer->status, XNTIMER_NOBLCK))) {
 				timer->handler(timer);
 				now = xnarch_get_cpu_tsc();
-				/* If the elapsed timer has no reload value, or has
-				   been re-enqueued likely as a result of a call to
-				   xntimer_start() from the timeout handler, or has
-				   been killed by the handler. In all cases, don't
-				   attempt to re-enqueue it for the next shot. */
+				/*
+				 * If the elapsed timer has no reload
+				 * value, or was re-enqueued or killed
+				 * by the timeout handler: don't not
+				 * re-enqueue it for the next shot.
+				 */
 				if (!xntimer_reload_p(timer))
 					continue;
 				__setbits(timer->status, XNTIMER_FIRED);
 			} else if (likely(!testbits(timer->status, XNTIMER_PERIODIC))) {
-				/* Postpone the next tick to a reasonable date in
-				   the future, waiting for the timebase to be unlocked
-				   at some point. */
+				/*
+				 * Postpone the next tick to a
+				 * reasonable date in the future,
+				 * waiting for the timebase to be
+				 * unlocked at some point.
+				 */
 				xntimerh_date(&timer->aplink) = xntimerh_date(&sched->htimer.aplink);
 				continue;
 			}
 		} else {
-			/* By postponing the propagation of the low-priority host
-			   tick to the interrupt epilogue (see
-			   xnintr_irq_handler()), we save some I-cache, which
-			   translates into precious microsecs on low-end hw. */
+			/*
+			 * By postponing the propagation of the
+			 * low-priority host tick to the interrupt
+			 * epilogue (see xnintr_irq_handler()), we
+			 * save some I-cache, which translates into
+			 * precious microsecs on low-end hw.
+			 */
 			__setbits(sched->status, XNHTICK);
+			__clrbits(sched->status, XNHDEFER);
 			if (!testbits(timer->status, XNTIMER_PERIODIC))
 				continue;
 		}
@@ -490,9 +564,11 @@ void xntimer_tick_periodic_inner(xntslave_t *slave)
 	xnqueue_t *timerq;
 	xntimer_t *timer;
 
-	/* Update the periodic clocks keeping the things strictly
-	   monotonous (this routine is run on every cpu, but only CPU
-	   XNTIMER_KEEPER_ID should do this). */
+	/*
+	 * Update the periodic clocks keeping the things strictly
+	 * monotonous (this routine is run on every cpu, but only CPU
+	 * XNTIMER_KEEPER_ID should do this).
+	 */
 	if (sched == xnpod_sched_slot(XNTIMER_KEEPER_ID))
 		++base->jiffies;
 
@@ -509,17 +585,17 @@ void xntimer_tick_periodic_inner(xntslave_t *slave)
 
 		xntimer_dequeue_periodic(timer);
 		xnstat_counter_inc(&timer->fired);
-
 		timer->handler(timer);
 
 		if (!xntimer_reload_p(timer))
 			continue;
+
 		__setbits(timer->status, XNTIMER_FIRED);
 		xntlholder_date(&timer->plink) = base->jiffies + timer->interval;
 		xntimer_enqueue_periodic(timer);
 	}
 
-	xnpod_do_rr();		/* Do round-robin management. */
+	xnsched_tick(sched->curr, base); /* Do time-slicing if required. */
 }
 
 void xntimer_tick_periodic(xntimer_t *mtimer)
@@ -799,6 +875,7 @@ void __xntimer_init(xntimer_t *timer, xntbase_t *base,
 
 	xnarch_init_display_context(timer);
 }
+EXPORT_SYMBOL_GPL(__xntimer_init);
 
 /*! 
  * \fn void xntimer_destroy(xntimer_t *timer)
@@ -837,6 +914,7 @@ void xntimer_destroy(xntimer_t *timer)
 #endif /* CONFIG_XENO_OPT_TIMING_PERIODIC */
 	xnlock_put_irqrestore(&nklock, s);
 }
+EXPORT_SYMBOL_GPL(xntimer_destroy);
 
 #ifdef CONFIG_SMP
 /**
@@ -904,6 +982,8 @@ int xntimer_migrate(xntimer_t *timer, xnsched_t *sched)
 
 	return err;
 }
+EXPORT_SYMBOL_GPL(xntimer_migrate);
+
 #endif /* CONFIG_SMP */
 
 /**
@@ -933,6 +1013,7 @@ unsigned long xntimer_get_overruns(xntimer_t *timer, xnticks_t now)
 	timer->pexpect += period;
 	return overruns;
 }
+EXPORT_SYMBOL_GPL(xntimer_get_overruns);
 
 /*!
  * @internal
@@ -958,7 +1039,7 @@ void xntimer_freeze(void)
 	int nr_cpus, cpu;
 	spl_t s;
 
-	trace_mark(xn_nucleus_timer, freeze, MARK_NOARGS);
+	trace_mark(xn_nucleus, timer_freeze, MARK_NOARGS);
 
 	xnlock_get_irqsave(&nklock, s);
 
@@ -981,6 +1062,41 @@ void xntimer_freeze(void)
 
 	xnlock_put_irqrestore(&nklock, s);
 }
+EXPORT_SYMBOL_GPL(xntimer_freeze);
+
+char *xntimer_format_time(xnticks_t value, int periodic, char *buf, size_t bufsz)
+{
+	unsigned long ms, us, ns;
+	char *p = buf;
+	xnticks_t s;
+
+	if (periodic) {
+		snprintf(buf, bufsz, "%Lut", value);
+		return buf;
+	}
+
+	if (value == 0 && bufsz > 1) {
+		strcpy(buf, "-");
+		return buf;
+	}
+
+	s = xnarch_divrem_billion(value, &ns);
+	us = ns / 1000;
+	ms = us / 1000;
+	us %= 1000;
+
+	if (s)
+		p += snprintf(p, bufsz, "%Lus", s);
+
+	if (ms || (s && us))
+		p += snprintf(p, bufsz - (p - buf), "%lums", ms);
+
+	if (us)
+		p += snprintf(p, bufsz - (p - buf), "%luus", us);
+
+	return buf;
+}
+EXPORT_SYMBOL_GPL(xntimer_format_time);
 
 xntbops_t nktimer_ops_aperiodic = {
 
@@ -993,18 +1109,55 @@ xntbops_t nktimer_ops_aperiodic = {
 	.move_timer = &xntimer_move_aperiodic,
 };
 
-/*@}*/
+#ifdef CONFIG_PROC_FS
 
-EXPORT_SYMBOL(xntimer_start_aperiodic);
-EXPORT_SYMBOL(xntimer_stop_aperiodic);
-EXPORT_SYMBOL(xntimer_get_date_aperiodic);
-EXPORT_SYMBOL(xntimer_get_timeout_aperiodic);
-EXPORT_SYMBOL(xntimer_get_interval_aperiodic);
-EXPORT_SYMBOL(xntimer_get_raw_expiry_aperiodic);
-EXPORT_SYMBOL(__xntimer_init);
-EXPORT_SYMBOL(xntimer_destroy);
-EXPORT_SYMBOL(xntimer_freeze);
-EXPORT_SYMBOL(xntimer_get_overruns);
-#ifdef CONFIG_SMP
-EXPORT_SYMBOL(xntimer_migrate);
-#endif /* CONFIG_SMP */
+#include <linux/proc_fs.h>
+
+static int timer_read_proc(char *page,
+			   char **start,
+			   off_t off, int count, int *eof, void *data)
+{
+	const char *tm_status, *wd_status = "";
+	int len;
+
+	if (xnpod_active_p() && xntbase_enabled_p(&nktbase)) {
+		tm_status = "on";
+#ifdef CONFIG_XENO_OPT_WATCHDOG
+		wd_status = "+watchdog";
+#endif /* CONFIG_XENO_OPT_WATCHDOG */
+	}
+	else
+		tm_status = "off";
+
+	len = sprintf(page,
+		      "status=%s%s:setup=%Lu:clock=%Lu:timerdev=%s:clockdev=%s\n",
+		      tm_status, wd_status, xnarch_tsc_to_ns(nktimerlat),
+		      xntbase_get_rawclock(&nktbase),
+		      XNARCH_TIMER_DEVICE, XNARCH_CLOCK_DEVICE);
+
+	len -= off;
+	if (len <= off + count)
+		*eof = 1;
+	*start = page + off;
+	if (len > count)
+		len = count;
+	if (len < 0)
+		len = 0;
+
+	return len;
+}
+
+void xntimer_init_proc(void)
+{
+	rthal_add_proc_leaf("timer", &timer_read_proc, NULL, NULL,
+			    rthal_proc_root);
+}
+
+void xntimer_cleanup_proc(void)
+{
+	remove_proc_entry("timer", rthal_proc_root);
+}
+
+#endif /* CONFIG_PROC_FS */
+
+/*@}*/

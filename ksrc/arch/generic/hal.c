@@ -58,6 +58,17 @@ module_param_named(cpufreq, rthal_cpufreq_arg, ulong, 0444);
 unsigned long rthal_timerfreq_arg;
 module_param_named(timerfreq, rthal_timerfreq_arg, ulong, 0444);
 
+unsigned long rthal_clockfreq_arg;
+module_param_named(clockfreq, rthal_clockfreq_arg, ulong, 0444);
+
+#ifdef CONFIG_SMP
+static unsigned long supported_cpus_arg = -1;
+module_param_named(supported_cpus, supported_cpus_arg, ulong, 0444);
+
+cpumask_t rthal_supported_cpus;
+EXPORT_SYMBOL(rthal_supported_cpus);
+#endif /* CONFIG_SMP */
+
 static struct {
 
     void (*handler) (void *cookie);
@@ -272,7 +283,7 @@ int rthal_irq_release(unsigned irq)
  */
 
 /**
- * @fn int rthal_irq_host_pend (unsigned irq)
+ * @fn void rthal_irq_host_pend (unsigned irq)
  *
  * @brief Propagate an IRQ event to Linux.
  *
@@ -282,12 +293,8 @@ int rthal_irq_release(unsigned irq)
  * interrupt handler (see rthal_irq_request()), in case such interrupt
  * must also be handled by the Linux kernel.
  *
- * @param irq The interrupt source to detach the shared handler from.
- * This value is architecture-dependent.
- *
- * @return 0 is returned upon success. Otherwise:
- *
- * - -EINVAL is returned if @a irq is invalid.
+ * @param irq The interrupt number to propagate.  This value is
+ * architecture-dependent.
  *
  * Environments:
  *
@@ -295,12 +302,6 @@ int rthal_irq_release(unsigned irq)
  *
  * - Xenomai domain context.
  */
-
-int rthal_irq_host_pend(unsigned irq)
-{
-    rthal_propagate_irq(irq);
-    return 0;
-}
 
 /**
  * @fn int rthal_irq_affinity (unsigned irq,cpumask_t cpumask,cpumask_t *oldmask)
@@ -526,7 +527,7 @@ int rthal_apc_alloc(const char *name,
 
     if (rthal_apc_map != ~0) {
         apc = ffz(rthal_apc_map);
-        set_bit(apc, &rthal_apc_map);
+        __set_bit(apc, &rthal_apc_map);
         rthal_apc_table[apc].handler = handler;
         rthal_apc_table[apc].cookie = cookie;
         rthal_apc_table[apc].name = name;
@@ -607,7 +608,7 @@ int rthal_apc_schedule(int apc)
     rthal_local_irq_save(flags);
 
     if (!__test_and_set_bit(apc, &rthal_apc_pending[rthal_processor_id()]))
-	    rthal_schedule_irq(rthal_apc_virq);
+	    rthal_schedule_irq_root(rthal_apc_virq);
 
     rthal_local_irq_restore(flags);
 
@@ -723,49 +724,68 @@ static int apc_read_proc(char *page,
     return len;
 }
 
-struct proc_dir_entry *__rthal_add_proc_leaf(const char *name,
-                                             read_proc_t rdproc,
-                                             write_proc_t wrproc,
-                                             void *data,
-                                             struct proc_dir_entry *parent)
+struct proc_dir_entry *rthal_add_proc_leaf(const char *name,
+                                           read_proc_t rdproc,
+                                           write_proc_t wrproc,
+                                           void *data,
+                                           struct proc_dir_entry *parent)
 {
-    int mode = wrproc ? 0644 : 0444;
-    struct proc_dir_entry *entry;
+	int mode = wrproc ? 0644 : 0444;
+	struct proc_dir_entry *entry;
 
-    entry = create_proc_entry(name, mode, parent);
+	entry = create_proc_entry(name, mode, parent);
+	if (entry == NULL)
+		return NULL;
 
-    if (entry) {
-        entry->nlink = 1;
-        entry->data = data;
-        entry->read_proc = rdproc;
-        entry->write_proc = wrproc;
- 	wrap_proc_dir_entry_owner(entry);
-    }
+	entry->nlink = 1;
+	entry->data = data;
+	entry->read_proc = rdproc;
+	entry->write_proc = wrproc;
+	wrap_proc_dir_entry_owner(entry);
 
-    return entry;
+	return entry;
 }
+EXPORT_SYMBOL_GPL(rthal_add_proc_leaf);
+
+struct proc_dir_entry *rthal_add_proc_seq(const char *name,
+					  struct file_operations *fops,
+					  size_t size,
+					  struct proc_dir_entry *parent)
+{
+	struct proc_dir_entry *entry;
+
+	entry = create_proc_entry(name, 0, parent);
+	if (entry == NULL)
+		return NULL;
+
+	entry->proc_fops = fops;
+	wrap_proc_dir_entry_owner(entry);
+
+	if (size)
+		entry->size = size;
+
+	return entry;
+}
+EXPORT_SYMBOL_GPL(rthal_add_proc_seq);
 
 static int rthal_proc_register(void)
 {
-    rthal_proc_root = create_proc_entry("xenomai", S_IFDIR, 0);
+	rthal_proc_root = create_proc_entry("xenomai", S_IFDIR, 0);
+	if (rthal_proc_root == NULL) {
+		printk(KERN_ERR "Xenomai: Unable to initialize /proc/xenomai.\n");
+		return -1;
+	}
 
-    if (!rthal_proc_root) {
-        printk(KERN_ERR "Xenomai: Unable to initialize /proc/xenomai.\n");
-        return -1;
-    }
+	wrap_proc_dir_entry_owner(rthal_proc_root);
 
-    wrap_proc_dir_entry_owner(rthal_proc_root);
+	rthal_add_proc_leaf("hal", &hal_read_proc, NULL, NULL, rthal_proc_root);
+	rthal_add_proc_leaf("faults",
+			    &faults_read_proc, NULL, NULL, rthal_proc_root);
+	rthal_add_proc_leaf("apc", &apc_read_proc, NULL, NULL, rthal_proc_root);
 
-    __rthal_add_proc_leaf("hal", &hal_read_proc, NULL, NULL, rthal_proc_root);
+	rthal_nmi_proc_register();
 
-    __rthal_add_proc_leaf("faults",
-                          &faults_read_proc, NULL, NULL, rthal_proc_root);
-
-    __rthal_add_proc_leaf("apc", &apc_read_proc, NULL, NULL, rthal_proc_root);
-
-    rthal_nmi_proc_register();
-
-    return 0;
+	return 0;
 }
 
 static void rthal_proc_unregister(void)
@@ -788,13 +808,35 @@ int rthal_init(void)
     if (err)
         goto out;
 
-    /* The arch-dependent support must have updated the frequency args
-       as required. */
+#ifdef CONFIG_SMP
+    {
+        int cpu;
+        cpus_clear(rthal_supported_cpus);
+        for (cpu = 0; cpu < BITS_PER_LONG; cpu++)
+            if (supported_cpus_arg & (1 << cpu))
+                cpu_set(cpu, rthal_supported_cpus);
+    }
+#endif /* CONFIG_SMP */
+
+    /*
+     * The arch-dependent support must have updated the various
+     * frequency args as required.
+     */
+
+    /* check the CPU frequency first and abort if it's invalid */
+    if (rthal_cpufreq_arg == 0) {
+        printk(KERN_ERR "Xenomai has detected a CPU frequency of 0. Aborting.\n");
+        return -ENODEV;
+    }
+
     rthal_tunables.cpu_freq = rthal_cpufreq_arg;
     rthal_tunables.timer_freq = rthal_timerfreq_arg;
+    rthal_tunables.clock_freq = rthal_clockfreq_arg;
 
-    /* Allocate a virtual interrupt to handle apcs within the Linux
-       domain. */
+    /*
+     * Allocate a virtual interrupt to handle apcs within the Linux
+     * domain.
+     */
     rthal_apc_virq = rthal_alloc_virq();
 
     if (!rthal_apc_virq) {
@@ -1067,7 +1109,6 @@ EXPORT_SYMBOL(rthal_irq_disable);
 EXPORT_SYMBOL(rthal_irq_end);
 EXPORT_SYMBOL(rthal_irq_host_request);
 EXPORT_SYMBOL(rthal_irq_host_release);
-EXPORT_SYMBOL(rthal_irq_host_pend);
 EXPORT_SYMBOL(rthal_irq_affinity);
 EXPORT_SYMBOL(rthal_trap_catch);
 EXPORT_SYMBOL(rthal_timer_request);

@@ -47,6 +47,8 @@ Collaboration diagram for Counting semaphore services.:</div>
 <tr><td class="mdescLeft">&nbsp;</td><td class="mdescRight">Delete a semaphore.  <a href="#gaa14cefc4dae46a7c95859e7fe46df888"></a><br/></td></tr>
 <tr><td class="memItemLeft" align="right" valign="top">int&nbsp;</td><td class="memItemRight" valign="bottom"><a class="el" href="group__semaphore.html#gadd299dfe4a53194870bf4e158ca89d1f">rt_sem_p</a> (RT_SEM *sem, RTIME timeout)</td></tr>
 <tr><td class="mdescLeft">&nbsp;</td><td class="mdescRight">Pend on a semaphore.  <a href="#gadd299dfe4a53194870bf4e158ca89d1f"></a><br/></td></tr>
+<tr><td class="memItemLeft" align="right" valign="top">int&nbsp;</td><td class="memItemRight" valign="bottom"><a class="el" href="group__semaphore.html#gac481c1f1a2184a998deb2110f2c5b04d">rt_sem_p_until</a> (RT_SEM *sem, RTIME timeout)</td></tr>
+<tr><td class="mdescLeft">&nbsp;</td><td class="mdescRight">Pend on a semaphore (with absolute timeout date).  <a href="#gac481c1f1a2184a998deb2110f2c5b04d"></a><br/></td></tr>
 <tr><td class="memItemLeft" align="right" valign="top">int&nbsp;</td><td class="memItemRight" valign="bottom"><a class="el" href="group__semaphore.html#gaa5a7927862a511a27741223e08e48270">rt_sem_v</a> (RT_SEM *sem)</td></tr>
 <tr><td class="mdescLeft">&nbsp;</td><td class="mdescRight">Signal a semaphore.  <a href="#gaa5a7927862a511a27741223e08e48270"></a><br/></td></tr>
 <tr><td class="memItemLeft" align="right" valign="top">int&nbsp;</td><td class="memItemRight" valign="bottom"><a class="el" href="group__semaphore.html#ga4a8963240e68d164a2e5bb148da44fbc">rt_sem_broadcast</a> (RT_SEM *sem)</td></tr>
@@ -117,7 +119,7 @@ Collaboration diagram for Counting semaphore services.:</div>
 <li>-ETIMEDOUT is returned if the object cannot be retrieved within the specified amount of time.</li>
 </ul>
 <ul>
-<li>-EPERM is returned if this service should block, but was called from a context which cannot sleep (e.g. interrupt, non-realtime or scheduler locked).</li>
+<li>-EPERM is returned if this service should block, but was called from a context which cannot sleep (e.g. interrupt, non-realtime context).</li>
 </ul>
 <p>Environments:</p>
 <p>This service can be called from:</p>
@@ -170,7 +172,7 @@ Collaboration diagram for Counting semaphore services.:</div>
 </ul>
 <p>Rescheduling: possible. </p>
 
-<p>References <a class="el" href="pod_8c_source.html#l02379">xnpod_schedule()</a>, and <a class="el" href="synch_8c_source.html#l00571">xnsynch_flush()</a>.</p>
+<p>References <a class="el" href="pod_8h_source.html#l00251">xnpod_schedule()</a>, and <a class="el" href="synch_8c_source.html#l00852">xnsynch_flush()</a>.</p>
 
 </div>
 </div>
@@ -252,7 +254,7 @@ Collaboration diagram for Counting semaphore services.:</div>
 </ul>
 <p>Rescheduling: possible. </p>
 
-<p>References <a class="el" href="src_2skins_2native_2sem_8c_source.html#l00036">rt_sem_delete()</a>, <a class="el" href="nucleus_2registry_8c_source.html#l00582">xnregistry_enter()</a>, and <a class="el" href="synch_8c_source.html#l00087">xnsynch_init()</a>.</p>
+<p>References <a class="el" href="src_2skins_2native_2sem_8c_source.html#l00036">rt_sem_delete()</a>, <a class="el" href="nucleus_2registry_8c_source.html#l00582">xnregistry_enter()</a>, and <a class="el" href="synch_8c_source.html#l00106">xnsynch_init()</a>.</p>
 
 </div>
 </div>
@@ -299,7 +301,7 @@ Collaboration diagram for Counting semaphore services.:</div>
 </ul>
 <p>Rescheduling: possible. </p>
 
-<p>References <a class="el" href="pod_8c_source.html#l02379">xnpod_schedule()</a>, and <a class="el" href="nucleus_2registry_8c_source.html#l00809">xnregistry_remove()</a>.</p>
+<p>References <a class="el" href="pod_8h_source.html#l00251">xnpod_schedule()</a>, and <a class="el" href="nucleus_2registry_8c_source.html#l00818">xnregistry_remove()</a>.</p>
 
 <p>Referenced by <a class="el" href="ksrc_2skins_2native_2sem_8c_source.html#l00173">rt_sem_create()</a>.</p>
 
@@ -409,7 +411,7 @@ Collaboration diagram for Counting semaphore services.:</div>
 <li>-ETIMEDOUT is returned if no unit is available within the specified amount of time.</li>
 </ul>
 <ul>
-<li>-EPERM is returned if this service should block, but was called from a context which cannot sleep (e.g. interrupt, non-realtime or scheduler locked).</li>
+<li>-EPERM is returned if this service should block, but was called from a context which cannot sleep (e.g. interrupt, non-realtime context).</li>
 </ul>
 <p>Environments:</p>
 <p>This service can be called from:</p>
@@ -424,7 +426,73 @@ Collaboration diagram for Counting semaphore services.:</div>
 <p>Rescheduling: always unless the request is immediately satisfied or <em>timeout</em> specifies a non-blocking operation.</p>
 <dl class="note"><dt><b>Note:</b></dt><dd>The <em>timeout</em> value will be interpreted as jiffies if the native skin is bound to a periodic time base (see CONFIG_XENO_OPT_NATIVE_PERIOD), or nanoseconds otherwise. </dd></dl>
 
-<p>References <a class="el" href="include_2nucleus_2thread_8h_source.html#l00112">XNBREAK</a>, <a class="el" href="include_2nucleus_2thread_8h_source.html#l00111">XNRMID</a>, <a class="el" href="synch_8c_source.html#l00168">xnsynch_sleep_on()</a>, and <a class="el" href="include_2nucleus_2thread_8h_source.html#l00110">XNTIMEO</a>.</p>
+</div>
+</div>
+<a class="anchor" id="gac481c1f1a2184a998deb2110f2c5b04d"></a><!-- doxytag: member="sem.c::rt_sem_p_until" ref="gac481c1f1a2184a998deb2110f2c5b04d" args="(RT_SEM *sem, RTIME timeout)" -->
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">int rt_sem_p_until </td>
+          <td>(</td>
+          <td class="paramtype">RT_SEM *&nbsp;</td>
+          <td class="paramname"> <em>sem</em>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">RTIME&nbsp;</td>
+          <td class="paramname"> <em>timeout</em></td><td>&nbsp;</td>
+        </tr>
+        <tr>
+          <td></td>
+          <td>)</td>
+          <td></td><td></td><td></td>
+        </tr>
+      </table>
+</div>
+<div class="memdoc">
+
+<p>Pend on a semaphore (with absolute timeout date). </p>
+<p>Acquire a semaphore unit. If the semaphore value is greater than zero, it is decremented by one and the service immediately returns to the caller. Otherwise, the caller is blocked until the semaphore is either signaled or destroyed, unless a non-blocking operation has been required.</p>
+<dl><dt><b>Parameters:</b></dt><dd>
+  <table border="0" cellspacing="2" cellpadding="0">
+    <tr><td valign="top"></td><td valign="top"><em>sem</em>&nbsp;</td><td>The descriptor address of the affected semaphore.</td></tr>
+    <tr><td valign="top"></td><td valign="top"><em>timeout</em>&nbsp;</td><td>The absolute date specifying a time limit to wait for a semaphore unit to be available (see note). Passing TM_INFINITE causes the caller to block indefinitely until a unit is available. Passing TM_NONBLOCK causes the service to return immediately without waiting if no unit is available.</td></tr>
+  </table>
+  </dd>
+</dl>
+<dl class="return"><dt><b>Returns:</b></dt><dd>0 is returned upon success. Otherwise:</dd></dl>
+<ul>
+<li>-EINVAL is returned if <em>sem</em> is not a semaphore descriptor.</li>
+</ul>
+<ul>
+<li>-EIDRM is returned if <em>sem</em> is a deleted semaphore descriptor, including if the deletion occurred while the caller was sleeping on it for a unit to become available.</li>
+</ul>
+<ul>
+<li>-EWOULDBLOCK is returned if <em>timeout</em> is equal to TM_NONBLOCK and the semaphore value is zero.</li>
+</ul>
+<ul>
+<li>-EINTR is returned if <a class="el" href="group__task.html#ga770281eeca009c0a08a7c4a9fd849ac1" title="Unblock a real-time task.">rt_task_unblock()</a> has been called for the waiting task before a semaphore unit has become available.</li>
+</ul>
+<ul>
+<li>-ETIMEDOUT is returned if the absolute <em>timeout</em> date is reached before a semaphore unit is available.</li>
+</ul>
+<ul>
+<li>-EPERM is returned if this service should block, but was called from a context which cannot sleep (e.g. interrupt, non-realtime context).</li>
+</ul>
+<p>Environments:</p>
+<p>This service can be called from:</p>
+<ul>
+<li>Kernel module initialization/cleanup code</li>
+<li>Interrupt service routine only if <em>timeout</em> is equal to TM_NONBLOCK.</li>
+</ul>
+<ul>
+<li>Kernel-based task</li>
+<li>User-space task (switches to primary mode)</li>
+</ul>
+<p>Rescheduling: always unless the request is immediately satisfied or <em>timeout</em> specifies a non-blocking operation.</p>
+<dl class="note"><dt><b>Note:</b></dt><dd>The <em>timeout</em> value will be interpreted as jiffies if the native skin is bound to a periodic time base (see CONFIG_XENO_OPT_NATIVE_PERIOD), or nanoseconds otherwise. </dd></dl>
 
 </div>
 </div>
@@ -502,12 +570,12 @@ Collaboration diagram for Counting semaphore services.:</div>
 </ul>
 <p>Rescheduling: possible. </p>
 
-<p>References <a class="el" href="pod_8c_source.html#l02379">xnpod_schedule()</a>, and <a class="el" href="synch_8c_source.html#l00376">xnsynch_wakeup_one_sleeper()</a>.</p>
+<p>References <a class="el" href="pod_8h_source.html#l00251">xnpod_schedule()</a>, and <a class="el" href="synch_8c_source.html#l00241">xnsynch_wakeup_one_sleeper()</a>.</p>
 
 </div>
 </div>
 </div>
-<hr size="1"/><address style="text-align: right;"><small>Generated on Tue Oct 27 19:18:54 2009 for Xenomai API by&nbsp;
+<hr size="1"/><address style="text-align: right;"><small>Generated on Fri Jan 1 10:45:17 2010 for Xenomai API by&nbsp;
 <a href="http://www.doxygen.org/index.html">
 <img class="footer" src="doxygen.png" alt="doxygen"/></a> 1.6.1 </small></address>
 </body>

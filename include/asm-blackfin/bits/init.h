@@ -71,7 +71,6 @@ static inline int xnarch_init(void)
 
 	__ipipe_irq_tail_hook = (unsigned long)&xnpod_schedule_deferred;
 
-
 	ret = rthal_init();
 	if (ret)
 		return ret;
@@ -96,7 +95,7 @@ static inline int xnarch_init(void)
 
 	rthal_virtualize_irq(&rthal_domain,
 			     xnarch_escalation_virq,
-			     (rthal_irq_handler_t)&xnpod_schedule_handler,
+			     (rthal_irq_handler_t) &xnpod_schedule_handler,
 			     NULL, NULL, IPIPE_HANDLE_MASK | IPIPE_WIRED_MASK);
 
 	xnarch_old_trap_handler = rthal_trap_catch(&xnarch_trap_fault);

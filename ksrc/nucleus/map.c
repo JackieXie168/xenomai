@@ -112,6 +112,7 @@ xnmap_t *xnmap_create(int nkeys, int reserve, int offset)
 
 	return map;
 }
+EXPORT_SYMBOL_GPL(xnmap_create);
 
 /*!
  * \fn void xnmap_delete(xnmap_t *map)
@@ -137,6 +138,7 @@ void xnmap_delete(xnmap_t *map)
 {
 	xnfree(map);
 }
+EXPORT_SYMBOL_GPL(xnmap_delete);
 
 /*!
  * \fn void xnmap_enter(xnmap_t *map, int key, void *objaddr)
@@ -215,6 +217,7 @@ int xnmap_enter(xnmap_t *map, int key, void *objaddr)
 
 	return ofkey + map->offset;
 }
+EXPORT_SYMBOL_GPL(xnmap_enter);
 
 /*!
  * \fn void xnmap_remove(xnmap_t *map, int key)
@@ -263,6 +266,7 @@ int xnmap_remove(xnmap_t *map, int key)
 
 	return 0;
 }
+EXPORT_SYMBOL_GPL(xnmap_remove);
 
 /*!
  * \fn void xnmap_fetch(xnmap_t *map, int key)
@@ -290,20 +294,31 @@ int xnmap_remove(xnmap_t *map, int key)
  * Rescheduling: never.
  */
 
-void *xnmap_fetch(xnmap_t *map, int key)
-{
-	int ofkey = key - map->offset;
-
-	if (ofkey < 0 || ofkey >= map->nkeys)
-		return NULL;
-
-	return map->objarray[ofkey];
-}
+/*!
+ * \fn void xnmap_fetch_nocheck(xnmap_t *map, int key)
+ * \brief Search an object into a map - unchecked form.
+ *
+ * Retrieve an object reference from the given map by its index key,
+ * but does not perform any sanity check on the provided key.
+ *
+ * @param map The address of the map to retrieve from.
+ *
+ * @param key The key to be searched for in the map index.
+ *
+ * @return The indexed object address is returned on success,
+ * otherwise NULL is returned when no object is currently indexed on
+ * @a key.
+ *
+ * Environments:
+ *
+ * This service can be called from:
+ *
+ * - Kernel module initialization/cleanup code
+ * - Interrupt service routine
+ * - Kernel-based task
+ * - User-space task
+ *
+ * Rescheduling: never.
+ */
 
 /*@}*/
-
-EXPORT_SYMBOL(xnmap_create);
-EXPORT_SYMBOL(xnmap_delete);
-EXPORT_SYMBOL(xnmap_enter);
-EXPORT_SYMBOL(xnmap_remove);
-EXPORT_SYMBOL(xnmap_fetch);

@@ -75,7 +75,7 @@ am__base_list = \
   sed '$$!N;$$!N;$$!N;$$!N;s/\n/ /g'
 am__installdirs = "$(DESTDIR)$(libdir)"
 LTLIBRARIES = $(lib_LTLIBRARIES)
-librtdm_la_LIBADD =
+librtdm_la_DEPENDENCIES = ../common/libxeno_common.la
 am_librtdm_la_OBJECTS = librtdm_la-core.lo librtdm_la-init.lo
 librtdm_la_OBJECTS = $(am_librtdm_la_OBJECTS)
 librtdm_la_LINK = $(LIBTOOL) --tag=CC $(AM_LIBTOOLFLAGS) \
@@ -188,6 +188,7 @@ SHELL = @SHELL@
 STRIP = @STRIP@
 VERSION = @VERSION@
 XENO_BUILD_STRING = @XENO_BUILD_STRING@
+XENO_DLOPEN_CONSTRAINT = @XENO_DLOPEN_CONSTRAINT@
 XENO_HOST_STRING = @XENO_HOST_STRING@
 XENO_LINUX_ALL_TARGETS = @XENO_LINUX_ALL_TARGETS@
 XENO_LINUX_ARCH = @XENO_LINUX_ARCH@
@@ -258,7 +259,7 @@ top_build_prefix = @top_build_prefix@
 top_builddir = @top_builddir@
 top_srcdir = @top_srcdir@
 lib_LTLIBRARIES = librtdm.la
-librtdm_la_LDFLAGS = -version-info 1:0:0
+librtdm_la_LDFLAGS = @XENO_DLOPEN_CONSTRAINT@ -version-info 1:0:0 -lpthread
 librtdm_la_SOURCES = \
 	core.c \
 	init.c
@@ -267,6 +268,7 @@ librtdm_la_CPPFLAGS = \
 	@XENO_USER_CFLAGS@ \
 	-I$(top_srcdir)/include
 
+librtdm_la_LIBADD = ../common/libxeno_common.la
 all: all-am
 
 .SUFFIXES:

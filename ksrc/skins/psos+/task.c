@@ -17,7 +17,6 @@
  * 02111-1307, USA.
  */
 
-#include <nucleus/registry.h>
 #include <psos+/task.h>
 #include <psos+/tm.h>
 
@@ -32,7 +31,7 @@ static unsigned psos_get_magic(void)
 	return PSOS_SKIN_MAGIC;
 }
 
-static xnthrops_t psos_task_ops = {
+static struct xnthread_operations psos_task_ops = {
 	.get_magic = &psos_get_magic,
 };
 
@@ -44,11 +43,6 @@ static void psostask_delete_hook(xnthread_t *thread)
 
 	if (xnthread_get_magic(thread) != PSOS_SKIN_MAGIC)
 		return;
-
-#ifdef CONFIG_XENO_OPT_REGISTRY
-	if (xnthread_handle(thread) != XN_NO_HANDLE)
-		xnregistry_remove(xnthread_handle(thread));
-#endif /* CONFIG_XENO_OPT_REGISTRY */
 
 	task = thread2psostask(thread);
 
@@ -93,8 +87,11 @@ u_long t_create(const char *name,
 		u_long prio,
 		u_long sstack, u_long ustack, u_long flags, u_long *tid_r)
 {
+	union xnsched_policy_param param;
+	struct xnthread_init_attr attr;
 	xnflags_t bflags = 0;
 	psostask_t *task;
+	u_long err;
 	spl_t s;
 	int n;
 
@@ -133,8 +130,15 @@ u_long t_create(const char *name,
 		   user-space. */
 		sprintf(task->name, "anon_task%lu", psos_task_ids++);
 
-	if (xnpod_init_thread(&task->threadbase, psos_tbase,
-			      task->name, prio, bflags, ustack, &psos_task_ops) != 0) {
+	attr.tbase = psos_tbase;
+	attr.name = task->name;
+	attr.flags = bflags;
+	attr.ops = &psos_task_ops;
+	attr.stacksize = ustack;
+	param.rt.prio = prio;
+
+	if (xnpod_init_thread(&task->threadbase,
+			      &attr, &xnsched_class_rt, &param) != 0) {
 		xnfree(task);
 		return ERR_NOSTK;	/* Assume this is the only possible failure */
 	}
@@ -159,16 +163,11 @@ u_long t_create(const char *name,
 	*tid_r = (u_long)task;
 	xnlock_put_irqrestore(&nklock, s);
 
-#ifdef CONFIG_XENO_OPT_REGISTRY
-	{
-		u_long err = xnregistry_enter(task->name,
-					      task, &xnthread_handle(&task->threadbase), NULL);
-		if (err) {
-			t_delete((u_long)task);
-			return err;
-		}
+	err = xnthread_register(&task->threadbase, task->name);
+	if (err) {
+		t_delete((u_long)task);
+		return err;
 	}
-#endif /* CONFIG_XENO_OPT_REGISTRY */
 
 	xnarch_create_display(&task->threadbase, task->name, psostask);
 
@@ -188,6 +187,7 @@ u_long t_start(u_long tid,
 	       void (*startaddr) (u_long, u_long, u_long, u_long),
 	       u_long targs[])
 {
+	struct xnthread_start_attr attr;
 	u_long err = SUCCESS;
 	xnflags_t xnmode;
 	psostask_t *task;
@@ -212,20 +212,28 @@ u_long t_start(u_long tid,
 	}
 
 	xnmode = psos_mode_to_xeno(mode);
+	if (xnmode & XNRRB) {
+		xnpod_set_thread_tslice(&task->threadbase, psos_time_slice);
+		xnmode &= ~XNRRB;
+	}
 
 	task->entry = startaddr;
 
+	attr.mode = xnmode;
+	attr.imask = (int)((mode >> 8) & 0x7);
+	attr.affinity = XNPOD_ALL_CPUS;
 #ifdef CONFIG_XENO_OPT_PERVASIVE
 	if (xnthread_test_state(&task->threadbase, XNSHADOW)) {
 		memset(task->args, 0, sizeof(task->args));
-		/* The shadow will be returned the exact values passed
+		attr.entry = (void (*)(void *))startaddr;
+		attr.cookie = targs;
+		/*
+		 * The shadow will be returned the exact values passed
 		 * to t_start(), since the trampoline is performed at
 		 * user-space level. We just relay the information
-		 * from t_create() to t_start() here.*/
-		xnpod_start_thread(&task->threadbase,
-				   xnmode,
-				   (int)((mode >> 8) & 0x7),
-				   XNPOD_ALL_CPUS, (void (*)(void *))startaddr, targs);
+		 * from t_create() to t_start() here.
+		 */
+		xnpod_start_thread(&task->threadbase, &attr);
 	}
 	else
 #endif /* CONFIG_XENO_OPT_PERVASIVE */
@@ -233,10 +241,9 @@ u_long t_start(u_long tid,
 		for (n = 0; n < 4; n++)
 			task->args[n] = targs ? targs[n] : 0;
 
-		xnpod_start_thread(&task->threadbase,
-				   xnmode,
-				   (int)((mode >> 8) & 0x7),
-				   XNPOD_ALL_CPUS, &psostask_trampoline, task);
+		attr.entry = psostask_trampoline;
+		attr.cookie = task;
+		xnpod_start_thread(&task->threadbase, &attr);
 	}
 
 unlock_and_exit:
@@ -363,18 +370,26 @@ u_long t_mode(u_long mask, u_long newmask, u_long *oldmode)
 	/* We have no error case here: just clear out any unwanted bit. */
 	mask &= T_MODE_MASK;
 	newmask &= T_MODE_MASK;
-	if (mask == 0) {
-		*oldmode = xeno_mode_to_psos(xnthread_state_flags(&task->threadbase) & XNTHREAD_MODE_BITS);
-		*oldmode |= ((task->threadbase.imask & 0x7) << 8);
-		return SUCCESS;
+
+	*oldmode = xeno_mode_to_psos(xnthread_state_flags(&task->threadbase) & XNTHREAD_MODE_BITS);
+	*oldmode |= ((task->threadbase.imask & 0x7) << 8);
+
+	if (mask & T_TSLICE) {
+		if (newmask & T_TSLICE)
+			xnpod_set_thread_tslice(&task->threadbase,
+						psos_time_slice);
+		else
+			xnpod_set_thread_tslice(&task->threadbase,
+						XN_INFINITE);
+		mask &= ~T_TSLICE;
 	}
 
-	*oldmode =
-		xeno_mode_to_psos(xnpod_set_thread_mode
-				  (&task->threadbase,
-				   psos_mode_to_xeno(mask),
-				   psos_mode_to_xeno(newmask)));
-	*oldmode |= ((task->threadbase.imask & 0x7) << 8);
+	if (mask == 0)
+		return SUCCESS;
+
+	xnpod_set_thread_mode(&task->threadbase,
+			      psos_mode_to_xeno(mask),
+			      psos_mode_to_xeno(newmask));
 
 	/* Reschedule in case the scheduler has been unlocked. */
 	xnpod_schedule();
@@ -504,6 +519,7 @@ unlock_and_exit:
 
 u_long t_setpri(u_long tid, u_long newprio, u_long *oldprio)
 {
+	union xnsched_policy_param param;
 	u_long err = SUCCESS;
 	psostask_t *task;
 	spl_t s;
@@ -534,7 +550,9 @@ u_long t_setpri(u_long tid, u_long newprio, u_long *oldprio)
 		}
 
 		if (newprio != *oldprio) {
-			xnpod_renice_thread(&task->threadbase, newprio);
+			param.rt.prio = newprio;
+			xnpod_set_thread_schedparam(&task->threadbase,
+						    &xnsched_class_rt, &param);
 			xnpod_schedule();
 		}
 	}

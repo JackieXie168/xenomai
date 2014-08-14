@@ -35,7 +35,6 @@
 #include <linux/list.h>
 
 #include <nucleus/xenomai.h>
-#include <nucleus/core.h>
 #include <nucleus/heap.h>
 #include <nucleus/pod.h>
 #include <nucleus/synch.h>
@@ -44,6 +43,9 @@
 
 /* debug support */
 #include <nucleus/assert.h>
+#ifdef CONFIG_PCI
+#include <asm-generic/xenomai/pci_ids.h>
+#endif /* CONFIG_PCI */
 
 #ifndef CONFIG_XENO_OPT_DEBUG_RTDM
 #define CONFIG_XENO_OPT_DEBUG_RTDM	0
@@ -160,7 +162,9 @@ enum rtdm_selecttype {
  * NULL if kernel mode call
  * @param[in] oflag Open flags as passed by the user
  *
- * @return 0 on success, otherwise negative error code
+ * @return 0 on success. On failure return either -ENOSYS, to request that
+ * this handler be called again from the opposite realtime/non-realtime
+ * context, or another negative error code.
  *
  * @see @c open() in IEEE Std 1003.1,
  * http://www.opengroup.org/onlinepubs/009695399 */
@@ -175,7 +179,9 @@ typedef int (*rtdm_open_handler_t)(struct rtdm_dev_context *context,
  * NULL if kernel mode call
  * @param[in] protocol Protocol number as passed by the user
  *
- * @return 0 on success, otherwise negative error code
+ * @return 0 on success. On failure return either -ENOSYS, to request that
+ * this handler be called again from the opposite realtime/non-realtime
+ * context, or another negative error code.
  *
  * @see @c socket() in IEEE Std 1003.1,
  * http://www.opengroup.org/onlinepubs/009695399 */
@@ -189,7 +195,9 @@ typedef int (*rtdm_socket_handler_t)(struct rtdm_dev_context *context,
  * @param[in] user_info Opaque pointer to information about user mode caller,
  * NULL if kernel mode call
  *
- * @return 0 on success, otherwise negative error code
+ * @return 0 on success. On failure return either -ENOSYS, to request that
+ * this handler be called again from the opposite realtime/non-realtime
+ * context, or another negative error code.
  *
  * @see @c close() in IEEE Std 1003.1,
  * http://www.opengroup.org/onlinepubs/009695399 */
@@ -205,7 +213,9 @@ typedef int (*rtdm_close_handler_t)(struct rtdm_dev_context *context,
  * @param[in] request Request number as passed by the user
  * @param[in,out] arg Request argument as passed by the user
  *
- * @return Positiv value on success, otherwise negative error code
+ * @return A positive value or 0 on success. On failure return either
+ * -ENOSYS, to request that the function be called again from the opposite
+ * realtime/non-realtime context, or another negative error code.
  *
  * @see @c ioctl() in IEEE Std 1003.1,
  * http://www.opengroup.org/onlinepubs/009695399 */
@@ -222,7 +232,9 @@ typedef int (*rtdm_ioctl_handler_t)(struct rtdm_dev_context *context,
  * @param[in] fd_index Opaque value, to be passed to rtdm_event_select_bind or
  * rtdm_sem_select_bind unmodfied
  *
- * @return 0 on success, otherwise negative error code
+ * @return 0 on success. On failure return either -ENOSYS, to request that
+ * this handler be called again from the opposite realtime/non-realtime
+ * context, or another negative error code.
  */
 typedef int (*rtdm_select_bind_handler_t)(struct rtdm_dev_context *context,
 					  rtdm_selector_t *selector,
@@ -238,7 +250,9 @@ typedef int (*rtdm_select_bind_handler_t)(struct rtdm_dev_context *context,
  * @param[out] buf Input buffer as passed by the user
  * @param[in] nbyte Number of bytes the user requests to read
  *
- * @return On success, the number of bytes read, otherwise negative error code
+ * @return On success, the number of bytes read. On failure return either
+ * -ENOSYS, to request that this handler be called again from the opposite
+ * realtime/non-realtime context, or another negative error code.
  *
  * @see @c read() in IEEE Std 1003.1,
  * http://www.opengroup.org/onlinepubs/009695399 */
@@ -255,8 +269,9 @@ typedef ssize_t (*rtdm_read_handler_t)(struct rtdm_dev_context *context,
  * @param[in] buf Output buffer as passed by the user
  * @param[in] nbyte Number of bytes the user requests to write
  *
- * @return On success, the number of bytes written, otherwise negative error
- * code
+ * @return On success, the number of bytes written. On failure return
+ * either -ENOSYS, to request that this handler be called again from the
+ * opposite realtime/non-realtime context, or another negative error code.
  *
  * @see @c write() in IEEE Std 1003.1,
  * http://www.opengroup.org/onlinepubs/009695399 */
@@ -274,8 +289,9 @@ typedef ssize_t (*rtdm_write_handler_t)(struct rtdm_dev_context *context,
  * mirrored to safe kernel memory in case of user mode call
  * @param[in] flags Message flags as passed by the user
  *
- * @return On success, the number of bytes received, otherwise negative error
- * code
+ * @return On success, the number of bytes received. On failure return
+ * either -ENOSYS, to request that this handler be called again from the
+ * opposite realtime/non-realtime context, or another negative error code.
  *
  * @see @c recvmsg() in IEEE Std 1003.1,
  * http://www.opengroup.org/onlinepubs/009695399 */
@@ -293,8 +309,9 @@ typedef ssize_t (*rtdm_recvmsg_handler_t)(struct rtdm_dev_context *context,
  * mirrored to safe kernel memory in case of user mode call
  * @param[in] flags Message flags as passed by the user
  *
- * @return On success, the number of bytes transmitted, otherwise negative
- * error code
+ * @return On success, the number of bytes transmitted. On failure return
+ * either -ENOSYS, to request that this handler be called again from the
+ * opposite realtime/non-realtime context, or another negative error code.
  *
  * @see @c sendmsg() in IEEE Std 1003.1,
  * http://www.opengroup.org/onlinepubs/009695399 */
@@ -390,6 +407,34 @@ struct rtdm_dev_context {
 	/** Begin of driver defined context data structure */
 	char dev_private[0];
 };
+
+/**
+ * Locate the driver private area associated to a device context structure
+ *
+ * @param[in] context Context structure associated with opened device instance
+ *
+ * @return The address of the private driver area associated to @a
+ * context.
+ */
+static inline void *
+rtdm_context_to_private(struct rtdm_dev_context *context)
+{
+	return (void *)context->dev_private;
+}
+
+/**
+ * Locate a device context structure from its driver private area
+ *
+ * @param[in] dev_private Address of a private context area
+ *
+ * @return The address of the device context structure defining @a
+ * dev_private.
+ */
+static inline struct rtdm_dev_context *
+rtdm_private_to_context(void *dev_private)
+{
+	return container_of(dev_private, struct rtdm_dev_context, dev_private);
+}
 
 struct rtdm_dev_reserved {
 	struct list_head entry;
@@ -581,13 +626,13 @@ int rtdm_select_bind(int fd, rtdm_selector_t *selector,
 	<LEAVE_ATOMIC_SECTION>			\
 }
 #else /* This is how it really works */
-#define RTDM_EXECUTE_ATOMICALLY(code_block)	\
-{						\
-	spl_t s;				\
-						\
-	xnlock_get_irqsave(&nklock, s);		\
-	code_block;				\
-	xnlock_put_irqrestore(&nklock, s);	\
+#define RTDM_EXECUTE_ATOMICALLY(code_block)		\
+{							\
+	spl_t __rtdm_s;					\
+							\
+	xnlock_get_irqsave(&nklock, __rtdm_s);		\
+	code_block;					\
+	xnlock_put_irqrestore(&nklock, __rtdm_s);	\
 }
 #endif
 /** @} Global Lock across Scheduler Invocation */
@@ -641,7 +686,15 @@ typedef unsigned long rtdm_lockctx_t;
  *
  * Rescheduling: never.
  */
+#ifdef DOXYGEN_CPP /* Beautify doxygen output */
 #define rtdm_lock_get(lock)	rthal_spin_lock(lock)
+#else /* This is how it really works */
+#define rtdm_lock_get(lock)					\
+	do {							\
+		XENO_BUGON(RTDM, !rthal_local_irq_disabled());	\
+		rthal_spin_lock(lock);				\
+	} while (0)
+#endif
 
 /**
  * Release lock without preemption restoration
@@ -957,8 +1010,8 @@ typedef void (*rtdm_task_proc_t)(void *arg);
  * @anchor taskprio @name Task Priority Range
  * Maximum and minimum task priorities
  * @{ */
-#define RTDM_TASK_LOWEST_PRIORITY	XNCORE_LOW_PRIO
-#define RTDM_TASK_HIGHEST_PRIORITY	XNCORE_HIGH_PRIO
+#define RTDM_TASK_LOWEST_PRIORITY	XNSCHED_LOW_PRIO
+#define RTDM_TASK_HIGHEST_PRIORITY	XNSCHED_HIGH_PRIO
 /** @} Task Priority Range */
 
 /*!
@@ -987,7 +1040,8 @@ void rtdm_task_join_nrt(rtdm_task_t *task, unsigned int poll_delay);
 
 static inline void rtdm_task_set_priority(rtdm_task_t *task, int priority)
 {
-	xnpod_renice_thread(task, priority);
+	union xnsched_policy_param param = { .rt = { .prio = priority } };
+	xnpod_set_thread_schedparam(task, &xnsched_class_rt, &param);
 	xnpod_schedule();
 }
 
@@ -1061,7 +1115,7 @@ void rtdm_event_init(rtdm_event_t *event, unsigned long pending);
 int rtdm_event_select_bind(rtdm_event_t *event, rtdm_selector_t *selector,
 			   enum rtdm_selecttype type, unsigned fd_index);
 #else /* !CONFIG_XENO_OPT_RTDM_SELECT */
-#define rtdm_event_select_bind(e, s, t, i) ({ -EBADF; })
+#define rtdm_event_select_bind(e, s, t, i) ({ (void)(e); -EBADF; })
 #endif /* !CONFIG_XENO_OPT_RTDM_SELECT */
 int rtdm_event_wait(rtdm_event_t *event);
 int rtdm_event_timedwait(rtdm_event_t *event, nanosecs_rel_t timeout,
@@ -1100,7 +1154,7 @@ void rtdm_sem_init(rtdm_sem_t *sem, unsigned long value);
 int rtdm_sem_select_bind(rtdm_sem_t *sem, rtdm_selector_t *selector,
 			 enum rtdm_selecttype type, unsigned fd_index);
 #else /* !CONFIG_XENO_OPT_RTDM_SELECT */
-#define rtdm_sem_select_bind(s, se, t, i) ({ -EBADF; })
+#define rtdm_sem_select_bind(s, se, t, i) ({ (void)(s); -EBADF; })
 #endif /* !CONFIG_XENO_OPT_RTDM_SELECT */
 int rtdm_sem_down(rtdm_sem_t *sem);
 int rtdm_sem_timeddown(rtdm_sem_t *sem, nanosecs_rel_t timeout,
@@ -1134,7 +1188,7 @@ static inline void rtdm_mutex_unlock(rtdm_mutex_t *mutex)
 
 	trace_mark(xn_rtdm, mutex_unlock, "mutex %p", mutex);
 
-	if (unlikely(xnsynch_wakeup_one_sleeper(&mutex->synch_base) != NULL))
+	if (unlikely(xnsynch_release(&mutex->synch_base) != NULL))
 		xnpod_schedule();
 }
 
@@ -1168,7 +1222,7 @@ int rtdm_mmap_to_user(rtdm_user_info_t *user_info,
 		      struct vm_operations_struct *vm_ops,
 		      void *vm_private_data);
 int rtdm_iomap_to_user(rtdm_user_info_t *user_info,
-		       unsigned long src_addr, size_t len,
+		       phys_addr_t src_addr, size_t len,
 		       int prot, void **pptr,
 		       struct vm_operations_struct *vm_ops,
 		       void *vm_private_data);
@@ -1177,52 +1231,52 @@ int rtdm_munmap(rtdm_user_info_t *user_info, void *ptr, size_t len);
 static inline int rtdm_read_user_ok(rtdm_user_info_t *user_info,
 				    const void __user *ptr, size_t size)
 {
-	return __xn_access_ok(user_info, VERIFY_READ, ptr, size);
+	return access_rok(ptr, size);
 }
 
 static inline int rtdm_rw_user_ok(rtdm_user_info_t *user_info,
 				  const void __user *ptr, size_t size)
 {
-	return __xn_access_ok(user_info, VERIFY_WRITE, ptr, size);
+	return access_wok(ptr, size);
 }
 
 static inline int rtdm_copy_from_user(rtdm_user_info_t *user_info,
 				      void *dst, const void __user *src,
 				      size_t size)
 {
-	return __xn_copy_from_user(user_info, dst, src, size) ? -EFAULT : 0;
+	return __xn_copy_from_user(dst, src, size) ? -EFAULT : 0;
 }
 
 static inline int rtdm_safe_copy_from_user(rtdm_user_info_t *user_info,
 					   void *dst, const void __user *src,
 					   size_t size)
 {
-	return (!__xn_access_ok(user_info, VERIFY_READ, src, size) ||
-		__xn_copy_from_user(user_info, dst, src, size)) ? -EFAULT : 0;
+	return (!access_rok(src, size) ||
+		__xn_copy_from_user(dst, src, size)) ? -EFAULT : 0;
 }
 
 static inline int rtdm_copy_to_user(rtdm_user_info_t *user_info,
 				    void __user *dst, const void *src,
 				    size_t size)
 {
-	return __xn_copy_to_user(user_info, dst, src, size) ? -EFAULT : 0;
+	return __xn_copy_to_user(dst, src, size) ? -EFAULT : 0;
 }
 
 static inline int rtdm_safe_copy_to_user(rtdm_user_info_t *user_info,
 					 void __user *dst, const void *src,
 					 size_t size)
 {
-	return (!__xn_access_ok(user_info, VERIFY_WRITE, dst, size) ||
-		__xn_copy_to_user(user_info, dst, src, size)) ? -EFAULT : 0;
+	return (!access_wok(dst, size) ||
+		__xn_copy_to_user(dst, src, size)) ? -EFAULT : 0;
 }
 
 static inline int rtdm_strncpy_from_user(rtdm_user_info_t *user_info,
 					 char *dst,
 					 const char __user *src, size_t count)
 {
-	if (unlikely(!__xn_access_ok(user_info, VERIFY_READ, src, 1)))
+	if (unlikely(!access_rok(src, 1)))
 		return -EFAULT;
-	return __xn_strncpy_from_user(user_info, dst, src, count);
+	return __xn_strncpy_from_user(dst, src, count);
 }
 #else /* !CONFIG_XENO_OPT_PERVASIVE */
 /* Define void user<->kernel services that simply fail */

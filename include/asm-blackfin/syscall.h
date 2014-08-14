@@ -49,25 +49,11 @@
 #define __xn_reg_arg3(regs)   ((regs)->r2)
 #define __xn_reg_arg4(regs)   ((regs)->r3)
 #define __xn_reg_arg5(regs)   ((regs)->r4)
+#define __xn_reg_sigp(regs)   ((regs)->r5)
 
 #define __xn_reg_mux_p(regs)        ((__xn_reg_mux(regs) & 0xffff) == __xn_sys_mux)
 #define __xn_mux_id(regs)           ((__xn_reg_mux(regs) >> 24) & 0xff)
 #define __xn_mux_op(regs)           ((__xn_reg_mux(regs) >> 16) & 0xff)
-
-/* Our own set of copy-to/from-user macros which must bypass
-   might_sleep() checks. The caller cannot fault and is expected to
-   have checked for bad range before using the copy macros, so we
-   should not have to care about the result. */
-#define __xn_copy_from_user(task,dstP,srcP,n)  \
-    ({ int __err__ = __copy_from_user_inatomic(dstP,srcP,n); __err__; })
-#define __xn_copy_to_user(task,dstP,srcP,n)  \
-    ({ int __err__ = __copy_to_user_inatomic(dstP,srcP,n); __err__; })
-#define __xn_put_user(task,src,dstP)           __put_user(src,dstP)
-#define __xn_get_user(task,dst,srcP)           __get_user(dst,srcP)
-#define __xn_strncpy_from_user(task,dstP,srcP,n)    \
-  ({ int __err__ = strncpy_from_user(dstP,srcP,n); __err__; })
-
-#define __xn_access_ok(task,type,addr,size)  wrap_access_ok(task,addr,size)
 
 /* Purposedly used inlines and not macros for the following routines
    so that we don't risk spurious side-effects on the value arg. */
@@ -94,128 +80,150 @@ static inline int __xn_interrupted_p(struct pt_regs *regs)
 
 #else /* !__KERNEL__ */
 
+#include <errno.h>
+
 /*
  * The following code defines an inline syscall mechanism used by
  * Xenomai's real-time interfaces to invoke the skin module
  * services in kernel space.
  */
 
-#define __emit_syscall0(muxcode)					\
+#define __emit_syscall0(muxcode, sigp)					\
 ({									\
-  long __res;								\
-  __asm__ __volatile__ (						\
-  "p0 = %1;\n\t"							\
-  "excpt 0;\n\t" 							\
-  "%0=r0;\n\t"								\
-  : "=da" (__res) 							\
-  : "d" (muxcode)							\
-  : "CC", "P0");							\
-  __res;								\
+	long __res;							\
+	__asm__ __volatile__ (						\
+		"r5=%2;\n\t"						\
+		"p0=%1;\n\t"						\
+		"excpt 0;\n\t"						\
+		"%0=r0;\n\t"						\
+		: "=da" (__res)						\
+		: "d" (muxcode),					\
+		  "a" ((long)(sigp))					\
+		: "CC","R5","P0","memory");				\
+	__res;								\
 })
 
-#define __emit_syscall1(muxcode,a1)					\
+#define __emit_syscall1(muxcode, sigp, a1)				\
 ({									\
-  long __res;								\
-  __asm__ __volatile__ (						\
-  "r0=%2;\n\t"								\
-  "p0=%1;\n\t"								\
-  "excpt 0;\n\t" 							\
-  "%0=r0;\n\t"								\
-        : "=da" (__res)							\
-        : "d" (muxcode),						\
-	  "a" ((long)(a1))						\
-	: "CC", "R0", "P0");						\
-  __res;								\
+	long __res;							\
+	__asm__ __volatile__ (						\
+		"r5=%3;\n\t"						\
+		"r0=%2;\n\t"						\
+		"p0=%1;\n\t"						\
+		"excpt 0;\n\t"						\
+		"%0=r0;\n\t"						\
+		: "=da" (__res)						\
+		: "d" (muxcode),					\
+		  "a" ((long)(a1)),					\
+		  "a" ((long)(sigp))					\
+		: "CC","R0","R5","P0","memory");			\
+	__res;								\
 })
 
-#define __emit_syscall2(muxcode,a1,a2)					\
+#define __emit_syscall2(muxcode, sigp, a1, a2)				\
 ({									\
-  long __res;								\
-  __asm__ __volatile__ (						\
-  "r1=%3;\n\t"								\
-  "r0=%2;\n\t"								\
-  "p0=%1;\n\t"								\
-  "excpt 0;\n\t" 							\
-  "%0=r0;\n\t"								\
-        : "=da" (__res)							\
-        : "d" (muxcode),						\
-	  "a" ((long)(a1)),						\
-	  "a" ((long)(a2))						\
-	: "CC", "R0","R1", "P0");					\
-  __res;								\
+	long __res;							\
+	__asm__ __volatile__ (						\
+		"r5=%4;\n\t"						\
+		"r1=%3;\n\t"						\
+		"r0=%2;\n\t"						\
+		"p0=%1;\n\t"						\
+		"excpt 0;\n\t"						\
+		"%0=r0;\n\t"						\
+		: "=da" (__res)						\
+		: "d" (muxcode),					\
+		  "a" ((long)(a1)),					\
+		  "a" ((long)(a2)),					\
+		  "a" ((long)(sigp))					\
+		: "CC","R0","R1","R5","P0","memory");			\
+	__res;								\
 })
 
-#define __emit_syscall3(muxcode,a1,a2,a3)				\
+#define __emit_syscall3(muxcode, sigp, a1, a2, a3)			\
 ({									\
-  long __res;								\
-  __asm__ __volatile__ (						\
-  "r2=%4;\n\t"								\
-  "r1=%3;\n\t"								\
-  "r0=%2;\n\t"								\
-  "p0=%1;\n\t"								\
-  "excpt 0;\n\t" 							\
-  "%0=r0;\n\t"								\
-        : "=da" (__res)							\
-        : "d"   (muxcode),						\
-	  "a"   ((long)(a1)),						\
-	  "a"   ((long)(a2)),						\
-	  "a"   ((long)(a3))						\
-        : "CC", "R0","R1","R2", "P0");					\
-  __res;								\
+	long __res;							\
+	__asm__ __volatile__ (						\
+		"r5=%5;\n\t"						\
+		"r2=%4;\n\t"						\
+		"r1=%3;\n\t"						\
+		"r0=%2;\n\t"						\
+		"p0=%1;\n\t"						\
+		"excpt 0;\n\t"						\
+		"%0=r0;\n\t"						\
+		: "=da" (__res)						\
+		: "d"   (muxcode),					\
+		  "a"   ((long)(a1)),					\
+		  "a"   ((long)(a2)),					\
+		  "a"   ((long)(a3)),					\
+		  "a"   ((long)(sigp))					\
+		: "CC","R0","R1","R2","R5","P0","memory");		\
+	__res;								\
 })
 
-#define __emit_syscall4(muxcode,a1,a2,a3,a4)				\
+#define __emit_syscall4(muxcode, sigp, a1, a2, a3, a4)			\
 ({									\
-  long __res;								\
-  __asm__ __volatile__ (						\
-  "[--sp] = r3;\n\t"							\
-  "r3=%5;\n\t"								\
-  "r2=%4;\n\t"								\
-  "r1=%3;\n\t"								\
-  "r0=%2;\n\t"								\
-  "p0=%1;\n\t"								\
-  "excpt 0;\n\t" 							\
-  "%0=r0;\n\t"								\
-  "r3 = [sp++];\n\t"							\
-  	: "=da" (__res)							\
-  	: "d"  (muxcode),						\
-	  "a"  ((long)(a1)),						\
-	  "a"  ((long)(a2)),						\
-	  "a"  ((long)(a3)),						\
-	  "a"  ((long)(a4))						\
-  	: "CC", "R0","R1","R2","R3", "P0");				\
-  __res;								\
+	long __res;							\
+	__asm__ __volatile__ (						\
+		"r5=%6;\n\t"						\
+		"r3=%5;\n\t"						\
+		"r2=%4;\n\t"						\
+		"r1=%3;\n\t"						\
+		"r0=%2;\n\t"						\
+		"p0=%1;\n\t"						\
+		"excpt 0;\n\t"						\
+		"%0=r0;\n\t"						\
+		: "=da" (__res)						\
+		: "d"  (muxcode),					\
+		  "a"  ((long)(a1)),					\
+		  "a"  ((long)(a2)),					\
+		  "a"  ((long)(a3)),					\
+		  "a"  ((long)(a4)),					\
+		  "a"  ((long)(sigp))					\
+		: "CC","R0","R1","R2","R3","R5","P0","memory");		\
+	__res;								\
 })
 
-#define __emit_syscall5(muxcode,a1,a2,a3,a4,a5)				\
+#define __emit_syscall5(muxcode, sigp, a1, a2, a3, a4, a5)		\
 ({									\
-  long __res;								\
-  __asm__ __volatile__ (						\
-  "[--sp] = r4;\n\t"                                                    \
-  "[--sp] = r3;\n\t"                                                    \
-  "r4=%6;\n\t"								\
-  "r3=%5;\n\t"								\
-  "r2=%4;\n\t"								\
-  "r1=%3;\n\t"								\
-  "r0=%2;\n\t"								\
-  "p0=%1;\n\t"								\
-  "excpt 0;\n\t" 							\
-  "%0=r0;\n\t"								\
-  "r3 = [sp++];\n\t" 							\
-  "r4 = [sp++];\n\t"                                                    \
-  	: "=da" (__res)							\
-  	: "d"  (muxcode),						\
-	  "rm"  ((long)(a1)),						\
-	  "rm"  ((long)(a2)),						\
-	  "rm"  ((long)(a3)),						\
-	  "rm"  ((long)(a4)),						\
-	  "rm"  ((long)(a5))						\
-	: "CC","R0","R1","R2","R3","R4","P0");				\
-  __res;								\
+	long __res;							\
+	__asm__ __volatile__ (						\
+		"r5=%7;\n\t"						\
+		"r4=%6;\n\t"						\
+		"r3=%5;\n\t"						\
+		"r2=%4;\n\t"						\
+		"r1=%3;\n\t"						\
+		"r0=%2;\n\t"						\
+		"p0=%1;\n\t"						\
+		"excpt 0;\n\t"						\
+		"%0=r0;\n\t"						\
+		: "=da" (__res)						\
+		: "d"  (muxcode),					\
+		  "rm"  ((long)(a1)),					\
+		  "rm"  ((long)(a2)),					\
+		  "rm"  ((long)(a3)),					\
+		  "rm"  ((long)(a4)),					\
+		  "rm"  ((long)(a5)),					\
+		  "rm"  ((long)(sigp))					\
+		: "CC","R0","R1","R2","R3","R4","R5","P0","memory");	\
+	__res;								\
 })
 
-#define XENOMAI_DO_SYSCALL(nr, shifted_id, op, args...) \
+#define XENOMAI_DO_SYSCALL_INNER(nr, shifted_id, op, args...)		\
     __emit_syscall##nr(__xn_mux_code(shifted_id,op), ##args)
+
+#define XENOMAI_DO_SYSCALL(nr, shifted_id, op, args...)			\
+	({								\
+		int __err__, __res__ = -ERESTART;			\
+		struct xnsig __sigs__;					\
+									\
+		do {							\
+			__sigs__.nsigs = 0;				\
+			__err__ = XENOMAI_DO_SYSCALL_INNER(nr, shifted_id, \
+							   op, &__sigs__, ##args); \
+			__res__ = xnsig_dispatch(&__sigs__, __res__, __err__); \
+		} while (__res__ == -ERESTART);				\
+		__res__;						\
+	})
 
 #define XENOMAI_SYSCALL0(op)                XENOMAI_DO_SYSCALL(0,0,op)
 #define XENOMAI_SYSCALL1(op,a1)             XENOMAI_DO_SYSCALL(1,0,op,a1)
@@ -224,6 +232,8 @@ static inline int __xn_interrupted_p(struct pt_regs *regs)
 #define XENOMAI_SYSCALL4(op,a1,a2,a3,a4)    XENOMAI_DO_SYSCALL(4,0,op,a1,a2,a3,a4)
 #define XENOMAI_SYSCALL5(op,a1,a2,a3,a4,a5) XENOMAI_DO_SYSCALL(5,0,op,a1,a2,a3,a4,a5)
 #define XENOMAI_SYSBIND(a1,a2,a3,a4)        XENOMAI_DO_SYSCALL(4,0,__xn_sys_bind,a1,a2,a3,a4)
+#define XENOMAI_SYSSIGS(sigs)						\
+	XENOMAI_DO_SYSCALL_INNER(0, 0, __xn_sys_get_next_sigs, sigs)
 
 #define XENOMAI_SKINCALL0(id,op)                XENOMAI_DO_SYSCALL(0,id,op)
 #define XENOMAI_SKINCALL1(id,op,a1)             XENOMAI_DO_SYSCALL(1,id,op,a1)
@@ -231,8 +241,6 @@ static inline int __xn_interrupted_p(struct pt_regs *regs)
 #define XENOMAI_SKINCALL3(id,op,a1,a2,a3)       XENOMAI_DO_SYSCALL(3,id,op,a1,a2,a3)
 #define XENOMAI_SKINCALL4(id,op,a1,a2,a3,a4)    XENOMAI_DO_SYSCALL(4,id,op,a1,a2,a3,a4)
 #define XENOMAI_SKINCALL5(id,op,a1,a2,a3,a4,a5) XENOMAI_DO_SYSCALL(5,id,op,a1,a2,a3,a4,a5)
-
-#define CONFIG_XENO_HW_DIRECT_TSC 1
 
 static inline unsigned long long __xn_rdtsc (void)
 {

@@ -55,8 +55,14 @@ Collaboration diagram for Message queue services.:</div>
 <tr><td class="mdescLeft">&nbsp;</td><td class="mdescRight">Write a message to a queue.  <a href="#ga9ef8d1826bb13fe706a4566890972657"></a><br/></td></tr>
 <tr><td class="memItemLeft" align="right" valign="top">ssize_t&nbsp;</td><td class="memItemRight" valign="bottom"><a class="el" href="group__native__queue.html#ga44759168a589ddbb2b60c1c1b183f448">rt_queue_receive</a> (RT_QUEUE *q, void **bufp, RTIME timeout)</td></tr>
 <tr><td class="mdescLeft">&nbsp;</td><td class="mdescRight">Receive a message from a queue.  <a href="#ga44759168a589ddbb2b60c1c1b183f448"></a><br/></td></tr>
+<tr><td class="memItemLeft" align="right" valign="top">ssize_t&nbsp;</td><td class="memItemRight" valign="bottom"><a class="el" href="group__native__queue.html#gade7b66ff83b602b6265cb1cb768c18db">rt_queue_receive_until</a> (RT_QUEUE *q, void **bufp, RTIME timeout)</td></tr>
+<tr><td class="mdescLeft">&nbsp;</td><td class="mdescRight">Receive a message from a queue (with absolute timeout date).  <a href="#gade7b66ff83b602b6265cb1cb768c18db"></a><br/></td></tr>
 <tr><td class="memItemLeft" align="right" valign="top">ssize_t&nbsp;</td><td class="memItemRight" valign="bottom"><a class="el" href="group__native__queue.html#ga4083beec0186ce66c66ee0d3fc1b5eee">rt_queue_read</a> (RT_QUEUE *q, void *buf, size_t size, RTIME timeout)</td></tr>
 <tr><td class="mdescLeft">&nbsp;</td><td class="mdescRight">Read a message from a queue.  <a href="#ga4083beec0186ce66c66ee0d3fc1b5eee"></a><br/></td></tr>
+<tr><td class="memItemLeft" align="right" valign="top">ssize_t&nbsp;</td><td class="memItemRight" valign="bottom"><a class="el" href="group__native__queue.html#ga91dca49cc0fd0b30b8fe66eb6bc7ea8a">rt_queue_read_until</a> (RT_QUEUE *q, void *buf, size_t size, RTIME timeout)</td></tr>
+<tr><td class="mdescLeft">&nbsp;</td><td class="mdescRight">Read a message from a queue (with absolute timeout date).  <a href="#ga91dca49cc0fd0b30b8fe66eb6bc7ea8a"></a><br/></td></tr>
+<tr><td class="memItemLeft" align="right" valign="top">int&nbsp;</td><td class="memItemRight" valign="bottom"><a class="el" href="group__native__queue.html#gaffac609e575d3dc57392cc84b743e504">rt_queue_flush</a> (RT_QUEUE *q)</td></tr>
+<tr><td class="mdescLeft">&nbsp;</td><td class="mdescRight">Flush a message queue.  <a href="#gaffac609e575d3dc57392cc84b743e504"></a><br/></td></tr>
 <tr><td class="memItemLeft" align="right" valign="top">int&nbsp;</td><td class="memItemRight" valign="bottom"><a class="el" href="group__native__queue.html#ga654017c0f87d8c23329aeefff93e6a70">rt_queue_inquire</a> (RT_QUEUE *q, RT_QUEUE_INFO *info)</td></tr>
 <tr><td class="mdescLeft">&nbsp;</td><td class="mdescRight">Inquire about a message queue.  <a href="#ga654017c0f87d8c23329aeefff93e6a70"></a><br/></td></tr>
 <tr><td class="memItemLeft" align="right" valign="top">int&nbsp;</td><td class="memItemRight" valign="bottom"><a class="el" href="group__native__queue.html#ga162bb372c5c3616666e8e1fbdcc79343">rt_queue_bind</a> (RT_QUEUE *q, const char *name, RTIME timeout)</td></tr>
@@ -114,9 +120,9 @@ Collaboration diagram for Message queue services.:</div>
 </ul>
 <p>Rescheduling: never. </p>
 
-<p>References <a class="el" href="ksrc_2nucleus_2heap_8c_source.html#l00429">xnheap_alloc()</a>.</p>
+<p>References <a class="el" href="ksrc_2nucleus_2heap_8c_source.html#l00481">xnheap_alloc()</a>.</p>
 
-<p>Referenced by <a class="el" href="ksrc_2skins_2native_2queue_8c_source.html#l00747">rt_queue_write()</a>.</p>
+<p>Referenced by <a class="el" href="ksrc_2skins_2native_2queue_8c_source.html#l00727">rt_queue_write()</a>.</p>
 
 </div>
 </div>
@@ -175,7 +181,7 @@ Collaboration diagram for Message queue services.:</div>
 <li>-ETIMEDOUT is returned if the object cannot be retrieved within the specified amount of time.</li>
 </ul>
 <ul>
-<li>-EPERM is returned if this service should block, but was called from a context which cannot sleep (e.g. interrupt, non-realtime or scheduler locked). This error may also be returned whenever the call attempts to bind from a user-space application to a local queue defined from kernel space (i.e. Q_SHARED was not passed to <a class="el" href="group__native__queue.html#gaacad717bbd6d75338fada8f5b4a67b3f" title="Create a message queue.">rt_queue_create()</a>).</li>
+<li>-EPERM is returned if this service should block, but was called from a context which cannot sleep (e.g. interrupt, non-realtime context). This error may also be returned whenever the call attempts to bind from a user-space application to a local queue defined from kernel space (i.e. Q_SHARED was not passed to <a class="el" href="group__native__queue.html#gaacad717bbd6d75338fada8f5b4a67b3f" title="Create a message queue.">rt_queue_create()</a>).</li>
 </ul>
 <ul>
 <li>-ENOENT is returned if the special file /dev/rtheap (character-mode, major 10, minor 254) is not available from the filesystem. This device is needed to map the memory pool used by the shared queue into the caller's address space. udev-based systems should not need manual creation of such device entry.</li>
@@ -286,7 +292,7 @@ Collaboration diagram for Message queue services.:</div>
 </ul>
 <p>Rescheduling: possible. </p>
 
-<p>References <a class="el" href="src_2skins_2native_2queue_8c_source.html#l00113">rt_queue_delete()</a>, <a class="el" href="ksrc_2nucleus_2heap_8c_source.html#l00167">xnheap_init()</a>, <a class="el" href="nucleus_2registry_8c_source.html#l00582">xnregistry_enter()</a>, and <a class="el" href="synch_8c_source.html#l00087">xnsynch_init()</a>.</p>
+<p>References <a class="el" href="src_2skins_2native_2queue_8c_source.html#l00112">rt_queue_delete()</a>, <a class="el" href="ksrc_2nucleus_2heap_8c_source.html#l00167">xnheap_init()</a>, <a class="el" href="ksrc_2nucleus_2heap_8c_source.html#l00276">xnheap_set_label()</a>, <a class="el" href="nucleus_2registry_8c_source.html#l00582">xnregistry_enter()</a>, and <a class="el" href="synch_8c_source.html#l00106">xnsynch_init()</a>.</p>
 
 </div>
 </div>
@@ -324,9 +330,6 @@ Collaboration diagram for Message queue services.:</div>
 <ul>
 <li>-EPERM is returned if this service was called from an asynchronous context.</li>
 </ul>
-<ul>
-<li>-EBUSY is returned if an attempt is made to delete a shared queue which is still bound to a process.</li>
-</ul>
 <p>Environments:</p>
 <p>This service can be called from:</p>
 <ul>
@@ -336,6 +339,51 @@ Collaboration diagram for Message queue services.:</div>
 <p>Rescheduling: possible. </p>
 
 <p>Referenced by <a class="el" href="ksrc_2skins_2native_2queue_8c_source.html#l00209">rt_queue_create()</a>.</p>
+
+</div>
+</div>
+<a class="anchor" id="gaffac609e575d3dc57392cc84b743e504"></a><!-- doxytag: member="queue.c::rt_queue_flush" ref="gaffac609e575d3dc57392cc84b743e504" args="(RT_QUEUE *q)" -->
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">int rt_queue_flush </td>
+          <td>(</td>
+          <td class="paramtype">RT_QUEUE *&nbsp;</td>
+          <td class="paramname"> <em>q</em></td>
+          <td>&nbsp;)&nbsp;</td>
+          <td></td>
+        </tr>
+      </table>
+</div>
+<div class="memdoc">
+
+<p>Flush a message queue. </p>
+<p>This service discards all unread messages from a message queue.</p>
+<dl><dt><b>Parameters:</b></dt><dd>
+  <table border="0" cellspacing="2" cellpadding="0">
+    <tr><td valign="top"></td><td valign="top"><em>q</em>&nbsp;</td><td>The descriptor address of the affected queue.</td></tr>
+  </table>
+  </dd>
+</dl>
+<dl class="return"><dt><b>Returns:</b></dt><dd>The number of messages flushed is returned upon success. Otherwise:</dd></dl>
+<ul>
+<li>-EINVAL is returned if <em>q</em> is not a message queue descriptor.</li>
+</ul>
+<ul>
+<li>-EIDRM is returned if <em>q</em> is a deleted queue descriptor.</li>
+</ul>
+<p>Environments:</p>
+<p>This service can be called from:</p>
+<ul>
+<li>Kernel module initialization/cleanup code</li>
+<li>Interrupt service routine</li>
+<li>Kernel-based task</li>
+<li>User-space task</li>
+</ul>
+<p>Rescheduling: never. </p>
+
+<p>References <a class="el" href="src_2skins_2native_2queue_8c_source.html#l00136">rt_queue_free()</a>.</p>
 
 </div>
 </div>
@@ -384,9 +432,9 @@ Collaboration diagram for Message queue services.:</div>
 </ul>
 <p>Rescheduling: never. </p>
 
-<p>References <a class="el" href="ksrc_2nucleus_2heap_8c_source.html#l00569">xnheap_test_and_free()</a>.</p>
+<p>References <a class="el" href="ksrc_2nucleus_2heap_8c_source.html#l00622">xnheap_test_and_free()</a>.</p>
 
-<p>Referenced by <a class="el" href="ksrc_2skins_2native_2queue_8c_source.html#l00957">rt_queue_read()</a>.</p>
+<p>Referenced by <a class="el" href="ksrc_2skins_2native_2queue_8c_source.html#l01142">rt_queue_flush()</a>.</p>
 
 </div>
 </div>
@@ -487,7 +535,7 @@ Collaboration diagram for Message queue services.:</div>
     <tr><td valign="top"></td><td valign="top"><em>q</em>&nbsp;</td><td>The descriptor address of the message queue to read from.</td></tr>
     <tr><td valign="top"></td><td valign="top"><em>buf</em>&nbsp;</td><td>A pointer to a memory area which will be written upon success with the message contents. The internal message buffer conveying the data is automatically freed by this call.</td></tr>
     <tr><td valign="top"></td><td valign="top"><em>size</em>&nbsp;</td><td>The length in bytes of the memory area pointed to by <em>buf</em>. Messages larger than <em>size</em> are truncated appropriately.</td></tr>
-    <tr><td valign="top"></td><td valign="top"><em>timeout</em>&nbsp;</td><td>The number of clock ticks to wait for some message to arrive (see note). Passing TM_INFINITE causes the caller to block indefinitely until some message is eventually available. Passing TM_NONBLOCK causes the service to return immediately without waiting if no message is available on entry.</td></tr>
+    <tr><td valign="top"></td><td valign="top"><em>timeout</em>&nbsp;</td><td>The number of clock ticks to wait for a message to arrive (see note). Passing TM_INFINITE causes the caller to block indefinitely until some message is eventually available. Passing TM_NONBLOCK causes the service to return immediately without waiting if no message is available on entry.</td></tr>
   </table>
   </dd>
 </dl>
@@ -508,7 +556,7 @@ Collaboration diagram for Message queue services.:</div>
 <li>-EINTR is returned if <a class="el" href="group__task.html#ga770281eeca009c0a08a7c4a9fd849ac1" title="Unblock a real-time task.">rt_task_unblock()</a> has been called for the waiting task before any data was available.</li>
 </ul>
 <ul>
-<li>-EPERM is returned if this service should block, but was called from a context which cannot sleep (e.g. interrupt, non-realtime or scheduler locked).</li>
+<li>-EPERM is returned if this service should block, but was called from a context which cannot sleep (e.g. interrupt, non-realtime context).</li>
 </ul>
 <p>Environments:</p>
 <p>This service can be called from:</p>
@@ -523,7 +571,87 @@ Collaboration diagram for Message queue services.:</div>
 <p>Rescheduling: always unless the request is immediately satisfied or <em>timeout</em> specifies a non-blocking operation.</p>
 <dl class="note"><dt><b>Note:</b></dt><dd>The <em>timeout</em> value will be interpreted as jiffies if the native skin is bound to a periodic time base (see CONFIG_XENO_OPT_NATIVE_PERIOD), or nanoseconds otherwise. </dd></dl>
 
-<p>References <a class="el" href="src_2skins_2native_2queue_8c_source.html#l00137">rt_queue_free()</a>, and <a class="el" href="src_2skins_2native_2queue_8c_source.html#l00154">rt_queue_receive()</a>.</p>
+</div>
+</div>
+<a class="anchor" id="ga91dca49cc0fd0b30b8fe66eb6bc7ea8a"></a><!-- doxytag: member="queue.c::rt_queue_read_until" ref="ga91dca49cc0fd0b30b8fe66eb6bc7ea8a" args="(RT_QUEUE *q, void *buf, size_t size, RTIME timeout)" -->
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">ssize_t rt_queue_read_until </td>
+          <td>(</td>
+          <td class="paramtype">RT_QUEUE *&nbsp;</td>
+          <td class="paramname"> <em>q</em>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">void *&nbsp;</td>
+          <td class="paramname"> <em>buf</em>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">size_t&nbsp;</td>
+          <td class="paramname"> <em>size</em>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">RTIME&nbsp;</td>
+          <td class="paramname"> <em>timeout</em></td><td>&nbsp;</td>
+        </tr>
+        <tr>
+          <td></td>
+          <td>)</td>
+          <td></td><td></td><td></td>
+        </tr>
+      </table>
+</div>
+<div class="memdoc">
+
+<p>Read a message from a queue (with absolute timeout date). </p>
+<p>This service retrieves the next message available from the given queue. Unless otherwise specified, the caller is blocked for a given amount of time if no message is immediately available on entry. This services differs from <a class="el" href="group__native__queue.html#ga44759168a589ddbb2b60c1c1b183f448" title="Receive a message from a queue.">rt_queue_receive()</a> in that it copies back the payload data to a user-defined memory area, instead of returning a pointer to the message buffer holding such data.</p>
+<dl><dt><b>Parameters:</b></dt><dd>
+  <table border="0" cellspacing="2" cellpadding="0">
+    <tr><td valign="top"></td><td valign="top"><em>q</em>&nbsp;</td><td>The descriptor address of the message queue to read from.</td></tr>
+    <tr><td valign="top"></td><td valign="top"><em>buf</em>&nbsp;</td><td>A pointer to a memory area which will be written upon success with the message contents. The internal message buffer conveying the data is automatically freed by this call.</td></tr>
+    <tr><td valign="top"></td><td valign="top"><em>size</em>&nbsp;</td><td>The length in bytes of the memory area pointed to by <em>buf</em>. Messages larger than <em>size</em> are truncated appropriately.</td></tr>
+    <tr><td valign="top"></td><td valign="top"><em>timeout</em>&nbsp;</td><td>The absolute date specifying a time limit to wait for a message to arrive (see note). Passing TM_INFINITE causes the caller to block indefinitely until some message is eventually available. Passing TM_NONBLOCK causes the service to return immediately without waiting if no message is available on entry.</td></tr>
+  </table>
+  </dd>
+</dl>
+<dl class="return"><dt><b>Returns:</b></dt><dd>The number of bytes available from the received message is returned upon success, which might be greater than the actual number of bytes copied to the destination buffer if the message has been truncated. Zero is a possible value corresponding to a zero-sized message passed to <a class="el" href="group__native__queue.html#ga8b1dcb15753bdfce02f25f166e18948d" title="Send a message to a queue.">rt_queue_send()</a> or <a class="el" href="group__native__queue.html#ga9ef8d1826bb13fe706a4566890972657" title="Write a message to a queue.">rt_queue_write()</a>. Otherwise:</dd></dl>
+<ul>
+<li>-EINVAL is returned if <em>q</em> is not a message queue descriptor.</li>
+</ul>
+<ul>
+<li>-EIDRM is returned if <em>q</em> is a deleted queue descriptor.</li>
+</ul>
+<ul>
+<li>-ETIMEDOUT is returned if the absolute <em>timeout</em> date is reached before a message arrives.</li>
+</ul>
+<ul>
+<li>-EWOULDBLOCK is returned if <em>timeout</em> is equal to TM_NONBLOCK and no message is immediately available on entry.</li>
+</ul>
+<ul>
+<li>-EINTR is returned if <a class="el" href="group__task.html#ga770281eeca009c0a08a7c4a9fd849ac1" title="Unblock a real-time task.">rt_task_unblock()</a> has been called for the waiting task before any data was available.</li>
+</ul>
+<ul>
+<li>-EPERM is returned if this service should block, but was called from a context which cannot sleep (e.g. interrupt, non-realtime context).</li>
+</ul>
+<p>Environments:</p>
+<p>This service can be called from:</p>
+<ul>
+<li>Kernel module initialization/cleanup code</li>
+<li>Interrupt service routine only if <em>timeout</em> is equal to TM_NONBLOCK.</li>
+</ul>
+<ul>
+<li>Kernel-based task</li>
+<li>User-space task (switches to primary mode)</li>
+</ul>
+<p>Rescheduling: always unless the request is immediately satisfied or <em>timeout</em> specifies a non-blocking operation.</p>
+<dl class="note"><dt><b>Note:</b></dt><dd>The <em>timeout</em> value will be interpreted as jiffies if the native skin is bound to a periodic time base (see CONFIG_XENO_OPT_NATIVE_PERIOD), or nanoseconds otherwise. </dd></dl>
 
 </div>
 </div>
@@ -564,7 +692,7 @@ Collaboration diagram for Message queue services.:</div>
   <table border="0" cellspacing="2" cellpadding="0">
     <tr><td valign="top"></td><td valign="top"><em>q</em>&nbsp;</td><td>The descriptor address of the message queue to receive from.</td></tr>
     <tr><td valign="top"></td><td valign="top"><em>bufp</em>&nbsp;</td><td>A pointer to a memory location which will be written upon success with the address of the received message. Once consumed, the message space should be freed using <a class="el" href="group__native__queue.html#ga40d16a5ab14ea033889bb839967204e4" title="Free a message queue buffer.">rt_queue_free()</a>.</td></tr>
-    <tr><td valign="top"></td><td valign="top"><em>timeout</em>&nbsp;</td><td>The number of clock ticks to wait for some message to arrive (see note). Passing TM_INFINITE causes the caller to block indefinitely until some message is eventually available. Passing TM_NONBLOCK causes the service to return immediately without waiting if no message is available on entry.</td></tr>
+    <tr><td valign="top"></td><td valign="top"><em>timeout</em>&nbsp;</td><td>The number of clock ticks to wait for a message to arrive (see note). Passing TM_INFINITE causes the caller to block indefinitely until some message is eventually available. Passing TM_NONBLOCK causes the service to return immediately without waiting if no message is available on entry.</td></tr>
   </table>
   </dd>
 </dl>
@@ -585,7 +713,7 @@ Collaboration diagram for Message queue services.:</div>
 <li>-EINTR is returned if <a class="el" href="group__task.html#ga770281eeca009c0a08a7c4a9fd849ac1" title="Unblock a real-time task.">rt_task_unblock()</a> has been called for the waiting task before any data was available.</li>
 </ul>
 <ul>
-<li>-EPERM is returned if this service should block, but was called from a context which cannot sleep (e.g. interrupt, non-realtime or scheduler locked).</li>
+<li>-EPERM is returned if this service should block, but was called from a context which cannot sleep (e.g. interrupt, non-realtime context).</li>
 </ul>
 <p>Environments:</p>
 <p>This service can be called from:</p>
@@ -600,9 +728,80 @@ Collaboration diagram for Message queue services.:</div>
 <p>Rescheduling: always unless the request is immediately satisfied or <em>timeout</em> specifies a non-blocking operation.</p>
 <dl class="note"><dt><b>Note:</b></dt><dd>The <em>timeout</em> value will be interpreted as jiffies if the native skin is bound to a periodic time base (see CONFIG_XENO_OPT_NATIVE_PERIOD), or nanoseconds otherwise. </dd></dl>
 
-<p>References <a class="el" href="include_2nucleus_2thread_8h_source.html#l00112">XNBREAK</a>, <a class="el" href="include_2nucleus_2thread_8h_source.html#l00111">XNRMID</a>, <a class="el" href="synch_8c_source.html#l00168">xnsynch_sleep_on()</a>, and <a class="el" href="include_2nucleus_2thread_8h_source.html#l00110">XNTIMEO</a>.</p>
+</div>
+</div>
+<a class="anchor" id="gade7b66ff83b602b6265cb1cb768c18db"></a><!-- doxytag: member="queue.c::rt_queue_receive_until" ref="gade7b66ff83b602b6265cb1cb768c18db" args="(RT_QUEUE *q, void **bufp, RTIME timeout)" -->
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">ssize_t rt_queue_receive_until </td>
+          <td>(</td>
+          <td class="paramtype">RT_QUEUE *&nbsp;</td>
+          <td class="paramname"> <em>q</em>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">void **&nbsp;</td>
+          <td class="paramname"> <em>bufp</em>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">RTIME&nbsp;</td>
+          <td class="paramname"> <em>timeout</em></td><td>&nbsp;</td>
+        </tr>
+        <tr>
+          <td></td>
+          <td>)</td>
+          <td></td><td></td><td></td>
+        </tr>
+      </table>
+</div>
+<div class="memdoc">
 
-<p>Referenced by <a class="el" href="ksrc_2skins_2native_2queue_8c_source.html#l00957">rt_queue_read()</a>.</p>
+<p>Receive a message from a queue (with absolute timeout date). </p>
+<p>This service retrieves the next message available from the given queue. Unless otherwise specified, the caller is blocked for a given amount of time if no message is immediately available on entry.</p>
+<dl><dt><b>Parameters:</b></dt><dd>
+  <table border="0" cellspacing="2" cellpadding="0">
+    <tr><td valign="top"></td><td valign="top"><em>q</em>&nbsp;</td><td>The descriptor address of the message queue to receive from.</td></tr>
+    <tr><td valign="top"></td><td valign="top"><em>bufp</em>&nbsp;</td><td>A pointer to a memory location which will be written upon success with the address of the received message. Once consumed, the message space should be freed using <a class="el" href="group__native__queue.html#ga40d16a5ab14ea033889bb839967204e4" title="Free a message queue buffer.">rt_queue_free()</a>.</td></tr>
+    <tr><td valign="top"></td><td valign="top"><em>timeout</em>&nbsp;</td><td>The absolute date specifying a time limit to wait for a message to arrive (see note). Passing TM_INFINITE causes the caller to block indefinitely until some message is eventually available. Passing TM_NONBLOCK causes the service to return immediately without waiting if no message is available on entry.</td></tr>
+  </table>
+  </dd>
+</dl>
+<dl class="return"><dt><b>Returns:</b></dt><dd>The number of bytes available from the received message is returned upon success. Zero is a possible value corresponding to a zero-sized message passed to <a class="el" href="group__native__queue.html#ga8b1dcb15753bdfce02f25f166e18948d" title="Send a message to a queue.">rt_queue_send()</a>. Otherwise:</dd></dl>
+<ul>
+<li>-EINVAL is returned if <em>q</em> is not a message queue descriptor.</li>
+</ul>
+<ul>
+<li>-EIDRM is returned if <em>q</em> is a deleted queue descriptor.</li>
+</ul>
+<ul>
+<li>-ETIMEDOUT is returned if the absolute <em>timeout</em> date is reached before a message arrives.</li>
+</ul>
+<ul>
+<li>-EWOULDBLOCK is returned if <em>timeout</em> is equal to TM_NONBLOCK and no message is immediately available on entry.</li>
+</ul>
+<ul>
+<li>-EINTR is returned if <a class="el" href="group__task.html#ga770281eeca009c0a08a7c4a9fd849ac1" title="Unblock a real-time task.">rt_task_unblock()</a> has been called for the waiting task before any data was available.</li>
+</ul>
+<ul>
+<li>-EPERM is returned if this service should block, but was called from a context which cannot sleep (e.g. interrupt, non-realtime context).</li>
+</ul>
+<p>Environments:</p>
+<p>This service can be called from:</p>
+<ul>
+<li>Kernel module initialization/cleanup code</li>
+<li>Interrupt service routine only if <em>timeout</em> is equal to TM_NONBLOCK.</li>
+</ul>
+<ul>
+<li>Kernel-based task</li>
+<li>User-space task (switches to primary mode)</li>
+</ul>
+<p>Rescheduling: always unless the request is immediately satisfied or <em>timeout</em> specifies a non-blocking operation.</p>
+<dl class="note"><dt><b>Note:</b></dt><dd>The <em>timeout</em> value will be interpreted as jiffies if the native skin is bound to a periodic time base (see CONFIG_XENO_OPT_NATIVE_PERIOD), or nanoseconds otherwise. </dd></dl>
 
 </div>
 </div>
@@ -683,9 +882,9 @@ Collaboration diagram for Message queue services.:</div>
 </ul>
 <p>Rescheduling: possible. </p>
 
-<p>References <a class="el" href="pod_8c_source.html#l02379">xnpod_schedule()</a>, and <a class="el" href="synch_8c_source.html#l00376">xnsynch_wakeup_one_sleeper()</a>.</p>
+<p>References <a class="el" href="pod_8h_source.html#l00251">xnpod_schedule()</a>, and <a class="el" href="synch_8c_source.html#l00241">xnsynch_wakeup_one_sleeper()</a>.</p>
 
-<p>Referenced by <a class="el" href="ksrc_2skins_2native_2queue_8c_source.html#l00747">rt_queue_write()</a>.</p>
+<p>Referenced by <a class="el" href="ksrc_2skins_2native_2queue_8c_source.html#l00727">rt_queue_write()</a>.</p>
 
 </div>
 </div>
@@ -794,6 +993,9 @@ Collaboration diagram for Message queue services.:</div>
 <ul>
 <li>-ENOMEM is returned if queuing the message would exceed the limit defined for the queue at creation, or if no memory can be obtained to convey the message data internally.</li>
 </ul>
+<ul>
+<li>-ESRCH is returned if a <em>q</em> represents a stale userland handle</li>
+</ul>
 <p>Environments:</p>
 <p>This service can be called from:</p>
 <ul>
@@ -804,12 +1006,12 @@ Collaboration diagram for Message queue services.:</div>
 </ul>
 <p>Rescheduling: possible. </p>
 
-<p>References <a class="el" href="src_2skins_2native_2queue_8c_source.html#l00128">rt_queue_alloc()</a>, and <a class="el" href="src_2skins_2native_2queue_8c_source.html#l00142">rt_queue_send()</a>.</p>
+<p>References <a class="el" href="src_2skins_2native_2queue_8c_source.html#l00127">rt_queue_alloc()</a>, and <a class="el" href="src_2skins_2native_2queue_8c_source.html#l00141">rt_queue_send()</a>.</p>
 
 </div>
 </div>
 </div>
-<hr size="1"/><address style="text-align: right;"><small>Generated on Tue Oct 27 19:18:54 2009 for Xenomai API by&nbsp;
+<hr size="1"/><address style="text-align: right;"><small>Generated on Fri Jan 1 10:45:17 2010 for Xenomai API by&nbsp;
 <a href="http://www.doxygen.org/index.html">
 <img class="footer" src="doxygen.png" alt="doxygen"/></a> 1.6.1 </small></address>
 </body>

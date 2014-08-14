@@ -47,6 +47,8 @@ Collaboration diagram for Mutex services.:</div>
 <tr><td class="mdescLeft">&nbsp;</td><td class="mdescRight">Delete a mutex.  <a href="#gad0c2342227f821bd09f580b6a9684179"></a><br/></td></tr>
 <tr><td class="memItemLeft" align="right" valign="top">int&nbsp;</td><td class="memItemRight" valign="bottom"><a class="el" href="group__mutex.html#ga8a087d5bfeaaf10b6f0a924b272d72c9">rt_mutex_acquire</a> (RT_MUTEX *mutex, RTIME timeout)</td></tr>
 <tr><td class="mdescLeft">&nbsp;</td><td class="mdescRight">Acquire a mutex.  <a href="#ga8a087d5bfeaaf10b6f0a924b272d72c9"></a><br/></td></tr>
+<tr><td class="memItemLeft" align="right" valign="top">int&nbsp;</td><td class="memItemRight" valign="bottom"><a class="el" href="group__mutex.html#ga1d7ee706d0f898f940d5c1139fa38194">rt_mutex_acquire_until</a> (RT_MUTEX *mutex, RTIME timeout)</td></tr>
+<tr><td class="mdescLeft">&nbsp;</td><td class="mdescRight">Acquire a mutex (with absolute timeout date).  <a href="#ga1d7ee706d0f898f940d5c1139fa38194"></a><br/></td></tr>
 <tr><td class="memItemLeft" align="right" valign="top">int&nbsp;</td><td class="memItemRight" valign="bottom"><a class="el" href="group__mutex.html#gac87911b7279f55ef2f5f9aefe36ff070">rt_mutex_release</a> (RT_MUTEX *mutex)</td></tr>
 <tr><td class="mdescLeft">&nbsp;</td><td class="mdescRight">Unlock mutex.  <a href="#gac87911b7279f55ef2f5f9aefe36ff070"></a><br/></td></tr>
 <tr><td class="memItemLeft" align="right" valign="top">int&nbsp;</td><td class="memItemRight" valign="bottom"><a class="el" href="group__mutex.html#ga8f7db304bb5a839d81614f00c4cde145">rt_mutex_inquire</a> (RT_MUTEX *mutex, <a class="el" href="structrt__mutex__info.html">RT_MUTEX_INFO</a> *info)</td></tr>
@@ -89,7 +91,7 @@ Collaboration diagram for Mutex services.:</div>
 
 <p>Acquire a mutex. </p>
 <p>Attempt to lock a mutex. The calling task is blocked until the mutex is available, in which case it is locked again before this service returns. Mutexes have an ownership property, which means that their current owner is tracked. Xenomai mutexes are implicitely recursive and implement the priority inheritance protocol.</p>
-<p>Since a nested locking count is maintained for the current owner, <a class="el" href="group__mutex.html#ga8a087d5bfeaaf10b6f0a924b272d72c9" title="Acquire a mutex.">rt_mutex_acquire()</a> and <a class="el" href="group__mutex.html#gac87911b7279f55ef2f5f9aefe36ff070" title="Unlock mutex.">rt_mutex_release()</a> must be used in pairs.</p>
+<p>Since a nested locking count is maintained for the current owner, rt_mutex_acquire{_until}() and <a class="el" href="group__mutex.html#gac87911b7279f55ef2f5f9aefe36ff070" title="Unlock mutex.">rt_mutex_release()</a> must be used in pairs.</p>
 <p>Tasks pend on mutexes by priority order.</p>
 <dl><dt><b>Parameters:</b></dt><dd>
   <table border="0" cellspacing="2" cellpadding="0">
@@ -115,7 +117,7 @@ Collaboration diagram for Mutex services.:</div>
 <li>-ETIMEDOUT is returned if the mutex cannot be made available to the calling task within the specified amount of time.</li>
 </ul>
 <ul>
-<li>-EPERM is returned if this service was called from a context which cannot be given the ownership of the mutex (e.g. interrupt, non-realtime or scheduler locked).</li>
+<li>-EPERM is returned if this service was called from a context which cannot be given the ownership of the mutex (e.g. interrupt, non-realtime context).</li>
 </ul>
 <p>Environments:</p>
 <p>This service can be called from:</p>
@@ -126,9 +128,71 @@ Collaboration diagram for Mutex services.:</div>
 <p>Rescheduling: always unless the request is immediately satisfied or <em>timeout</em> specifies a non-blocking operation. If the caller is blocked, the current owner's priority might be temporarily raised as a consequence of the priority inheritance protocol.</p>
 <dl class="note"><dt><b>Note:</b></dt><dd>The <em>timeout</em> value will be interpreted as jiffies if the native skin is bound to a periodic time base (see CONFIG_XENO_OPT_NATIVE_PERIOD), or nanoseconds otherwise. </dd></dl>
 
-<p>References <a class="el" href="include_2nucleus_2thread_8h_source.html#l00112">XNBREAK</a>, <a class="el" href="include_2nucleus_2thread_8h_source.html#l00111">XNRMID</a>, <a class="el" href="synch_8c_source.html#l00168">xnsynch_sleep_on()</a>, and <a class="el" href="include_2nucleus_2thread_8h_source.html#l00110">XNTIMEO</a>.</p>
+</div>
+</div>
+<a class="anchor" id="ga1d7ee706d0f898f940d5c1139fa38194"></a><!-- doxytag: member="mutex.c::rt_mutex_acquire_until" ref="ga1d7ee706d0f898f940d5c1139fa38194" args="(RT_MUTEX *mutex, RTIME timeout)" -->
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">int rt_mutex_acquire_until </td>
+          <td>(</td>
+          <td class="paramtype">RT_MUTEX *&nbsp;</td>
+          <td class="paramname"> <em>mutex</em>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">RTIME&nbsp;</td>
+          <td class="paramname"> <em>timeout</em></td><td>&nbsp;</td>
+        </tr>
+        <tr>
+          <td></td>
+          <td>)</td>
+          <td></td><td></td><td></td>
+        </tr>
+      </table>
+</div>
+<div class="memdoc">
 
-<p>Referenced by <a class="el" href="ksrc_2skins_2native_2cond_8c_source.html#l00442">rt_cond_wait()</a>.</p>
+<p>Acquire a mutex (with absolute timeout date). </p>
+<p>Attempt to lock a mutex. The calling task is blocked until the mutex is available, in which case it is locked again before this service returns. Mutexes have an ownership property, which means that their current owner is tracked. Xenomai mutexes are implicitely recursive and implement the priority inheritance protocol.</p>
+<p>Since a nested locking count is maintained for the current owner, rt_mutex_acquire{_until}() and <a class="el" href="group__mutex.html#gac87911b7279f55ef2f5f9aefe36ff070" title="Unlock mutex.">rt_mutex_release()</a> must be used in pairs.</p>
+<p>Tasks pend on mutexes by priority order.</p>
+<dl><dt><b>Parameters:</b></dt><dd>
+  <table border="0" cellspacing="2" cellpadding="0">
+    <tr><td valign="top"></td><td valign="top"><em>mutex</em>&nbsp;</td><td>The descriptor address of the mutex to acquire.</td></tr>
+    <tr><td valign="top"></td><td valign="top"><em>timeout</em>&nbsp;</td><td>The absolute date specifying a time limit to wait for the mutex to be available to the calling task (see note).</td></tr>
+  </table>
+  </dd>
+</dl>
+<dl class="return"><dt><b>Returns:</b></dt><dd>0 is returned upon success. Otherwise:</dd></dl>
+<ul>
+<li>-EINVAL is returned if <em>mutex</em> is not a mutex descriptor.</li>
+</ul>
+<ul>
+<li>-EIDRM is returned if <em>mutex</em> is a deleted mutex descriptor, including if the deletion occurred while the caller was sleeping on it.</li>
+</ul>
+<ul>
+<li>-EWOULDBLOCK is returned if <em>timeout</em> is equal to TM_NONBLOCK and the mutex is not immediately available.</li>
+</ul>
+<ul>
+<li>-EINTR is returned if <a class="el" href="group__task.html#ga770281eeca009c0a08a7c4a9fd849ac1" title="Unblock a real-time task.">rt_task_unblock()</a> has been called for the waiting task before the mutex has become available.</li>
+</ul>
+<ul>
+<li>-ETIMEDOUT is returned if the mutex cannot be made available to the calling task until the absolute timeout date is reached.</li>
+</ul>
+<ul>
+<li>-EPERM is returned if this service was called from a context which cannot be given the ownership of the mutex (e.g. interrupt, non-realtime context).</li>
+</ul>
+<p>Environments:</p>
+<p>This service can be called from:</p>
+<ul>
+<li>Kernel-based task</li>
+<li>User-space task (switches to primary mode)</li>
+</ul>
+<p>Rescheduling: always unless the request is immediately satisfied or <em>timeout</em> specifies a non-blocking operation. If the caller is blocked, the current owner's priority might be temporarily raised as a consequence of the priority inheritance protocol.</p>
+<dl class="note"><dt><b>Note:</b></dt><dd>The <em>timeout</em> value will be interpreted as jiffies if the native skin is bound to a periodic time base (see CONFIG_XENO_OPT_NATIVE_PERIOD), or nanoseconds otherwise. </dd></dl>
 
 </div>
 </div>
@@ -187,7 +251,7 @@ Collaboration diagram for Mutex services.:</div>
 <li>-ETIMEDOUT is returned if the object cannot be retrieved within the specified amount of time.</li>
 </ul>
 <ul>
-<li>-EPERM is returned if this service should block, but was called from a context which cannot sleep (e.g. interrupt, non-realtime or scheduler locked).</li>
+<li>-EPERM is returned if this service should block, but was called from a context which cannot sleep (e.g. interrupt, non-realtime context).</li>
 </ul>
 <p>Environments:</p>
 <p>This service can be called from:</p>
@@ -252,8 +316,6 @@ Collaboration diagram for Mutex services.:</div>
 </ul>
 <p>Rescheduling: possible. </p>
 
-<p>References <a class="el" href="src_2skins_2native_2mutex_8c_source.html#l00036">rt_mutex_delete()</a>, <a class="el" href="nucleus_2registry_8c_source.html#l00582">xnregistry_enter()</a>, and <a class="el" href="synch_8c_source.html#l00087">xnsynch_init()</a>.</p>
-
 </div>
 </div>
 <a class="anchor" id="gad0c2342227f821bd09f580b6a9684179"></a><!-- doxytag: member="mutex.c::rt_mutex_delete" ref="gad0c2342227f821bd09f580b6a9684179" args="(RT_MUTEX *mutex)" -->
@@ -299,9 +361,7 @@ Collaboration diagram for Mutex services.:</div>
 </ul>
 <p>Rescheduling: possible. </p>
 
-<p>References <a class="el" href="pod_8c_source.html#l02379">xnpod_schedule()</a>, and <a class="el" href="nucleus_2registry_8c_source.html#l00809">xnregistry_remove()</a>.</p>
-
-<p>Referenced by <a class="el" href="ksrc_2skins_2native_2mutex_8c_source.html#l00165">rt_mutex_create()</a>.</p>
+<p>References <a class="el" href="ksrc_2nucleus_2heap_8c_source.html#l00842">xnheap_free()</a>.</p>
 
 </div>
 </div>
@@ -356,7 +416,7 @@ Collaboration diagram for Mutex services.:</div>
 </ul>
 <p>Rescheduling: never. </p>
 
-<p>References <a class="el" href="include_2native_2mutex_8h_source.html#l00035">rt_mutex_info::lockcnt</a>, <a class="el" href="include_2native_2mutex_8h_source.html#l00039">rt_mutex_info::name</a>, and <a class="el" href="include_2native_2mutex_8h_source.html#l00037">rt_mutex_info::nwaiters</a>.</p>
+<p>References <a class="el" href="include_2native_2mutex_8h_source.html#l00035">rt_mutex_info::locked</a>, <a class="el" href="include_2native_2mutex_8h_source.html#l00039">rt_mutex_info::name</a>, <a class="el" href="include_2native_2mutex_8h_source.html#l00037">rt_mutex_info::nwaiters</a>, and <a class="el" href="include_2native_2mutex_8h_source.html#l00041">rt_mutex_info::owner</a>.</p>
 
 </div>
 </div>
@@ -402,7 +462,7 @@ Collaboration diagram for Mutex services.:</div>
 </ul>
 <p>Rescheduling: possible. </p>
 
-<p>References <a class="el" href="pod_8c_source.html#l02379">xnpod_schedule()</a>, and <a class="el" href="synch_8c_source.html#l00376">xnsynch_wakeup_one_sleeper()</a>.</p>
+<p>References <a class="el" href="pod_8h_source.html#l00251">xnpod_schedule()</a>, and <a class="el" href="synch_8c_source.html#l00711">xnsynch_release()</a>.</p>
 
 </div>
 </div>
@@ -440,7 +500,7 @@ Collaboration diagram for Mutex services.:</div>
 </div>
 </div>
 </div>
-<hr size="1"/><address style="text-align: right;"><small>Generated on Tue Oct 27 19:18:54 2009 for Xenomai API by&nbsp;
+<hr size="1"/><address style="text-align: right;"><small>Generated on Fri Jan 1 10:45:17 2010 for Xenomai API by&nbsp;
 <a href="http://www.doxygen.org/index.html">
 <img class="footer" src="doxygen.png" alt="doxygen"/></a> 1.6.1 </small></address>
 </body>

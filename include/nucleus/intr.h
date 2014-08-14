@@ -67,15 +67,30 @@ typedef struct xnintr {
     struct {
 	xnstat_counter_t hits;	  /* !< Number of handled receipts since attachment. */
 	xnstat_exectime_t account; /* !< Runtime accounting entity */
+	xnstat_exectime_t sum; /* !< Accumulated accounting entity */
     } stat[XNARCH_NR_CPUS];
 
 } xnintr_t;
 
+typedef struct xnintr_iterator {
+
+    int cpu;		/* !< Current CPU in iteration. */
+
+    unsigned long hits;	/* !< Current hit counter. */
+
+    xnticks_t exectime_period;	/* !< Used CPU time in current accounting period. */
+
+    xnticks_t account_period; /* !< Length of accounting period. */
+
+    xnticks_t exectime_total;	/* !< Overall CPU time consumed. */
+
+    int list_rev;	/* !< System-wide xnintr list revision (internal use). */
+
+    xnintr_t *prev;	/* !< Previously visited xnintr object (internal use). */
+
+} xnintr_iterator_t;
+
 extern xnintr_t nkclock;
-#ifdef CONFIG_XENO_OPT_STATS
-extern int xnintr_count;
-extern int xnintr_list_rev;
-#endif
 
 #ifdef __cplusplus
 extern "C" {
@@ -83,11 +98,13 @@ extern "C" {
 
 int xnintr_mount(void);
 
-void xnintr_host_tick(struct xnsched *sched);
-
 void xnintr_clock_handler(void);
 
-int xnintr_irq_proc(unsigned int irq, char *str);
+void xnintr_host_tick(struct xnsched *sched);
+
+void xnintr_init_proc(void);
+
+void xnintr_cleanup_proc(void);
 
     /* Public interface. */
 
@@ -112,9 +129,8 @@ int xnintr_disable(xnintr_t *intr);
 xnarch_cpumask_t xnintr_affinity(xnintr_t *intr,
                                  xnarch_cpumask_t cpumask);
 
-int xnintr_query(int irq, int *cpu, xnintr_t **prev, int revision, char *name,
-		 unsigned long *hits, xnticks_t *exectime,
-		 xnticks_t *account_period);
+int xnintr_query_init(xnintr_iterator_t *iterator);
+int xnintr_query_next(int irq, xnintr_iterator_t *iterator, char *name_buf);
 
 #ifdef __cplusplus
 }

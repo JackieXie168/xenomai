@@ -58,6 +58,9 @@
 #elif defined(CONFIG_ARCH_MXC)
 #define RTHAL_TIMER_DEVICE	"mxc_timer1"
 #define RTHAL_CLOCK_DEVICE	"mxc_timer1"
+#elif defined(CONFIG_ARCH_OMAP2) || defined(CONFIG_ARCH_OMAP3)
+#define RTHAL_TIMER_DEVICE	"gp timer"
+#define RTHAL_CLOCK_DEVICE	"gp timer"
 #elif defined(CONFIG_ARCH_PXA)
 #define RTHAL_TIMER_DEVICE	"osmr0"
 #define RTHAL_CLOCK_DEVICE	"oscr0"
@@ -67,6 +70,9 @@
 #elif defined(CONFIG_ARCH_SA1100)
 #define RTHAL_TIMER_DEVICE	"osmr0"
 #define RTHAL_CLOCK_DEVICE	"oscr0"
+#elif defined(CONFIG_PLAT_ORION)
+#define RTHAL_TIMER_DEVICE	"orion_tick"
+#define RTHAL_CLOCK_DEVICE	"orion_clocksource"
 #else
 #error "Unsupported ARM machine"
 #endif /* CONFIG_ARCH_SA1100 */
@@ -146,7 +152,7 @@ static inline struct task_struct *rthal_current_host_task (int cpuid)
 static inline void rthal_timer_program_shot (unsigned long delay)
 {
     if(!delay)
-	rthal_trigger_irq(RTHAL_TIMER_IRQ);
+	rthal_schedule_irq_head(RTHAL_TIMER_IRQ);
     else
 	__ipipe_mach_set_dec(delay);
 }

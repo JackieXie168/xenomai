@@ -49,33 +49,6 @@ static inline void xnarch_init_shadow_tcb(xnarchtcb_t * tcb,
 	tcb->name = name;
 }
 
-static inline void xnarch_grab_xirqs(rthal_irq_handler_t handler)
-{
-	unsigned irq;
-
-	for (irq = 0; irq < IPIPE_NR_XIRQS; irq++)
-		rthal_virtualize_irq(rthal_current_domain,
-				     irq,
-				     handler, NULL, NULL, IPIPE_HANDLE_MASK);
-}
-
-static inline void xnarch_lock_xirqs(rthal_pipeline_stage_t * ipd, int cpuid)
-{
-	unsigned irq;
-
-	for (irq = 0; irq < IPIPE_NR_XIRQS; irq++)
-		rthal_lock_irq(ipd, cpuid, irq);
-
-}
-
-static inline void xnarch_unlock_xirqs(rthal_pipeline_stage_t * ipd, int cpuid)
-{
-	unsigned irq;
-
-	for (irq = 0; irq < IPIPE_NR_XIRQS; irq++)
-		rthal_unlock_irq(ipd, irq);
-}
-
 static inline int xnarch_local_syscall(struct pt_regs *regs)
 {
 	int error = 0;
@@ -88,13 +61,19 @@ static inline int xnarch_local_syscall(struct pt_regs *regs)
 			unsigned long flags;
 
 			local_irq_save_hw(flags);
-			__xn_get_user(current, i, (int *)__xn_reg_arg2(regs));
-			__xn_get_user(current, v,
-				      (atomic_t **) __xn_reg_arg3(regs));
-			__xn_copy_from_user(current, &val, v, sizeof(atomic_t));
+			__xn_get_user(i, (int *)__xn_reg_arg2(regs));
+			__xn_get_user(v, (atomic_t **) __xn_reg_arg3(regs));
+			if (__xn_copy_from_user(&val, v, sizeof(atomic_t))) {
+				error = -EFAULT;
+				goto unlock;
+			}
 			ret = atomic_add_return(i, &val);
-			__xn_copy_to_user(current, v, &val, sizeof(atomic_t));
-			__xn_put_user(current, ret, (int *)__xn_reg_arg4(regs));
+			if (__xn_copy_to_user(v, &val, sizeof(atomic_t))) {
+				error = -EFAULT;
+				goto unlock;
+			}
+			__xn_put_user(ret, (int *)__xn_reg_arg4(regs));
+		  unlock:
 			local_irq_restore_hw(flags);
 			break;
 		}
@@ -104,13 +83,11 @@ static inline int xnarch_local_syscall(struct pt_regs *regs)
 			unsigned long flags;
 
 			local_irq_save_hw(flags);
-			__xn_get_user(current, mask,
-				      (unsigned long *)__xn_reg_arg2(regs));
-			__xn_get_user(current, addr,
-				      (unsigned long **)__xn_reg_arg3(regs));
-			__xn_get_user(current, val, (unsigned long *)addr);
+			__xn_get_user(mask, (unsigned long *)__xn_reg_arg2(regs));
+			__xn_get_user(addr, (unsigned long **)__xn_reg_arg3(regs));
+			__xn_get_user(val, (unsigned long *)addr);
 			val |= mask;
-			__xn_put_user(current, val, (unsigned long *)addr);
+			__xn_put_user(val, (unsigned long *)addr);
 			local_irq_restore_hw(flags);
 			break;
 		}
@@ -120,13 +97,11 @@ static inline int xnarch_local_syscall(struct pt_regs *regs)
 			unsigned long flags;
 
 			local_irq_save_hw(flags);
-			__xn_get_user(current, mask,
-				      (unsigned long *)__xn_reg_arg2(regs));
-			__xn_get_user(current, addr,
-				      (unsigned long **)__xn_reg_arg3(regs));
-			__xn_get_user(current, val, (unsigned long *)addr);
+			__xn_get_user(mask, (unsigned long *)__xn_reg_arg2(regs));
+			__xn_get_user(addr, (unsigned long **)__xn_reg_arg3(regs));
+			__xn_get_user(val, (unsigned long *)addr);
 			val &= ~mask;
-			__xn_put_user(current, val, (unsigned long *)addr);
+			__xn_put_user(val, (unsigned long *)addr);
 			local_irq_restore_hw(flags);
 			break;
 		}
@@ -138,21 +113,16 @@ static inline int xnarch_local_syscall(struct pt_regs *regs)
 			unsigned long flags;
 
 			local_irq_save_hw(flags);
-			__xn_get_user(current, ptr,
-				      (unsigned char **)__xn_reg_arg2(regs));
-			__xn_get_user(current, x,
-				      (unsigned long *)__xn_reg_arg3(regs));
-			__xn_get_user(current, size,
-				      (unsigned int *)__xn_reg_arg4(regs));
+			__xn_get_user(ptr, (unsigned char **)__xn_reg_arg2(regs));
+			__xn_get_user(x, (unsigned long *)__xn_reg_arg3(regs));
+			__xn_get_user(size, (unsigned int *)__xn_reg_arg4(regs));
 			if (size == 4) {
 				unsigned long val;
-				__xn_get_user(current, val,
-					      (unsigned long *)ptr);
+				__xn_get_user(val, (unsigned long *)ptr);
 				ret = xnarch_atomic_xchg(&val, x);
 			} else
 				error = -EINVAL;
-			__xn_put_user(current, ret,
-				      (unsigned long *)__xn_reg_arg5(regs));
+			__xn_put_user(ret, (unsigned long *)__xn_reg_arg5(regs));
 			local_irq_restore_hw(flags);
 			break;
 		}
@@ -182,6 +152,14 @@ static inline int xnarch_local_syscall(struct pt_regs *regs)
 			info.u.dec.last_cnt = ipipe_info.archdep.tsc.u.dec.last_cnt;
 			info.u.dec.tsc = ipipe_info.archdep.tsc.u.dec.tsc;
 			break;
+#ifdef IPIPE_TSC_TYPE_FREERUNNING_COUNTDOWN
+		case IPIPE_TSC_TYPE_FREERUNNING_COUNTDOWN:
+			info.type = __XN_TSC_TYPE_FREERUNNING_COUNTDOWN,
+			info.u.fr.counter = ipipe_info.archdep.tsc.u.fr.counter;
+			info.u.fr.mask = ipipe_info.archdep.tsc.u.fr.mask;
+			info.u.fr.tsc = ipipe_info.archdep.tsc.u.fr.tsc;
+			break;
+#endif /* IPIPE_TSC_TYPE_FREERUNNING_COUNTDOWN */
 		case IPIPE_TSC_TYPE_NONE:
 			return -ENOSYS;
 			
@@ -189,8 +167,9 @@ static inline int xnarch_local_syscall(struct pt_regs *regs)
 			return -EINVAL;
 		}
 		
-		__xn_copy_to_user(current, (void *)__xn_reg_arg2(regs),
-				  &info, sizeof(info));
+		if (__xn_copy_to_user((void *)__xn_reg_arg2(regs),
+				      &info, sizeof(info)))
+			return -EFAULT;
 		break;
 	}
 #endif /* IPIPE_TSC_TYPE_NONE */

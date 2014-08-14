@@ -1,6 +1,6 @@
 lib_LTLIBRARIES = libpsos.la
 
-libpsos_la_LDFLAGS = -version-info 0:0:0 -lpthread
+libpsos_la_LDFLAGS = @XENO_DLOPEN_CONSTRAINT@ -version-info 0:0:0 -lpthread
 
 libpsos_la_SOURCES = \
 	asr.c \
@@ -14,3 +14,5 @@ libpsos_la_SOURCES = \
 libpsos_la_CPPFLAGS = \
 	@XENO_USER_CFLAGS@ \
 	-I$(top_srcdir)/include
+
+libpsos_la_LIBADD = ../common/libxeno_common.la

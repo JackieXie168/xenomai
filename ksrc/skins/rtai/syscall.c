@@ -61,28 +61,22 @@ static void __shadow_delete_hook(xnthread_t *thread)
  * returns "opaque" on success
  */
 
-static int __rt_shm_heap_open(struct task_struct *curr, struct pt_regs *regs)
+void *_shm_alloc(unsigned long name, int size, int suprt,
+		 int in_kheap, unsigned long *opaque);
+
+static int __rt_shm_heap_open(struct pt_regs *regs)
 {
-	unsigned long name;
-	int size;
-	int suprt, in_kheap;
-
-	unsigned long off;
-	unsigned long opaque;
+	unsigned long off, opaque, name;
+	int size, suprt, in_kheap;
 	void *ret;
-	extern void *_shm_alloc(unsigned long name, int size, int suprt,
-				int in_kheap, unsigned long *opaque);
-
-	if (!__xn_access_ok
-	    (curr, VERIFY_WRITE, __xn_reg_arg2(regs), sizeof(size))
-	    || !__xn_access_ok(curr, VERIFY_WRITE, __xn_reg_arg5(regs),
-			       sizeof(off)))
-		return 0;
 
 	name = (unsigned long)__xn_reg_arg1(regs);
 	/* Size of heap space. */
-	__xn_copy_from_user(curr, &size, (void __user *)__xn_reg_arg2(regs),
-			    sizeof(size));
+
+	if (__xn_safe_copy_from_user(&size, (void __user *)__xn_reg_arg2(regs),
+				     sizeof(size)))
+		return -EFAULT;
+
 	/* Creation mode. */
 	suprt = (int)__xn_reg_arg3(regs);
 	in_kheap = (int)__xn_reg_arg4(regs);
@@ -95,10 +89,14 @@ static int __rt_shm_heap_open(struct task_struct *curr, struct pt_regs *regs)
 	off = xnheap_mapped_offset((xnheap_t *)opaque, ret);
 
 	size = (int)((xnheap_t *)opaque)->extentsize;
-	__xn_copy_to_user(curr, (void __user *)__xn_reg_arg2(regs), &size,
-			  sizeof(size));
-	__xn_copy_to_user(curr, (void __user *)__xn_reg_arg5(regs), &off,
-			  sizeof(off));
+
+	if (__xn_safe_copy_to_user((void __user *)__xn_reg_arg2(regs), &size,
+				   sizeof(size)))
+		return -EFAULT;
+
+	if (__xn_safe_copy_to_user((void __user *)__xn_reg_arg5(regs), &off,
+				   sizeof(off)))
+		return -EFAULT;
 
 	return (int)opaque;
 
@@ -110,7 +108,7 @@ static int __rt_shm_heap_open(struct task_struct *curr, struct pt_regs *regs)
 /*
  * int __rt_shm_heap_close(unsigned long name)
  */
-static int __rt_shm_heap_close(struct task_struct *curr, struct pt_regs *regs)
+static int __rt_shm_heap_close(struct pt_regs *regs)
 {
 	unsigned long name;
 	int err = 0;
@@ -136,7 +134,7 @@ static int __rt_shm_heap_close(struct task_struct *curr, struct pt_regs *regs)
 #endif /* CONFIG_XENO_OPT_RTAI_SHM */
 
 static __attribute__ ((unused))
-int __rtai_call_not_available(struct task_struct *curr, struct pt_regs *regs)
+int __rtai_call_not_available(struct pt_regs *regs)
 {
 	return -ENOSYS;
 }
@@ -154,6 +152,7 @@ static struct xnskin_props __props = {
 	.nrcalls = sizeof(__systab) / sizeof(__systab[0]),
 	.systab = __systab,
 	.eventcb = NULL,
+	.sig_unqueue = NULL,
 	.timebasep = &rtai_tbase,
 	.module = THIS_MODULE
 };

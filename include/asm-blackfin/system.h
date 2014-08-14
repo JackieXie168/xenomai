@@ -49,6 +49,9 @@ typedef struct xnarchtcb {	/* Per-thread arch-dependent block */
 
     struct thread_struct ts;	/* Holds kernel-based thread context. */
     struct task_struct *user_task; /* Shadowed user-space task */
+#ifdef CONFIG_MPU
+    struct task_struct *active_task;    /* Active user-space task */
+#endif
     struct thread_struct *tsp;	/* Pointer to the active thread struct (&ts or &user->thread). */
 
     /* Init block */
@@ -87,7 +90,7 @@ extern "C" {
 
 static inline void *xnarch_alloc_host_mem(u_long bytes)
 {
-	return kmalloc(bytes, GFP_KERNEL);
+	return kmalloc(bytes,GFP_KERNEL);
 }
 
 static inline void xnarch_free_host_mem(void *chunk, u_long bytes)
@@ -105,11 +108,11 @@ static inline void xnarch_free_stack_mem(void *chunk, u_long bytes)
 	kfree(chunk);
 }
 
-#define __xnarch_hisyscall_entry()	\
-  do	{				\
-	  if (xnsched_resched_p())	\
-		  xnpod_schedule();	\
-  } while(0)
+#define __xnarch_hisyscall_entry()				\
+	do	{						\
+		if (xnsched_resched_p(xnpod_current_sched()))	\
+			xnpod_schedule();			\
+	} while(0)
 
 #define xnarch_hisyscall_entry	__xnarch_hisyscall_entry
 

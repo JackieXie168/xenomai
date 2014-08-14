@@ -32,31 +32,33 @@
 <a href="#_details">More...</a></p>
 <table border="0" cellpadding="0" cellspacing="0">
 <tr><td colspan="2"><h2>Data Fields</h2></td></tr>
-<tr><td class="memItemLeft" align="right" valign="top">int&nbsp;</td><td class="memItemRight" valign="bottom"><a class="el" href="structrt__mutex__info.html#ab473a4acbe5cc781b031e3c8d67ea1db">lockcnt</a></td></tr>
-<tr><td class="mdescLeft">&nbsp;</td><td class="mdescRight">Lock nesting level (&gt; 0 means "locked").  <a href="#ab473a4acbe5cc781b031e3c8d67ea1db"></a><br/></td></tr>
+<tr><td class="memItemLeft" align="right" valign="top">int&nbsp;</td><td class="memItemRight" valign="bottom"><a class="el" href="structrt__mutex__info.html#a668ac2825b877dc02f41eb763bba1524">locked</a></td></tr>
+<tr><td class="mdescLeft">&nbsp;</td><td class="mdescRight">&gt; 0 if mutex is locked.  <a href="#a668ac2825b877dc02f41eb763bba1524"></a><br/></td></tr>
 <tr><td class="memItemLeft" align="right" valign="top">int&nbsp;</td><td class="memItemRight" valign="bottom"><a class="el" href="structrt__mutex__info.html#a1773006d39054a4d85f7db9cdf242fe5">nwaiters</a></td></tr>
 <tr><td class="mdescLeft">&nbsp;</td><td class="mdescRight">Number of pending tasks.  <a href="#a1773006d39054a4d85f7db9cdf242fe5"></a><br/></td></tr>
 <tr><td class="memItemLeft" align="right" valign="top">char&nbsp;</td><td class="memItemRight" valign="bottom"><a class="el" href="structrt__mutex__info.html#acf616317d52f4266aa99245ceb509823">name</a> [XNOBJECT_NAME_LEN]</td></tr>
 <tr><td class="mdescLeft">&nbsp;</td><td class="mdescRight">Symbolic name.  <a href="#acf616317d52f4266aa99245ceb509823"></a><br/></td></tr>
+<tr><td class="memItemLeft" align="right" valign="top">char&nbsp;</td><td class="memItemRight" valign="bottom"><a class="el" href="structrt__mutex__info.html#a2b29d50e9d1042c67525299bc314a6f5">owner</a> [XNOBJECT_NAME_LEN]</td></tr>
+<tr><td class="mdescLeft">&nbsp;</td><td class="mdescRight">Symbolic name of the current owner, empty if unlocked.  <a href="#a2b29d50e9d1042c67525299bc314a6f5"></a><br/></td></tr>
 </table>
 <hr/><a name="_details"></a><h2>Detailed Description</h2>
 <p>Structure containing mutex information useful to users. </p>
 <dl class="see"><dt><b>See also:</b></dt><dd><a class="el" href="group__mutex.html#ga8f7db304bb5a839d81614f00c4cde145" title="Inquire about a mutex.">rt_mutex_inquire()</a> </dd></dl>
 <hr/><h2>Field Documentation</h2>
-<a class="anchor" id="ab473a4acbe5cc781b031e3c8d67ea1db"></a><!-- doxytag: member="rt_mutex_info::lockcnt" ref="ab473a4acbe5cc781b031e3c8d67ea1db" args="" -->
+<a class="anchor" id="a668ac2825b877dc02f41eb763bba1524"></a><!-- doxytag: member="rt_mutex_info::locked" ref="a668ac2825b877dc02f41eb763bba1524" args="" -->
 <div class="memitem">
 <div class="memproto">
       <table class="memname">
         <tr>
-          <td class="memname">int <a class="el" href="structrt__mutex__info.html#ab473a4acbe5cc781b031e3c8d67ea1db">rt_mutex_info::lockcnt</a></td>
+          <td class="memname">int <a class="el" href="structrt__mutex__info.html#a668ac2825b877dc02f41eb763bba1524">rt_mutex_info::locked</a></td>
         </tr>
       </table>
 </div>
 <div class="memdoc">
 
-<p>Lock nesting level (&gt; 0 means "locked"). </p>
+<p>&gt; 0 if mutex is locked. </p>
 
-<p>Referenced by <a class="el" href="ksrc_2skins_2native_2mutex_8c_source.html#l00508">rt_mutex_inquire()</a>.</p>
+<p>Referenced by <a class="el" href="ksrc_2skins_2native_2mutex_8c_source.html#l00620">rt_mutex_inquire()</a>.</p>
 
 </div>
 </div>
@@ -73,7 +75,7 @@
 
 <p>Symbolic name. </p>
 
-<p>Referenced by <a class="el" href="ksrc_2skins_2native_2mutex_8c_source.html#l00508">rt_mutex_inquire()</a>.</p>
+<p>Referenced by <a class="el" href="ksrc_2skins_2native_2mutex_8c_source.html#l00620">rt_mutex_inquire()</a>.</p>
 
 </div>
 </div>
@@ -90,7 +92,24 @@
 
 <p>Number of pending tasks. </p>
 
-<p>Referenced by <a class="el" href="ksrc_2skins_2native_2mutex_8c_source.html#l00508">rt_mutex_inquire()</a>.</p>
+<p>Referenced by <a class="el" href="ksrc_2skins_2native_2mutex_8c_source.html#l00620">rt_mutex_inquire()</a>.</p>
+
+</div>
+</div>
+<a class="anchor" id="a2b29d50e9d1042c67525299bc314a6f5"></a><!-- doxytag: member="rt_mutex_info::owner" ref="a2b29d50e9d1042c67525299bc314a6f5" args="[XNOBJECT_NAME_LEN]" -->
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">char <a class="el" href="structrt__mutex__info.html#a2b29d50e9d1042c67525299bc314a6f5">rt_mutex_info::owner</a>[XNOBJECT_NAME_LEN]</td>
+        </tr>
+      </table>
+</div>
+<div class="memdoc">
+
+<p>Symbolic name of the current owner, empty if unlocked. </p>
+
+<p>Referenced by <a class="el" href="ksrc_2skins_2native_2mutex_8c_source.html#l00620">rt_mutex_inquire()</a>.</p>
 
 </div>
 </div>
@@ -98,7 +117,7 @@
 <li>include/native/<a class="el" href="include_2native_2mutex_8h_source.html">mutex.h</a></li>
 </ul>
 </div>
-<hr size="1"/><address style="text-align: right;"><small>Generated on Tue Oct 27 19:18:55 2009 for Xenomai API by&nbsp;
+<hr size="1"/><address style="text-align: right;"><small>Generated on Fri Jan 1 10:45:20 2010 for Xenomai API by&nbsp;
 <a href="http://www.doxygen.org/index.html">
 <img class="footer" src="doxygen.png" alt="doxygen"/></a> 1.6.1 </small></address>
 </body>

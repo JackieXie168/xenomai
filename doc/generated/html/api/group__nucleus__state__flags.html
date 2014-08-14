@@ -65,31 +65,32 @@ Collaboration diagram for Thread state flags.:</div>
 <tr><td class="memItemLeft" align="right" valign="top"><a class="anchor" id="gadf5508cd88c2678ae01dfaf5570c661c"></a><!-- doxytag: member="nucleus_state_flags::XNRELAX" ref="gadf5508cd88c2678ae01dfaf5570c661c" args="" -->
 #define&nbsp;</td><td class="memItemRight" valign="bottom"><a class="el" href="group__nucleus__state__flags.html#gadf5508cd88c2678ae01dfaf5570c661c">XNRELAX</a>&nbsp;&nbsp;&nbsp;0x00000200</td></tr>
 <tr><td class="mdescLeft">&nbsp;</td><td class="mdescRight">Relaxed shadow thread (blocking bit). <br/></td></tr>
-<tr><td class="memItemLeft" align="right" valign="top"><a class="anchor" id="ga9394cc02e730535e3dd8b0aabb08ea86"></a><!-- doxytag: member="nucleus_state_flags::XNHELD" ref="ga9394cc02e730535e3dd8b0aabb08ea86" args="" -->
-#define&nbsp;</td><td class="memItemRight" valign="bottom"><a class="el" href="group__nucleus__state__flags.html#ga9394cc02e730535e3dd8b0aabb08ea86">XNHELD</a>&nbsp;&nbsp;&nbsp;0x00000400</td></tr>
-<tr><td class="mdescLeft">&nbsp;</td><td class="mdescRight">Held thread from suspended partition. <br/></td></tr>
+<tr><td class="memItemLeft" align="right" valign="top">#define&nbsp;</td><td class="memItemRight" valign="bottom"><a class="el" href="group__nucleus__state__flags.html#gae9aeb1b75ad94bca4f56f57481ffc309">XNMIGRATE</a>&nbsp;&nbsp;&nbsp;0x00000400</td></tr>
+<tr><td class="mdescLeft">&nbsp;</td><td class="mdescRight">Thread is currently migrating to another CPU.  <a href="#gae9aeb1b75ad94bca4f56f57481ffc309"></a><br/></td></tr>
+<tr><td class="memItemLeft" align="right" valign="top">#define&nbsp;</td><td class="memItemRight" valign="bottom"><a class="el" href="group__nucleus__state__flags.html#ga9394cc02e730535e3dd8b0aabb08ea86">XNHELD</a>&nbsp;&nbsp;&nbsp;0x00000800</td></tr>
+<tr><td class="mdescLeft">&nbsp;</td><td class="mdescRight">Thread is held to process emergency.  <a href="#ga9394cc02e730535e3dd8b0aabb08ea86"></a><br/></td></tr>
 <tr><td class="memItemLeft" align="right" valign="top"><a class="anchor" id="gaca3bcd5615c7331c73c3eadddb3d1b89"></a><!-- doxytag: member="nucleus_state_flags::XNBOOST" ref="gaca3bcd5615c7331c73c3eadddb3d1b89" args="" -->
-#define&nbsp;</td><td class="memItemRight" valign="bottom"><a class="el" href="group__nucleus__state__flags.html#gaca3bcd5615c7331c73c3eadddb3d1b89">XNBOOST</a>&nbsp;&nbsp;&nbsp;0x00000800</td></tr>
+#define&nbsp;</td><td class="memItemRight" valign="bottom"><a class="el" href="group__nucleus__state__flags.html#gaca3bcd5615c7331c73c3eadddb3d1b89">XNBOOST</a>&nbsp;&nbsp;&nbsp;0x00001000</td></tr>
 <tr><td class="mdescLeft">&nbsp;</td><td class="mdescRight">Undergoes a PIP boost. <br/></td></tr>
 <tr><td class="memItemLeft" align="right" valign="top"><a class="anchor" id="ga7ef9d2163ec49bc03fb8cd9c75f31e84"></a><!-- doxytag: member="nucleus_state_flags::XNDEBUG" ref="ga7ef9d2163ec49bc03fb8cd9c75f31e84" args="" -->
-#define&nbsp;</td><td class="memItemRight" valign="bottom"><a class="el" href="group__nucleus__state__flags.html#ga7ef9d2163ec49bc03fb8cd9c75f31e84">XNDEBUG</a>&nbsp;&nbsp;&nbsp;0x00001000</td></tr>
+#define&nbsp;</td><td class="memItemRight" valign="bottom"><a class="el" href="group__nucleus__state__flags.html#ga7ef9d2163ec49bc03fb8cd9c75f31e84">XNDEBUG</a>&nbsp;&nbsp;&nbsp;0x00002000</td></tr>
 <tr><td class="mdescLeft">&nbsp;</td><td class="mdescRight">Hit a debugger breakpoint (shadow only). <br/></td></tr>
-<tr><td class="memItemLeft" align="right" valign="top">#define&nbsp;</td><td class="memItemRight" valign="bottom"><a class="el" href="group__nucleus__state__flags.html#ga2defcfb1f04f077baeac9881cbdda627">XNLOCK</a>&nbsp;&nbsp;&nbsp;0x00002000</td></tr>
+<tr><td class="memItemLeft" align="right" valign="top">#define&nbsp;</td><td class="memItemRight" valign="bottom"><a class="el" href="group__nucleus__state__flags.html#ga2defcfb1f04f077baeac9881cbdda627">XNLOCK</a>&nbsp;&nbsp;&nbsp;0x00004000</td></tr>
 <tr><td class="mdescLeft">&nbsp;</td><td class="mdescRight">Holds the scheduler lock (i.e.  <a href="#ga2defcfb1f04f077baeac9881cbdda627"></a><br/></td></tr>
 <tr><td class="memItemLeft" align="right" valign="top"><a class="anchor" id="ga6f451131910f816dd01fe1ec1fb50fe9"></a><!-- doxytag: member="nucleus_state_flags::XNRRB" ref="ga6f451131910f816dd01fe1ec1fb50fe9" args="" -->
-#define&nbsp;</td><td class="memItemRight" valign="bottom"><a class="el" href="group__nucleus__state__flags.html#ga6f451131910f816dd01fe1ec1fb50fe9">XNRRB</a>&nbsp;&nbsp;&nbsp;0x00004000</td></tr>
+#define&nbsp;</td><td class="memItemRight" valign="bottom"><a class="el" href="group__nucleus__state__flags.html#ga6f451131910f816dd01fe1ec1fb50fe9">XNRRB</a>&nbsp;&nbsp;&nbsp;0x00008000</td></tr>
 <tr><td class="mdescLeft">&nbsp;</td><td class="mdescRight">Undergoes a round-robin scheduling. <br/></td></tr>
 <tr><td class="memItemLeft" align="right" valign="top"><a class="anchor" id="gadd8332af5954bcc409e8a1181005cd86"></a><!-- doxytag: member="nucleus_state_flags::XNASDI" ref="gadd8332af5954bcc409e8a1181005cd86" args="" -->
-#define&nbsp;</td><td class="memItemRight" valign="bottom"><a class="el" href="group__nucleus__state__flags.html#gadd8332af5954bcc409e8a1181005cd86">XNASDI</a>&nbsp;&nbsp;&nbsp;0x00008000</td></tr>
+#define&nbsp;</td><td class="memItemRight" valign="bottom"><a class="el" href="group__nucleus__state__flags.html#gadd8332af5954bcc409e8a1181005cd86">XNASDI</a>&nbsp;&nbsp;&nbsp;0x00010000</td></tr>
 <tr><td class="mdescLeft">&nbsp;</td><td class="mdescRight">ASR are disabled. <br/></td></tr>
-<tr><td class="memItemLeft" align="right" valign="top"><a class="anchor" id="ga7136db0ee7e182d7400d537b8d055f69"></a><!-- doxytag: member="nucleus_state_flags::XNSHIELD" ref="ga7136db0ee7e182d7400d537b8d055f69" args="" -->
-#define&nbsp;</td><td class="memItemRight" valign="bottom"><a class="el" href="group__nucleus__state__flags.html#ga7136db0ee7e182d7400d537b8d055f69">XNSHIELD</a>&nbsp;&nbsp;&nbsp;0x00010000</td></tr>
-<tr><td class="mdescLeft">&nbsp;</td><td class="mdescRight">IRQ shield is enabled (shadow only). <br/></td></tr>
+<tr><td class="memItemLeft" align="right" valign="top"><a class="anchor" id="ga4a3196a5300e6ec862a18b272d859960"></a><!-- doxytag: member="nucleus_state_flags::XNDEFCAN" ref="ga4a3196a5300e6ec862a18b272d859960" args="" -->
+#define&nbsp;</td><td class="memItemRight" valign="bottom"><a class="el" href="group__nucleus__state__flags.html#ga4a3196a5300e6ec862a18b272d859960">XNDEFCAN</a>&nbsp;&nbsp;&nbsp;0x00020000</td></tr>
+<tr><td class="mdescLeft">&nbsp;</td><td class="mdescRight">Deferred cancelability mode (self-set only). <br/></td></tr>
 <tr><td class="memItemLeft" align="right" valign="top"><a class="anchor" id="gade2e62645781aa1badafd97659cf3473"></a><!-- doxytag: member="nucleus_state_flags::XNTRAPSW" ref="gade2e62645781aa1badafd97659cf3473" args="" -->
-#define&nbsp;</td><td class="memItemRight" valign="bottom"><a class="el" href="group__nucleus__state__flags.html#gade2e62645781aa1badafd97659cf3473">XNTRAPSW</a>&nbsp;&nbsp;&nbsp;0x00020000</td></tr>
+#define&nbsp;</td><td class="memItemRight" valign="bottom"><a class="el" href="group__nucleus__state__flags.html#gade2e62645781aa1badafd97659cf3473">XNTRAPSW</a>&nbsp;&nbsp;&nbsp;0x00040000</td></tr>
 <tr><td class="mdescLeft">&nbsp;</td><td class="mdescRight">Trap execution mode switches. <br/></td></tr>
 <tr><td class="memItemLeft" align="right" valign="top"><a class="anchor" id="ga124e976e4647437c8aa8ddd5840b41f5"></a><!-- doxytag: member="nucleus_state_flags::XNRPIOFF" ref="ga124e976e4647437c8aa8ddd5840b41f5" args="" -->
-#define&nbsp;</td><td class="memItemRight" valign="bottom"><a class="el" href="group__nucleus__state__flags.html#ga124e976e4647437c8aa8ddd5840b41f5">XNRPIOFF</a>&nbsp;&nbsp;&nbsp;0x00040000</td></tr>
+#define&nbsp;</td><td class="memItemRight" valign="bottom"><a class="el" href="group__nucleus__state__flags.html#ga124e976e4647437c8aa8ddd5840b41f5">XNRPIOFF</a>&nbsp;&nbsp;&nbsp;0x00080000</td></tr>
 <tr><td class="mdescLeft">&nbsp;</td><td class="mdescRight">Stop priority coupling (shadow only). <br/></td></tr>
 <tr><td class="memItemLeft" align="right" valign="top"><a class="anchor" id="ga6b2ca9336a15f94f3a2e0665982ed081"></a><!-- doxytag: member="nucleus_state_flags::XNFPU" ref="ga6b2ca9336a15f94f3a2e0665982ed081" args="" -->
 #define&nbsp;</td><td class="memItemRight" valign="bottom"><a class="el" href="group__nucleus__state__flags.html#ga6b2ca9336a15f94f3a2e0665982ed081">XNFPU</a>&nbsp;&nbsp;&nbsp;0x00100000</td></tr>
@@ -100,16 +101,36 @@ Collaboration diagram for Thread state flags.:</div>
 <tr><td class="memItemLeft" align="right" valign="top"><a class="anchor" id="ga73d7b1a4f5a25545ff21140a0598075a"></a><!-- doxytag: member="nucleus_state_flags::XNROOT" ref="ga73d7b1a4f5a25545ff21140a0598075a" args="" -->
 #define&nbsp;</td><td class="memItemRight" valign="bottom"><a class="el" href="group__nucleus__state__flags.html#ga73d7b1a4f5a25545ff21140a0598075a">XNROOT</a>&nbsp;&nbsp;&nbsp;0x00400000</td></tr>
 <tr><td class="mdescLeft">&nbsp;</td><td class="mdescRight">Root thread (that is, Linux/IDLE). <br/></td></tr>
+<tr><td class="memItemLeft" align="right" valign="top"><a class="anchor" id="ga0ca4243f1dcc26eb4de261bbd63a9980"></a><!-- doxytag: member="nucleus_state_flags::XNSWREP" ref="ga0ca4243f1dcc26eb4de261bbd63a9980" args="" -->
+#define&nbsp;</td><td class="memItemRight" valign="bottom"><a class="el" href="group__nucleus__state__flags.html#ga0ca4243f1dcc26eb4de261bbd63a9980">XNSWREP</a>&nbsp;&nbsp;&nbsp;0x00800000</td></tr>
+<tr><td class="mdescLeft">&nbsp;</td><td class="mdescRight">Mode switch already reported. <br/></td></tr>
 </table>
 <hr/><a name="_details"></a><h2>Detailed Description</h2>
 <p>Bits reporting permanent or transient states of thread. </p>
 <hr/><h2>Define Documentation</h2>
+<a class="anchor" id="ga9394cc02e730535e3dd8b0aabb08ea86"></a><!-- doxytag: member="thread.h::XNHELD" ref="ga9394cc02e730535e3dd8b0aabb08ea86" args="" -->
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">#define XNHELD&nbsp;&nbsp;&nbsp;0x00000800</td>
+        </tr>
+      </table>
+</div>
+<div class="memdoc">
+
+<p>Thread is held to process emergency. </p>
+
+<p>Referenced by <a class="el" href="pod_8c_source.html#l01579">xnpod_resume_thread()</a>, and <a class="el" href="pod_8c_source.html#l01365">xnpod_suspend_thread()</a>.</p>
+
+</div>
+</div>
 <a class="anchor" id="ga2defcfb1f04f077baeac9881cbdda627"></a><!-- doxytag: member="thread.h::XNLOCK" ref="ga2defcfb1f04f077baeac9881cbdda627" args="" -->
 <div class="memitem">
 <div class="memproto">
       <table class="memname">
         <tr>
-          <td class="memname">#define XNLOCK&nbsp;&nbsp;&nbsp;0x00002000</td>
+          <td class="memname">#define XNLOCK&nbsp;&nbsp;&nbsp;0x00004000</td>
         </tr>
       </table>
 </div>
@@ -118,7 +139,24 @@ Collaboration diagram for Thread state flags.:</div>
 <p>Holds the scheduler lock (i.e. </p>
 <p>not preemptible) </p>
 
-<p>Referenced by <a class="el" href="skins_2posix_2thread_8c_source.html#l00638">pthread_set_mode_np()</a>, <a class="el" href="ksrc_2skins_2native_2task_8c_source.html#l00439">rt_task_suspend()</a>, <a class="el" href="pod_8c_source.html#l02242">xnpod_do_rr()</a>, <a class="el" href="pod_8c_source.html#l00916">xnpod_restart_thread()</a>, <a class="el" href="pod_8c_source.html#l02379">xnpod_schedule()</a>, <a class="el" href="pod_8c_source.html#l02606">xnpod_schedule_runnable()</a>, <a class="el" href="pod_8c_source.html#l01038">xnpod_set_thread_mode()</a>, and <a class="el" href="pod_8c_source.html#l02149">xnpod_welcome_thread()</a>.</p>
+<p>Referenced by <a class="el" href="skins_2posix_2thread_8c_source.html#l00666">pthread_set_mode_np()</a>, <a class="el" href="pod_8c_source.html#l01014">xnpod_set_thread_mode()</a>, and <a class="el" href="pod_8c_source.html#l02040">xnpod_welcome_thread()</a>.</p>
+
+</div>
+</div>
+<a class="anchor" id="gae9aeb1b75ad94bca4f56f57481ffc309"></a><!-- doxytag: member="thread.h::XNMIGRATE" ref="gae9aeb1b75ad94bca4f56f57481ffc309" args="" -->
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">#define XNMIGRATE&nbsp;&nbsp;&nbsp;0x00000400</td>
+        </tr>
+      </table>
+</div>
+<div class="memdoc">
+
+<p>Thread is currently migrating to another CPU. </p>
+
+<p>Referenced by <a class="el" href="pod_8c_source.html#l01082">xnpod_delete_thread()</a>.</p>
 
 </div>
 </div>
@@ -135,7 +173,7 @@ Collaboration diagram for Thread state flags.:</div>
 
 <p>Sleep-wait for a resource. </p>
 
-<p>Referenced by <a class="el" href="ksrc_2skins_2native_2task_8c_source.html#l02076">rt_task_reply()</a>, <a class="el" href="pod_8c_source.html#l01118">xnpod_delete_thread()</a>, <a class="el" href="pod_8c_source.html#l01562">xnpod_resume_thread()</a>, <a class="el" href="pod_8c_source.html#l01697">xnpod_unblock_thread()</a>, <a class="el" href="synch_8c_source.html#l00571">xnsynch_flush()</a>, <a class="el" href="synch_8c_source.html#l00622">xnsynch_forget_sleeper()</a>, <a class="el" href="synch_8c_source.html#l00168">xnsynch_sleep_on()</a>, <a class="el" href="synch_8c_source.html#l00376">xnsynch_wakeup_one_sleeper()</a>, and <a class="el" href="synch_8c_source.html#l00491">xnsynch_wakeup_this_sleeper()</a>.</p>
+<p>Referenced by <a class="el" href="ksrc_2skins_2native_2task_8c_source.html#l02059">rt_task_reply()</a>, <a class="el" href="pod_8c_source.html#l01082">xnpod_delete_thread()</a>, <a class="el" href="pod_8c_source.html#l01579">xnpod_resume_thread()</a>, <a class="el" href="pod_8c_source.html#l01717">xnpod_unblock_thread()</a>, <a class="el" href="synch_8c_source.html#l00410">xnsynch_acquire()</a>, <a class="el" href="synch_8c_source.html#l00852">xnsynch_flush()</a>, <a class="el" href="synch_8c_source.html#l00904">xnsynch_forget_sleeper()</a>, <a class="el" href="synch_8c_source.html#l00711">xnsynch_release()</a>, <a class="el" href="synch_8c_source.html#l00175">xnsynch_sleep_on()</a>, <a class="el" href="synch_8c_source.html#l00241">xnsynch_wakeup_one_sleeper()</a>, and <a class="el" href="synch_8c_source.html#l00313">xnsynch_wakeup_this_sleeper()</a>.</p>
 
 </div>
 </div>
@@ -152,7 +190,7 @@ Collaboration diagram for Thread state flags.:</div>
 
 <p>Linked to the ready queue. </p>
 
-<p>Referenced by <a class="el" href="pod_8c_source.html#l01118">xnpod_delete_thread()</a>, <a class="el" href="pod_8c_source.html#l01855">xnpod_migrate_thread()</a>, <a class="el" href="pod_8c_source.html#l02287">xnpod_preempt_current_thread()</a>, <a class="el" href="pod_8c_source.html#l01562">xnpod_resume_thread()</a>, <a class="el" href="pod_8c_source.html#l02379">xnpod_schedule()</a>, <a class="el" href="pod_8c_source.html#l02606">xnpod_schedule_runnable()</a>, <a class="el" href="pod_8c_source.html#l00797">xnpod_start_thread()</a>, and <a class="el" href="pod_8c_source.html#l01363">xnpod_suspend_thread()</a>.</p>
+<p>Referenced by <a class="el" href="pod_8c_source.html#l01082">xnpod_delete_thread()</a>, <a class="el" href="pod_8c_source.html#l01579">xnpod_resume_thread()</a>, <a class="el" href="pod_8c_source.html#l00740">xnpod_start_thread()</a>, and <a class="el" href="pod_8c_source.html#l01365">xnpod_suspend_thread()</a>.</p>
 
 </div>
 </div>
@@ -169,12 +207,12 @@ Collaboration diagram for Thread state flags.:</div>
 
 <p>Suspended. </p>
 
-<p>Referenced by <a class="el" href="ksrc_2skins_2native_2task_8c_source.html#l00236">rt_task_create()</a>, <a class="el" href="ksrc_2skins_2native_2task_8c_source.html#l00512">rt_task_resume()</a>, <a class="el" href="ksrc_2skins_2native_2task_8c_source.html#l00439">rt_task_suspend()</a>, <a class="el" href="pod_8c_source.html#l00683">xnpod_init_thread()</a>, <a class="el" href="pod_8c_source.html#l00916">xnpod_restart_thread()</a>, <a class="el" href="pod_8c_source.html#l00797">xnpod_start_thread()</a>, <a class="el" href="pod_8c_source.html#l01363">xnpod_suspend_thread()</a>, and <a class="el" href="pod_8c_source.html#l02923">xnpod_trap_fault()</a>.</p>
+<p>Referenced by <a class="el" href="ksrc_2skins_2native_2task_8c_source.html#l00249">rt_task_create()</a>, <a class="el" href="ksrc_2skins_2native_2task_8c_source.html#l00514">rt_task_resume()</a>, <a class="el" href="ksrc_2skins_2native_2task_8c_source.html#l00447">rt_task_suspend()</a>, <a class="el" href="pod_8c_source.html#l00636">xnpod_init_thread()</a>, <a class="el" href="pod_8c_source.html#l00740">xnpod_start_thread()</a>, <a class="el" href="pod_8c_source.html#l01365">xnpod_suspend_thread()</a>, and <a class="el" href="pod_8c_source.html#l02536">xnpod_trap_fault()</a>.</p>
 
 </div>
 </div>
 </div>
-<hr size="1"/><address style="text-align: right;"><small>Generated on Tue Oct 27 19:18:53 2009 for Xenomai API by&nbsp;
+<hr size="1"/><address style="text-align: right;"><small>Generated on Fri Jan 1 10:45:16 2010 for Xenomai API by&nbsp;
 <a href="http://www.doxygen.org/index.html">
 <img class="footer" src="doxygen.png" alt="doxygen"/></a> 1.6.1 </small></address>
 </body>

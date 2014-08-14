@@ -40,11 +40,7 @@ static inline __attribute_const__ unsigned long ffnz(unsigned long ul)
 }
 
 #ifndef __cplusplus
-#if LINUX_VERSION_CODE < KERNEL_VERSION(2,6,18)
-#include <asm/irqchip.h>
-#else
 #include <linux/irq.h>
-#endif
 #include <asm/system.h>
 #include <asm/blackfin.h>
 #include <asm/processor.h>
@@ -69,12 +65,13 @@ static inline unsigned long long rthal_rdtsc(void)
 static inline void rthal_timer_program_shot(unsigned long delay)
 {
 	if (delay < 2)
-		rthal_trigger_irq(RTHAL_TIMER_IRQ);
+		rthal_schedule_irq_head(RTHAL_TIMER_IRQ);
 	else {
+		bfin_write_TCNTL(TMPWR);
+		CSYNC();
 		bfin_write_TCOUNT(delay - 1);
 		CSYNC();
-		bfin_write_TCNTL(3);	/* Oneshot mode, no auto-reload. */
-		CSYNC();
+		bfin_write_TCNTL(TMPWR | TMREN);
 	}
 }
 
@@ -86,12 +83,21 @@ extern int rthal_periodic_p;
 #define rthal_periodic_p  0
 #endif /* CONFIG_XENO_OPT_TIMING_PERIODIC */
 
-asmlinkage struct task_struct *rthal_thread_switch(struct thread_struct *prev,
-						   struct thread_struct *next);
+asmlinkage struct task_struct *
+rthal_thread_switch(struct thread_struct *prev,
+		    struct thread_struct *next);
 
 asmlinkage void rthal_thread_trampoline(void);
 
 asmlinkage int rthal_defer_switch_p(void);
+
+#ifndef CONFIG_SMP
+asmlinkage void rthal_atomic_set_mask(unsigned long *addr,
+				      unsigned long mask);
+
+asmlinkage void rthal_atomic_clear_mask(unsigned long *addr,
+					unsigned long mask);
+#endif
 
 static const char *const rthal_fault_labels[] = {
 	[1] = "Single step",

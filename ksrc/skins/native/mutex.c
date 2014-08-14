@@ -47,39 +47,53 @@
 #include <nucleus/pod.h>
 #include <nucleus/registry.h>
 #include <nucleus/heap.h>
+#include <nucleus/sys_ppd.h>
 #include <native/task.h>
 #include <native/mutex.h>
 
-#ifdef CONFIG_XENO_EXPORT_REGISTRY
+#ifdef CONFIG_PROC_FS
 
 static int __mutex_read_proc(char *page,
 			     char **start,
 			     off_t off, int count, int *eof, void *data)
 {
 	RT_MUTEX *mutex = (RT_MUTEX *)data;
+#ifdef CONFIG_XENO_FASTSYNCH
+	xnhandle_t lock_state;
+#endif /* CONFIG_XENO_FASTSYNCH */
+	xnthread_t *owner;
 	char *p = page;
 	int len;
 	spl_t s;
 
 	xnlock_get_irqsave(&nklock, s);
 
-	if (xnsynch_owner(&mutex->synch_base) != NULL) {
+#ifndef CONFIG_XENO_FASTSYNCH
+	owner = xnsynch_owner(&mutex->synch_base);
+#else /* CONFIG_XENO_FASTSYNCH */
+	lock_state = xnarch_atomic_get(mutex->synch_base.fastlock);
+
+	owner = (lock_state == XN_NO_HANDLE) ? NULL :
+		xnthread_lookup(xnsynch_fast_mask_claimed(lock_state));
+
+	if (!owner && lock_state != XN_NO_HANDLE)
+		p += sprintf(p, "=<DAMAGED HANDLE!>");
+	else
+#endif /* CONFIG_XENO_FASTSYNCH */
+	if (owner) {
+		/* Locked mutex -- dump owner and waiters, if any. */
 		xnpholder_t *holder;
 
-		/* Locked mutex -- dump owner and waiters, if any. */
-
-		p += sprintf(p, "=locked by %s depth=%d\n",
-			     xnthread_name(xnsynch_owner(&mutex->synch_base)),
-			     mutex->lockcnt);
+		p += sprintf(p, "=locked by %s\n", xnthread_name(owner));
 
 		holder = getheadpq(xnsynch_wait_queue(&mutex->synch_base));
 
 		while (holder) {
 			xnthread_t *sleeper = link2thread(holder, plink);
+
 			p += sprintf(p, "+%s\n", xnthread_name(sleeper));
-			holder =
-			    nextpq(xnsynch_wait_queue(&mutex->synch_base),
-				   holder);
+			holder = nextpq(xnsynch_wait_queue(&mutex->synch_base),
+					holder);
 		}
 	} else
 		/* Mutex unlocked. */
@@ -111,14 +125,55 @@ static xnpnode_t __mutex_pnode = {
 	.root = &__native_ptree,
 };
 
-#elif defined(CONFIG_XENO_OPT_REGISTRY)
+#else /* !CONFIG_PROC_FS */
 
 static xnpnode_t __mutex_pnode = {
 
 	.type = "mutexes"
 };
 
-#endif /* CONFIG_XENO_EXPORT_REGISTRY */
+#endif /* !CONFIG_PROC_FS */
+
+int rt_mutex_create_inner(RT_MUTEX *mutex, const char *name,
+			  xnarch_atomic_t *fastlock)
+{
+	int err = 0;
+	spl_t s;
+
+	if (xnpod_asynch_p())
+		return -EPERM;
+
+	xnsynch_init(&mutex->synch_base,
+		     XNSYNCH_PRIO | XNSYNCH_PIP | XNSYNCH_OWNER, fastlock);
+	mutex->handle = 0;	/* i.e. (still) unregistered mutex. */
+	mutex->magic = XENO_MUTEX_MAGIC;
+	mutex->lockcnt = 0;
+	xnobject_copy_name(mutex->name, name);
+	inith(&mutex->rlink);
+	mutex->rqueue = &xeno_get_rholder()->mutexq;
+	xnlock_get_irqsave(&nklock, s);
+	appendq(mutex->rqueue, &mutex->rlink);
+	xnlock_put_irqrestore(&nklock, s);
+
+#ifdef CONFIG_XENO_OPT_PERVASIVE
+	mutex->cpid = 0;
+#endif /* CONFIG_XENO_OPT_PERVASIVE */
+
+	/*
+	 * <!> Since xnregister_enter() may reschedule, only register
+	 * complete objects, so that the registry cannot return
+	 * handles to half-baked objects...
+	 */
+	if (name) {
+		err = xnregistry_enter(mutex->name, mutex, &mutex->handle,
+				       &__mutex_pnode);
+
+		if (err)
+			rt_mutex_delete_inner(mutex);
+	}
+
+	return err;
+}
 
 /**
  * @fn int rt_mutex_create(RT_MUTEX *mutex,const char *name)
@@ -164,51 +219,61 @@ static xnpnode_t __mutex_pnode = {
 
 int rt_mutex_create(RT_MUTEX *mutex, const char *name)
 {
-	int err = 0;
+	xnarch_atomic_t *fastlock = NULL;
+	int err;
+
+#ifdef CONFIG_XENO_FASTSYNCH
+	/* Allocate lock memory for in-kernel use */
+	fastlock = xnmalloc(sizeof(xnarch_atomic_t));
+
+	if (!fastlock)
+		return -ENOMEM;
+#endif /* CONFIG_XENO_FASTSYNCH */
+
+	err = rt_mutex_create_inner(mutex, name, fastlock);
+
+#ifdef CONFIG_XENO_FASTSYNCH
+	if (err)
+		xnfree(fastlock);
+#endif /* CONFIG_XENO_FASTSYNCH */
+
+	return err;
+}
+
+int rt_mutex_delete_inner(RT_MUTEX *mutex)
+{
+	int err = 0, rc;
 	spl_t s;
 
 	if (xnpod_asynch_p())
 		return -EPERM;
 
-	xnsynch_init(&mutex->synch_base, XNSYNCH_PRIO | XNSYNCH_PIP);
-	mutex->handle = 0;	/* i.e. (still) unregistered mutex. */
-	mutex->magic = XENO_MUTEX_MAGIC;
-	mutex->lockcnt = 0;
-	xnobject_copy_name(mutex->name, name);
-	inith(&mutex->rlink);
-	mutex->rqueue = &xeno_get_rholder()->mutexq;
 	xnlock_get_irqsave(&nklock, s);
-	appendq(mutex->rqueue, &mutex->rlink);
-	xnlock_put_irqrestore(&nklock, s);
 
-#ifdef CONFIG_XENO_OPT_PERVASIVE
-	mutex->cpid = 0;
-#endif /* CONFIG_XENO_OPT_PERVASIVE */
+	mutex = xeno_h2obj_validate(mutex, XENO_MUTEX_MAGIC, RT_MUTEX);
 
-#ifdef CONFIG_XENO_OPT_REGISTRY
-	/* <!> Since xnregister_enter() may reschedule, only register
-	   complete objects, so that the registry cannot return handles to
-	   half-baked objects... */
-
-	if (name) {
-		xnpnode_t *pnode = &__mutex_pnode;
-
-		if (!*name) {
-			/* Since this is an anonymous object (empty name on entry)
-			   from user-space, it gets registered under an unique
-			   internal name but is not exported through /proc. */
-			xnobject_create_name(mutex->name, sizeof(mutex->name),
-					     (void *)mutex);
-			pnode = NULL;
-		}
-
-		err =
-		    xnregistry_enter(mutex->name, mutex, &mutex->handle, pnode);
-
-		if (err)
-			rt_mutex_delete(mutex);
+	if (!mutex) {
+		err = xeno_handle_error(mutex, XENO_MUTEX_MAGIC, RT_MUTEX);
+		goto unlock_and_exit;
 	}
-#endif /* CONFIG_XENO_OPT_REGISTRY */
+
+	removeq(mutex->rqueue, &mutex->rlink);
+
+	rc = xnsynch_destroy(&mutex->synch_base);
+
+	if (mutex->handle)
+		xnregistry_remove(mutex->handle);
+
+	xeno_mark_deleted(mutex);
+
+	if (rc == XNSYNCH_RESCHED)
+		/* Some task has been woken up as a result of the deletion:
+		   reschedule now. */
+		xnpod_schedule();
+
+      unlock_and_exit:
+
+	xnlock_put_irqrestore(&nklock, s);
 
 	return err;
 }
@@ -247,42 +312,85 @@ int rt_mutex_create(RT_MUTEX *mutex, const char *name)
 
 int rt_mutex_delete(RT_MUTEX *mutex)
 {
-	int err = 0, rc;
-	spl_t s;
+	int err;
 
-	if (xnpod_asynch_p())
+	err = rt_mutex_delete_inner(mutex);
+
+#ifdef CONFIG_XENO_FASTSYNCH
+	if (!err) {
+#ifdef CONFIG_XENO_OPT_PERVASIVE
+		if (mutex->cpid) {
+			int global = xnsynch_test_flags(&mutex->synch_base,
+							RT_MUTEX_EXPORTED);
+			xnheap_free(&xnsys_ppd_get(global)->sem_heap,
+				    mutex->synch_base.fastlock);
+		} else
+#endif /* CONFIG_XENO_OPT_PERVASIVE */
+			xnfree(mutex->synch_base.fastlock);
+	}
+#endif /* CONFIG_XENO_FASTSYNCH */
+
+	return err;
+}
+
+int rt_mutex_acquire_inner(RT_MUTEX *mutex, RTIME timeout,
+			   xntmode_t timeout_mode)
+{
+	xnthread_t *thread;
+	xnflags_t info;
+
+	if (xnpod_unblockable_p())
 		return -EPERM;
-
-	xnlock_get_irqsave(&nklock, s);
 
 	mutex = xeno_h2obj_validate(mutex, XENO_MUTEX_MAGIC, RT_MUTEX);
 
-	if (!mutex) {
-		err = xeno_handle_error(mutex, XENO_MUTEX_MAGIC, RT_MUTEX);
-		goto unlock_and_exit;
+	if (!mutex)
+		return xeno_handle_error(mutex, XENO_MUTEX_MAGIC, RT_MUTEX);
+
+	thread = xnpod_current_thread();
+
+	if (xnsynch_owner_check(&mutex->synch_base, thread) == 0) {
+		mutex->lockcnt++;
+		return 0;
 	}
 
-	removeq(mutex->rqueue, &mutex->rlink);
+	if (timeout == TM_NONBLOCK && timeout_mode == XN_RELATIVE) {
+#ifdef CONFIG_XENO_FASTSYNCH
+		if (xnsynch_fast_acquire(mutex->synch_base.fastlock,
+					 xnthread_handle(thread)) == 0) {
+			mutex->lockcnt = 1;
+			return 0;
+		} else
+			return -EWOULDBLOCK;
 
-	rc = xnsynch_destroy(&mutex->synch_base);
+#else /* !CONFIG_XENO_FASTSYNCH */
+		int err = 0;
+		spl_t s;
 
-#ifdef CONFIG_XENO_OPT_REGISTRY
-	if (mutex->handle)
-		xnregistry_remove(mutex->handle);
-#endif /* CONFIG_XENO_OPT_REGISTRY */
+		xnlock_get_irqsave(&nklock, s);
+		if (xnsynch_owner(&mutex->synch_base) == NULL)
+			mutex->lockcnt = 1;
+		else
+			err = -EWOULDBLOCK;
+		xnlock_put_irqrestore(&nklock, s);
+		return err;
+#endif /* !CONFIG_XENO_FASTSYNCH */
+	}
 
-	xeno_mark_deleted(mutex);
+	info = xnsynch_acquire(&mutex->synch_base,
+			       timeout, timeout_mode);
+	if (unlikely(info)) {
+		if (info & XNBREAK)
+			return -EINTR;
+		else if (info & XNTIMEO)
+			return -ETIMEDOUT;
+		else /* XNRMID */
+			return -EIDRM;
+	}
 
-	if (rc == XNSYNCH_RESCHED)
-		/* Some task has been woken up as a result of the deletion:
-		   reschedule now. */
-		xnpod_schedule();
+	mutex->lockcnt = 1;
 
-      unlock_and_exit:
-
-	xnlock_put_irqrestore(&nklock, s);
-
-	return err;
+	return 0;
 }
 
 /**
@@ -297,7 +405,8 @@ int rt_mutex_delete(RT_MUTEX *mutex)
  * recursive and implement the priority inheritance protocol.
  *
  * Since a nested locking count is maintained for the current owner,
- * rt_mutex_acquire() and rt_mutex_release() must be used in pairs.
+ * rt_mutex_acquire{_until}() and rt_mutex_release() must be used in
+ * pairs.
  *
  * Tasks pend on mutexes by priority order.
  *
@@ -329,7 +438,7 @@ int rt_mutex_delete(RT_MUTEX *mutex)
  *
  * - -EPERM is returned if this service was called from a context
  * which cannot be given the ownership of the mutex (e.g. interrupt,
- * non-realtime or scheduler locked).
+ * non-realtime context).
  *
  * Environments:
  *
@@ -350,59 +459,73 @@ int rt_mutex_delete(RT_MUTEX *mutex)
 
 int rt_mutex_acquire(RT_MUTEX *mutex, RTIME timeout)
 {
-	xnthread_t *thread;
-	int err = 0;
-	spl_t s;
+	return rt_mutex_acquire_inner(mutex, timeout, XN_RELATIVE);
+}
 
-	if (xnpod_unblockable_p())
-		return -EPERM;
+/**
+ * @fn int rt_mutex_acquire_until(RT_MUTEX *mutex, RTIME timeout)
+ *
+ * @brief Acquire a mutex (with absolute timeout date).
+ *
+ * Attempt to lock a mutex. The calling task is blocked until the
+ * mutex is available, in which case it is locked again before this
+ * service returns. Mutexes have an ownership property, which means
+ * that their current owner is tracked. Xenomai mutexes are implicitely
+ * recursive and implement the priority inheritance protocol.
+ *
+ * Since a nested locking count is maintained for the current owner,
+ * rt_mutex_acquire{_until}() and rt_mutex_release() must be used in
+ * pairs.
+ *
+ * Tasks pend on mutexes by priority order.
+ *
+ * @param mutex The descriptor address of the mutex to acquire.
+ *
+ * @param timeout The absolute date specifying a time limit to wait
+ * for the mutex to be available to the calling task (see
+ * note).
+ *
+ * @return 0 is returned upon success. Otherwise:
+ *
+ * - -EINVAL is returned if @a mutex is not a mutex descriptor.
+ *
+ * - -EIDRM is returned if @a mutex is a deleted mutex descriptor,
+ * including if the deletion occurred while the caller was sleeping on
+ * it.
+ *
+ * - -EWOULDBLOCK is returned if @a timeout is equal to TM_NONBLOCK
+ * and the mutex is not immediately available.
+ *
+ * - -EINTR is returned if rt_task_unblock() has been called for the
+ * waiting task before the mutex has become available.
+ *
+ * - -ETIMEDOUT is returned if the mutex cannot be made available to
+ * the calling task until the absolute timeout date is reached.
+ *
+ * - -EPERM is returned if this service was called from a context
+ * which cannot be given the ownership of the mutex (e.g. interrupt,
+ * non-realtime context).
+ *
+ * Environments:
+ *
+ * This service can be called from:
+ *
+ * - Kernel-based task
+ * - User-space task (switches to primary mode)
+ *
+ * Rescheduling: always unless the request is immediately satisfied or
+ * @a timeout specifies a non-blocking operation.  If the caller is
+ * blocked, the current owner's priority might be temporarily raised
+ * as a consequence of the priority inheritance protocol.
+ *
+ * @note The @a timeout value will be interpreted as jiffies if the
+ * native skin is bound to a periodic time base (see
+ * CONFIG_XENO_OPT_NATIVE_PERIOD), or nanoseconds otherwise.
+ */
 
-	xnlock_get_irqsave(&nklock, s);
-
-	mutex = xeno_h2obj_validate(mutex, XENO_MUTEX_MAGIC, RT_MUTEX);
-
-	if (!mutex) {
-		err = xeno_handle_error(mutex, XENO_MUTEX_MAGIC, RT_MUTEX);
-		goto unlock_and_exit;
-	}
-
-	thread = xnpod_current_thread();
-
-	if (xnsynch_owner(&mutex->synch_base) == NULL) {
-		xnsynch_set_owner(&mutex->synch_base, thread);
-		goto grab_mutex;
-	}
-
-	if (xnsynch_owner(&mutex->synch_base) == thread) {
-		mutex->lockcnt++;
-		goto unlock_and_exit;
-	}
-
-	if (timeout == TM_NONBLOCK) {
-		err = -EWOULDBLOCK;
-		goto unlock_and_exit;
-	}
-
-	xnsynch_sleep_on(&mutex->synch_base, timeout, XN_RELATIVE);
-
-	if (xnthread_test_info(thread, XNRMID))
-		err = -EIDRM;	/* Mutex deleted while pending. */
-	else if (xnthread_test_info(thread, XNTIMEO))
-		err = -ETIMEDOUT;	/* Timeout. */
-	else if (xnthread_test_info(thread, XNBREAK))
-		err = -EINTR;	/* Unblocked. */
-	else {
-	      grab_mutex:
-		/* xnsynch_sleep_on() might have stolen the resource,
-		   so we need to put our internal data in sync. */
-		mutex->lockcnt = 1;
-	}
-
-      unlock_and_exit:
-
-	xnlock_put_irqrestore(&nklock, s);
-
-	return err;
+int rt_mutex_acquire_until(RT_MUTEX *mutex, RTIME timeout)
+{
+	return rt_mutex_acquire_inner(mutex, timeout, XN_REALTIME);
 }
 
 /**
@@ -439,39 +562,28 @@ int rt_mutex_acquire(RT_MUTEX *mutex, RTIME timeout)
 
 int rt_mutex_release(RT_MUTEX *mutex)
 {
-	int err = 0;
-	spl_t s;
+	xnthread_t *thread = xnpod_current_thread();
+	int err;
 
 	if (xnpod_unblockable_p())
 		return -EPERM;
 
-	xnlock_get_irqsave(&nklock, s);
-
 	mutex = xeno_h2obj_validate(mutex, XENO_MUTEX_MAGIC, RT_MUTEX);
 
-	if (!mutex) {
-		err = xeno_handle_error(mutex, XENO_MUTEX_MAGIC, RT_MUTEX);
-		goto unlock_and_exit;
-	}
+	if (!mutex)
+		return xeno_handle_error(mutex, XENO_MUTEX_MAGIC, RT_MUTEX);
 
-	if (xnpod_current_thread() != xnsynch_owner(&mutex->synch_base)) {
-		err = -EPERM;
-		goto unlock_and_exit;
-	}
+	err = xnsynch_owner_check(&mutex->synch_base, thread);
+	if (err)
+		return err;
 
 	if (--mutex->lockcnt > 0)
-		goto unlock_and_exit;
+		return 0;
 
-	if (xnsynch_wakeup_one_sleeper(&mutex->synch_base)) {
-		mutex->lockcnt = 1;
+	if (xnsynch_release(&mutex->synch_base))
 		xnpod_schedule();
-	}
 
-      unlock_and_exit:
-
-	xnlock_put_irqrestore(&nklock, s);
-
-	return err;
+	return 0;
 }
 
 /**
@@ -507,6 +619,10 @@ int rt_mutex_release(RT_MUTEX *mutex)
 
 int rt_mutex_inquire(RT_MUTEX *mutex, RT_MUTEX_INFO *info)
 {
+#ifdef CONFIG_XENO_FASTSYNCH
+	xnhandle_t lock_state;
+#endif /* CONFIG_XENO_FASTSYNCH */
+	xnthread_t *owner;
 	int err = 0;
 	spl_t s;
 
@@ -520,8 +636,23 @@ int rt_mutex_inquire(RT_MUTEX *mutex, RT_MUTEX_INFO *info)
 	}
 
 	strcpy(info->name, mutex->name);
-	info->lockcnt = mutex->lockcnt;
 	info->nwaiters = xnsynch_nsleepers(&mutex->synch_base);
+
+#ifndef CONFIG_XENO_FASTSYNCH
+	owner = xnsynch_owner(&mutex->synch_base);
+#else /* CONFIG_XENO_FASTSYNCH */
+	lock_state = xnarch_atomic_get(mutex->synch_base.fastlock);
+	info->locked = (lock_state != XN_NO_HANDLE);
+	owner = (info->locked) ?
+		xnthread_lookup(xnsynch_fast_mask_claimed(lock_state)) : NULL;
+	if (!owner && info->locked)
+		strcpy(info->owner, "<DAMAGED HANDLE!>");
+	else
+#endif /* CONFIG_XENO_FASTSYNCH */
+	if (owner)
+		strcpy(info->owner, xnthread_name(owner));
+	else
+		info->owner[0] = 0;
 
       unlock_and_exit:
 
@@ -568,8 +699,8 @@ int rt_mutex_inquire(RT_MUTEX *mutex, RT_MUTEX_INFO *info)
  * the specified amount of time.
  *
  * - -EPERM is returned if this service should block, but was called
- * from a context which cannot sleep (e.g. interrupt, non-realtime or
- * scheduler locked).
+ * from a context which cannot sleep (e.g. interrupt, non-realtime
+ * context).
  *
  * Environments:
  *
@@ -619,5 +750,6 @@ void __native_mutex_pkg_cleanup(void)
 EXPORT_SYMBOL(rt_mutex_create);
 EXPORT_SYMBOL(rt_mutex_delete);
 EXPORT_SYMBOL(rt_mutex_acquire);
+EXPORT_SYMBOL(rt_mutex_acquire_until);
 EXPORT_SYMBOL(rt_mutex_release);
 EXPORT_SYMBOL(rt_mutex_inquire);

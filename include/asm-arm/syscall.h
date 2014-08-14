@@ -49,6 +49,7 @@
 #define __xn_reg_arg3(regs)     ((regs)->ARM_r3)
 #define __xn_reg_arg4(regs)     ((regs)->ARM_r4)
 #define __xn_reg_arg5(regs)     ((regs)->ARM_r5)
+#define __xn_reg_sigp(regs)     ((regs)->ARM_r6)
 
 /* In OABI_COMPAT mode, handle both OABI and EABI userspace syscalls */
 #ifdef CONFIG_OABI_COMPAT
@@ -60,21 +61,6 @@
 
 #define __xn_mux_id(regs)       ((__xn_reg_mux(regs) >> 16) & 0xff)
 #define __xn_mux_op(regs)       ((__xn_reg_mux(regs) >> 24) & 0xff)
-
-/* Our own set of copy-to/from-user macros which must bypass
-   might_sleep() checks. The caller cannot fault and is expected to
-   have checked for bad range before using the copy macros, so we
-   should not have to care about the result. */
-#define __xn_copy_from_user(task,dstP,srcP,n)  \
-    ({ int __err__ = __copy_from_user_inatomic(dstP,srcP,n); __err__; })
-#define __xn_copy_to_user(task,dstP,srcP,n)  \
-    ({ int __err__ = __copy_to_user_inatomic(dstP,srcP,n); __err__; })
-#define __xn_put_user(task,src,dstP)                __put_user(src,dstP)
-#define __xn_get_user(task,dst,srcP)                __get_user(dst,srcP)
-#define __xn_strncpy_from_user(task,dstP,srcP,n)    \
-  ({ int __err__ = __strncpy_from_user(dstP,srcP,n); __err__; })
-
-#define __xn_access_ok(task,type,addr,size)         wrap_range_ok(task,addr,size)
 
 /* Purposedly used inlines and not macros for the following routines
    so that we don't risk spurious side-effects on the value arg. */
@@ -101,6 +87,8 @@ static inline int __xn_interrupted_p(struct pt_regs *regs)
 
 #else /* !__KERNEL__ */
 
+#include <errno.h>		/* For -ERESTART */
+
 /*
  * Some of the following macros have been adapted from Linux's
  * implementation of the syscall mechanism in <asm-arm/unistd.h>:
@@ -114,32 +102,33 @@ static inline int __xn_interrupted_p(struct pt_regs *regs)
 #error __thread is too buggy with gcc 4.3 and later, please do not pass --with-__thread to configure
 #endif
 
-#define LOADARGS_0(muxcode, dummy...)		\
-	__a0 = (unsigned long) (muxcode)
-#define LOADARGS_1(muxcode, arg1)		\
-	LOADARGS_0(muxcode);			\
+#define LOADARGS_0(muxcode, sigp, dummy...)	\
+	__a0 = (unsigned long) (muxcode);	\
+	__a6 = (unsigned long) (sigp)
+#define LOADARGS_1(muxcode, sigp, arg1)		\
+	LOADARGS_0(muxcode, sigp);		\
 	__a1 = (unsigned long) (arg1)
-#define LOADARGS_2(muxcode, arg1, arg2)       	\
-	LOADARGS_1(muxcode, arg1);		\
+#define LOADARGS_2(muxcode, sigp, arg1, arg2)	\
+	LOADARGS_1(muxcode, sigp, arg1);	\
 	__a2 = (unsigned long) (arg2)
-#define LOADARGS_3(muxcode, arg1, arg2, arg3) 	\
-	LOADARGS_2(muxcode, arg1, arg2);	\
+#define LOADARGS_3(muxcode, sigp, arg1, arg2, arg3) 	\
+	LOADARGS_2(muxcode, sigp, arg1, arg2);		\
 	__a3 = (unsigned long) (arg3)
-#define LOADARGS_4(muxcode, arg1, arg2, arg3, arg4)	\
-	LOADARGS_3(muxcode, arg1, arg2, arg3);		\
+#define LOADARGS_4(muxcode, sigp, arg1, arg2, arg3, arg4)	\
+	LOADARGS_3(muxcode, sigp, arg1, arg2, arg3);		\
 	__a4 = (unsigned long) (arg4)
-#define LOADARGS_5(muxcode, arg1, arg2, arg3, arg4, arg5)	\
-	LOADARGS_4(muxcode, arg1, arg2, arg3, arg4);	    	\
+#define LOADARGS_5(muxcode, sigp, arg1, arg2, arg3, arg4, arg5)	\
+	LOADARGS_4(muxcode, sigp, arg1, arg2, arg3, arg4);	\
 	__a5 = (unsigned long) (arg5)
 
-#define CLOBBER_REGS_0 "r0"
+#define CLOBBER_REGS_0 "r0", "r6"
 #define CLOBBER_REGS_1 CLOBBER_REGS_0, "r1"
 #define CLOBBER_REGS_2 CLOBBER_REGS_1, "r2"
 #define CLOBBER_REGS_3 CLOBBER_REGS_2, "r3"
 #define CLOBBER_REGS_4 CLOBBER_REGS_3, "r4"
 #define CLOBBER_REGS_5 CLOBBER_REGS_4, "r5"
 
-#define LOADREGS_0 __r0 = __a0
+#define LOADREGS_0 __r0 = __a0; __r6 = __a6
 #define LOADREGS_1 LOADREGS_0; __r1 = __a1
 #define LOADREGS_2 LOADREGS_1; __r2 = __a2
 #define LOADREGS_3 LOADREGS_2; __r3 = __a3
@@ -147,7 +136,8 @@ static inline int __xn_interrupted_p(struct pt_regs *regs)
 #define LOADREGS_5 LOADREGS_4; __r5 = __a5
 
 #define ASM_INDECL_0							\
-	unsigned long __a0; register unsigned long __r0  __asm__ ("r0")
+	unsigned long __a0; register unsigned long __r0  __asm__ ("r0"); \
+	unsigned long __a6; register unsigned long __r6  __asm__ ("r6")
 #define ASM_INDECL_1 ASM_INDECL_0;					\
 	unsigned long __a1; register unsigned long __r1  __asm__ ("r1")
 #define ASM_INDECL_2 ASM_INDECL_1;					\
@@ -159,7 +149,7 @@ static inline int __xn_interrupted_p(struct pt_regs *regs)
 #define ASM_INDECL_5 ASM_INDECL_4;					\
 	unsigned long __a5; register unsigned long __r5  __asm__ ("r5")
 
-#define ASM_INPUT_0 "0" (__r0)
+#define ASM_INPUT_0 "0" (__r0), "r" (__r6)
 #define ASM_INPUT_1 ASM_INPUT_0, "r" (__r1)
 #define ASM_INPUT_2 ASM_INPUT_1, "r" (__r2)
 #define ASM_INPUT_3 ASM_INPUT_2, "r" (__r3)
@@ -184,7 +174,7 @@ static inline int __xn_interrupted_p(struct pt_regs *regs)
 #define __xn_syscall "swi\t" __sys1(__NR_OABI_SYSCALL_BASE + XENO_ARM_SYSCALL) ""
 #endif
 
-#define XENOMAI_DO_SYSCALL(nr, shifted_id, op, args...)			\
+#define XENOMAI_DO_SYSCALL_INNER(nr, shifted_id, op, args...)		\
 	({								\
 		ASM_INDECL_##nr;					\
 		__SYS_REG_DECL;						\
@@ -201,6 +191,20 @@ static inline int __xn_interrupted_p(struct pt_regs *regs)
 		(int) __r0;						\
 	})
 
+#define XENOMAI_DO_SYSCALL(nr, shifted_id, op, args...)			\
+	({								\
+		int err, res = -ERESTART;				\
+		struct xnsig sigs;					\
+									\
+		do {							\
+			sigs.nsigs = 0;					\
+			err = XENOMAI_DO_SYSCALL_INNER(nr, shifted_id,	\
+						       op, &sigs, args); \
+			res = xnsig_dispatch(&sigs, res, err);		\
+		} while (res == -ERESTART);				\
+		res;							\
+	})
+
 #define XENOMAI_SYSCALL0(op)			\
 	XENOMAI_DO_SYSCALL(0,0,op)
 #define XENOMAI_SYSCALL1(op,a1)			\
@@ -215,6 +219,8 @@ static inline int __xn_interrupted_p(struct pt_regs *regs)
 	XENOMAI_DO_SYSCALL(5,0,op,a1,a2,a3,a4,a5)
 #define XENOMAI_SYSBIND(a1,a2,a3,a4)				\
 	XENOMAI_DO_SYSCALL(4,0,__xn_sys_bind,a1,a2,a3,a4)
+#define XENOMAI_SYSSIGS(sigs)						\
+	XENOMAI_DO_SYSCALL_INNER(0, 0, __xn_sys_get_next_sigs, sigs)
 
 #define XENOMAI_SKINCALL0(id,op)		\
 	XENOMAI_DO_SYSCALL(0,id,op)
@@ -229,9 +235,9 @@ static inline int __xn_interrupted_p(struct pt_regs *regs)
 #define XENOMAI_SKINCALL5(id,op,a1,a2,a3,a4,a5)		\
 	XENOMAI_DO_SYSCALL(5,id,op,a1,a2,a3,a4,a5)
 
-#ifdef CONFIG_XENO_ARM_HW_DIRECT_TSC
-#define CONFIG_XENO_HW_DIRECT_TSC
-#endif /* CONFIG_XENO_ARM_HW_DIRECT_TSC */
+#ifdef XNARCH_ARM_TSC_TYPE
+#define XNARCH_HAVE_NONPRIV_TSC  1
+#endif /* XNARCH_ARM_TSC_TYPE */
 
 #endif /* __KERNEL__ */
 
@@ -239,6 +245,7 @@ static inline int __xn_interrupted_p(struct pt_regs *regs)
 #define XENOMAI_SYSARCH_ATOMIC_SET_MASK		1
 #define XENOMAI_SYSARCH_ATOMIC_CLEAR_MASK	2
 #define XENOMAI_SYSARCH_XCHG			3
+#define XENOMAI_SYSARCH_TSCINFO                 4
 
 struct __xn_tscinfo {
         int type;		/* Must remain first member */
@@ -256,12 +263,11 @@ struct __xn_tscinfo {
                 } dec;
         } u;
 };
-#define __XN_TSC_TYPE_NONE        0
-#define __XN_TSC_TYPE_FREERUNNING 1
-#define __XN_TSC_TYPE_DECREMENTER 2
+#define __XN_TSC_TYPE_NONE                  0
+#define __XN_TSC_TYPE_FREERUNNING           1
+#define __XN_TSC_TYPE_DECREMENTER           2
 #define __XN_TSC_TYPE_FREERUNNING_FAST_WRAP 3
-
-#define XENOMAI_SYSARCH_TSCINFO                 4
+#define __XN_TSC_TYPE_FREERUNNING_COUNTDOWN 4
 
 #ifndef __KERNEL__
 #include <stdio.h>
@@ -274,17 +280,17 @@ struct __xn_tscinfo {
 #include <limits.h>
 
 __attribute__((weak)) struct __xn_tscinfo __xn_tscinfo = {
-	type: -1
+  type: -1
 };
 
-#ifdef CONFIG_XENO_ARM_HW_DIRECT_TSC
+#ifdef XNARCH_ARM_TSC_TYPE
 static inline unsigned long long __xn_rdtsc(void)
 {
-#if CONFIG_XENO_ARM_HW_DIRECT_TSC == __XN_TSC_TYPE_FREERUNNING
+#if XNARCH_ARM_TSC_TYPE == __XN_TSC_TYPE_FREERUNNING
 	volatile unsigned long long *const tscp = __xn_tscinfo.u.fr.tsc;
 	volatile unsigned *const counterp = __xn_tscinfo.u.fr.counter;
         const unsigned mask = __xn_tscinfo.u.fr.mask;
-        unsigned long long result;
+	register unsigned long long result;
         unsigned counter;
 
         __asm__ ("ldmia %1, %M0\n": "=r"(result): "r"(tscp), "m"(*tscp));
@@ -294,7 +300,21 @@ static inline unsigned long long __xn_rdtsc(void)
         if ((counter & mask) < ((unsigned) result & mask))
                 result += mask + 1ULL;
         return (result & ~((unsigned long long) mask)) | (counter & mask);
-#elif CONFIG_XENO_ARM_HW_DIRECT_TSC == __XN_TSC_TYPE_FREERUNNING_FAST_WRAP
+#elif XNARCH_ARM_TSC_TYPE == __XN_TSC_TYPE_FREERUNNING_COUNTDOWN
+	volatile unsigned long long *const tscp = __xn_tscinfo.u.fr.tsc;
+	volatile unsigned *const counterp = __xn_tscinfo.u.fr.counter;
+        const unsigned mask = __xn_tscinfo.u.fr.mask;
+	register unsigned long long result;
+        unsigned counter;
+
+        __asm__ ("ldmia %1, %M0\n": "=r"(result): "r"(tscp), "m"(*tscp));
+        __asm__ __volatile__ ("" : /* */ : /* */ : "memory");
+        counter = mask - *counterp;
+
+        if ((counter & mask) > ((unsigned) result & mask))
+                result += mask + 1ULL;
+        return (result & ~((unsigned long long) mask)) | (counter & mask);
+#elif XNARCH_ARM_TSC_TYPE == __XN_TSC_TYPE_FREERUNNING_FAST_WRAP
 	volatile unsigned long long *const tscp = __xn_tscinfo.u.fr.tsc;
 	volatile unsigned *const counterp = __xn_tscinfo.u.fr.counter;
 	const unsigned mask = __xn_tscinfo.u.fr.mask;
@@ -312,19 +332,22 @@ static inline unsigned long long __xn_rdtsc(void)
 		before += mask + 1;
 	return (before & ~((unsigned long long) mask)) | (counter & mask);
 
-#elif CONFIG_XENO_ARM_HW_DIRECT_TSC == __XN_TSC_TYPE_DECREMENTER
+#elif XNARCH_ARM_TSC_TYPE == __XN_TSC_TYPE_DECREMENTER
+	volatile unsigned long long *const tscp = __xn_tscinfo.u.dec.tsc;
+	volatile unsigned *const counterp = __xn_tscinfo.u.dec.counter;
+	volatile unsigned *const last_cntp = __xn_tscinfo.u.dec.last_cnt;
 	const unsigned mask = __xn_tscinfo.u.dec.mask;
-	unsigned long long after, before;
+	register unsigned long long after, before;
 	unsigned counter, last_cnt;
 
+	__asm__ ("ldmia %1, %M0\n": "=r"(after): "r"(tscp), "m"(*tscp));
 	do {
-		before = *__xn_tscinfo.u.dec.tsc;
-		counter = *__xn_tscinfo.u.dec.counter;
-		last_cnt = *__xn_tscinfo.u.dec.last_cnt;
+		before = after;
+		counter = *counterp;
+		last_cnt = *last_cntp;
 		/* compiler barrier. */
 		__asm__ __volatile__ ("" : /* */ : /* */ : "memory");
-
-		after = *__xn_tscinfo.u.dec.tsc;
+		__asm__ ("ldmia %1, %M0\n": "=r"(after): "r"(tscp), "m"(*tscp));
 	} while (after != before);
 
 	counter &= mask;
@@ -333,13 +356,13 @@ static inline unsigned long long __xn_rdtsc(void)
 		before += mask + 1ULL;
 	return (before + last_cnt - counter);
 
-#endif /* CONFIG_XENO_HW_DIRECT_TSC == __XN_TSC_TYPE_DECREMENTER */
+#endif /* XNARCH_ARM_TSC_TYPE == __XN_TSC_TYPE_DECREMENTER */
 }
-#endif /* CONFIG_XENO_ARM_HW_DIRECT_TSC */
+#endif /* XNARCH_ARM_TSC_TYPE */
 
 static inline void xeno_arm_features_check(void)
 {
-#ifdef CONFIG_XENO_ARM_HW_DIRECT_TSC
+#ifdef XNARCH_ARM_TSC_TYPE
 	unsigned page_size;
 	int err, fd;
 	void *addr;
@@ -365,9 +388,11 @@ static inline void xeno_arm_features_check(void)
 	page_size = sysconf(_SC_PAGESIZE);
 
 	switch(__xn_tscinfo.type) {
-#if CONFIG_XENO_ARM_HW_DIRECT_TSC == __XN_TSC_TYPE_FREERUNNING		\
-	|| CONFIG_XENO_ARM_HW_DIRECT_TSC == __XN_TSC_TYPE_FREERUNNING_FAST_WRAP
-	case __XN_TSC_TYPE_FREERUNNING: {
+#if XNARCH_ARM_TSC_TYPE == __XN_TSC_TYPE_FREERUNNING			\
+	|| XNARCH_ARM_TSC_TYPE == __XN_TSC_TYPE_FREERUNNING_COUNTDOWN	\
+	|| XNARCH_ARM_TSC_TYPE == __XN_TSC_TYPE_FREERUNNING_FAST_WRAP
+	case __XN_TSC_TYPE_FREERUNNING:
+	case __XN_TSC_TYPE_FREERUNNING_COUNTDOWN: {
 		unsigned long phys_addr;
 
 		phys_addr = (unsigned long) __xn_tscinfo.u.fr.counter;
@@ -381,7 +406,7 @@ static inline void xeno_arm_features_check(void)
 		__xn_tscinfo.u.fr.counter = 
 			((volatile unsigned *)
 			 ((char *) addr + (phys_addr & (page_size - 1))));
-#if CONFIG_XENO_ARM_HW_DIRECT_TSC == __XN_TSC_TYPE_FREERUNNING_FAST_WRAP
+#if XNARCH_ARM_TSC_TYPE == __XN_TSC_TYPE_FREERUNNING_FAST_WRAP
 		if (__xn_tscinfo.u.fr.mask >= ((1 << 28) - 1)) {
 			fprintf(stderr, "Hardware tsc is not a fast wrapping"
 				" one, select the correct platform, or fix\n"
@@ -391,7 +416,7 @@ static inline void xeno_arm_features_check(void)
 #endif /* __XN_TSC_TYPE_FREERUNNING_FAST_WRAP */
 		break;
 	}
-#elif CONFIG_XENO_ARM_HW_DIRECT_TSC == __XN_TSC_TYPE_DECREMENTER
+#elif XNARCH_ARM_TSC_TYPE == __XN_TSC_TYPE_DECREMENTER
 	case __XN_TSC_TYPE_DECREMENTER: {
 		unsigned long phys_addr;
 
@@ -408,7 +433,7 @@ static inline void xeno_arm_features_check(void)
 			 ((char *) addr + (phys_addr & (page_size - 1))));
 		break;
 	}
-#endif /* CONFIG_XENO_ARM_HW_DIRECT_TSC == __XN_TSC_TYPE_DECREMENTER */
+#endif /* XNARCH_ARM_TSC_TYPE == __XN_TSC_TYPE_DECREMENTER */
 	case __XN_TSC_TYPE_NONE:
 		goto error;
 		
@@ -422,7 +447,7 @@ static inline void xeno_arm_features_check(void)
 		perror("Xenomai init: close(/dev/mem)");
 		exit(EXIT_FAILURE);
 	}
-#endif /* CONFIG_XENO_ARM_HW_DIRECT_TSC */
+#endif /* XNARCH_ARM_TSC_TYPE */
 }
 #define xeno_arch_features_check() xeno_arm_features_check()
 

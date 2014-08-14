@@ -45,7 +45,7 @@
 #include <native/task.h>
 #include <native/event.h>
 
-#ifdef CONFIG_XENO_EXPORT_REGISTRY
+#ifdef CONFIG_PROC_FS
 
 static int __event_read_proc(char *page,
 			     char **start,
@@ -108,14 +108,14 @@ static xnpnode_t __event_pnode = {
 	.root = &__native_ptree,
 };
 
-#elif defined(CONFIG_XENO_OPT_REGISTRY)
+#else /* !CONFIG_PROC_FS */
 
 static xnpnode_t __event_pnode = {
 
 	.type = "events"
 };
 
-#endif /* CONFIG_XENO_EXPORT_REGISTRY */
+#endif /* !CONFIG_PROC_FS */
 
 /**
  * @fn int rt_event_create(RT_EVENT *event,const char *name,unsigned long ivalue,int mode)
@@ -183,7 +183,7 @@ int rt_event_create(RT_EVENT *event,
 	if (xnpod_asynch_p())
 		return -EPERM;
 
-	xnsynch_init(&event->synch_base, mode & EV_PRIO);
+	xnsynch_init(&event->synch_base, mode & EV_PRIO, NULL);
 	event->value = ivalue;
 	event->handle = 0;	/* i.e. (still) unregistered event. */
 	event->magic = XENO_EVENT_MAGIC;
@@ -198,30 +198,18 @@ int rt_event_create(RT_EVENT *event,
 	event->cpid = 0;
 #endif /* CONFIG_XENO_OPT_PERVASIVE */
 
-#ifdef CONFIG_XENO_OPT_REGISTRY
-	/* <!> Since xnregister_enter() may reschedule, only register
-	   complete objects, so that the registry cannot return handles to
-	   half-baked objects... */
-
+	/*
+	 * <!> Since xnregister_enter() may reschedule, only register
+	 * complete objects, so that the registry cannot return
+	 * handles to half-baked objects...
+	 */
 	if (name) {
-		xnpnode_t *pnode = &__event_pnode;
-
-		if (!*name) {
-			/* Since this is an anonymous object (empty name on entry)
-			   from user-space, it gets registered under an unique
-			   internal name but is not exported through /proc. */
-			xnobject_create_name(event->name, sizeof(event->name),
-					     (void *)event);
-			pnode = NULL;
-		}
-
-		err =
-		    xnregistry_enter(event->name, event, &event->handle, pnode);
+		err = xnregistry_enter(event->name, event, &event->handle,
+				       &__event_pnode);
 
 		if (err)
 			rt_event_delete(event);
 	}
-#endif /* CONFIG_XENO_OPT_REGISTRY */
 
 	return err;
 }
@@ -278,10 +266,8 @@ int rt_event_delete(RT_EVENT *event)
 
 	rc = xnsynch_destroy(&event->synch_base);
 
-#ifdef CONFIG_XENO_OPT_REGISTRY
 	if (event->handle)
 		xnregistry_remove(event->handle);
-#endif /* CONFIG_XENO_OPT_REGISTRY */
 
 	xeno_mark_deleted(event);
 
@@ -377,6 +363,78 @@ int rt_event_signal(RT_EVENT *event, unsigned long mask)
 	return err;
 }
 
+int rt_event_wait_inner(RT_EVENT *event,
+			unsigned long mask,
+			unsigned long *mask_r,
+			int mode, xntmode_t timeout_mode, RTIME timeout)
+{
+	RT_TASK *task;
+	xnflags_t info;
+	int err = 0;
+	spl_t s;
+
+	xnlock_get_irqsave(&nklock, s);
+
+	event = xeno_h2obj_validate(event, XENO_EVENT_MAGIC, RT_EVENT);
+
+	if (!event) {
+		err = xeno_handle_error(event, XENO_EVENT_MAGIC, RT_EVENT);
+		goto unlock_and_exit;
+	}
+
+	if (!mask) {
+		*mask_r = event->value;
+		goto unlock_and_exit;
+	}
+
+	if (timeout == TM_NONBLOCK) {
+		unsigned long bits = (event->value & mask);
+		*mask_r = bits;
+
+		if (mode & EV_ANY) {
+			if (!bits)
+				err = -EWOULDBLOCK;
+		} else if (bits != mask)
+			err = -EWOULDBLOCK;
+
+		goto unlock_and_exit;
+	}
+
+	if (((mode & EV_ANY) && (mask & event->value) != 0) ||
+	    (!(mode & EV_ANY) && ((mask & event->value) == mask))) {
+		*mask_r = (event->value & mask);
+		goto unlock_and_exit;
+	}
+
+	if (xnpod_unblockable_p()) {
+		err = -EPERM;
+		goto unlock_and_exit;
+	}
+
+	task = xeno_current_task();
+	task->wait_args.event.mode = mode;
+	task->wait_args.event.mask = mask;
+	info = xnsynch_sleep_on(&event->synch_base,
+				timeout, timeout_mode);
+	if (info & XNRMID)
+		err = -EIDRM;	/* Event group deleted while pending. */
+	else if (info & XNTIMEO)
+		err = -ETIMEDOUT;	/* Timeout. */
+	else if (info & XNBREAK)
+		err = -EINTR;	/* Unblocked. */
+	/*
+	 * The returned mask is only significant if the operation has
+	 * succeeded, but do always write it back anyway.
+	 */
+	*mask_r = task->wait_args.event.mask;
+
+      unlock_and_exit:
+
+	xnlock_put_irqrestore(&nklock, s);
+
+	return err;
+}
+
 /**
  * @fn int rt_event_wait(RT_EVENT *event,unsigned long mask,unsigned long *mask_r,int mode,RTIME timeout)
  * @brief Pend on an event group.
@@ -435,8 +493,8 @@ int rt_event_signal(RT_EVENT *event, unsigned long mask)
  * within the specified amount of time.
  *
  * - -EPERM is returned if this service should block, but was called
- * from a context which cannot sleep (e.g. interrupt, non-realtime or
- * scheduler locked).
+ * from a context which cannot sleep (e.g. interrupt, non-realtime
+ * context).
  *
  * Environments:
  *
@@ -459,68 +517,93 @@ int rt_event_wait(RT_EVENT *event,
 		  unsigned long mask,
 		  unsigned long *mask_r, int mode, RTIME timeout)
 {
-	RT_TASK *task;
-	int err = 0;
-	spl_t s;
+	return rt_event_wait_inner(event, mask, mask_r, mode, XN_RELATIVE, timeout);
+}
 
-	xnlock_get_irqsave(&nklock, s);
+/**
+ * @fn int rt_event_wait_until(RT_EVENT *event,unsigned long mask,unsigned long *mask_r,int mode,RTIME timeout)
+ * @brief Pend on an event group (with absolute timeout date).
+ *
+ * Waits for one or more events on the specified event group, either
+ * in conjunctive or disjunctive mode.
 
-	event = xeno_h2obj_validate(event, XENO_EVENT_MAGIC, RT_EVENT);
+ * If the specified set of bits is not set, the calling task is
+ * blocked. The task is not resumed until the request is fulfilled.
+ * The event bits are NOT cleared from the event group when a request
+ * is satisfied; rt_event_wait() will return immediately with success
+ * for the same event mask until rt_event_clear() is called to clear
+ * those bits.
+ *
+ * @param event The descriptor address of the affected event group.
+ *
+ * @param mask The set of bits to wait for. Passing zero causes this
+ * service to return immediately with a success value; the current
+ * value of the event mask is also copied to @a mask_r.
+ *
+ * @param mask_r The value of the event mask at the time the task was
+ * readied.
+ *
+ * @param mode The pend mode. The following flags can be OR'ed into
+ * this bitmask, each of them affecting the operation:
+ *
+ * - EV_ANY makes the task pend in disjunctive mode (i.e. OR); this
+ * means that the request is fulfilled when at least one bit set into
+ * @a mask is set in the current event mask.
+ *
+ * - EV_ALL makes the task pend in conjunctive mode (i.e. AND); this
+ * means that the request is fulfilled when at all bits set into @a
+ * mask are set in the current event mask.
+ *
+ * @param timeout The absolute date specifying a time limit to wait
+ * for fulfilling the request (see note). Passing TM_INFINITE causes
+ * the caller to block indefinitely until the request is
+ * fulfilled. Passing TM_NONBLOCK causes the service to return
+ * immediately without waiting if the request cannot be satisfied
+ * immediately.
+ *
+ * @return 0 is returned upon success. Otherwise:
+ *
+ * - -EINVAL is returned if @a event is not a event group descriptor.
+ *
+ * - -EIDRM is returned if @a event is a deleted event group
+ * descriptor, including if the deletion occurred while the caller was
+ * sleeping on it before the request has been satisfied.
+ *
+ * - -EWOULDBLOCK is returned if @a timeout is equal to TM_NONBLOCK
+ * and the current event mask value does not satisfy the request.
+ *
+ * - -EINTR is returned if rt_task_unblock() has been called for the
+ * waiting task before the request has been satisfied.
+ *
+ * - -ETIMEDOUT is returned if the absolute @a timeout date is reached
+ * before the request is satisfied.
+ *
+ * - -EPERM is returned if this service should block, but was called
+ * from a context which cannot sleep (e.g. interrupt, non-realtime
+ * context).
+ *
+ * Environments:
+ *
+ * This service can be called from:
+ *
+ * - Kernel module initialization/cleanup code or Interrupt service
+ * routine only if @a timeout is equal to TM_NONBLOCK.
+ * - Kernel-based task
+ * - User-space task (switches to primary mode)
+ *
+ * Rescheduling: always unless the request is immediately satisfied or
+ * @a timeout specifies a non-blocking operation.
+ *
+ * @note The @a timeout value will be interpreted as jiffies if the
+ * native skin is bound to a periodic time base (see
+ * CONFIG_XENO_OPT_NATIVE_PERIOD), or nanoseconds otherwise.
+ */
 
-	if (!event) {
-		err = xeno_handle_error(event, XENO_EVENT_MAGIC, RT_EVENT);
-		goto unlock_and_exit;
-	}
-
-	if (!mask) {
-		*mask_r = event->value;
-		goto unlock_and_exit;
-	}
-
-	if (timeout == TM_NONBLOCK) {
-		unsigned long bits = (event->value & mask);
-		*mask_r = bits;
-
-		if (mode & EV_ANY) {
-			if (!bits)
-				err = -EWOULDBLOCK;
-		} else if (bits != mask)
-			err = -EWOULDBLOCK;
-
-		goto unlock_and_exit;
-	}
-
-	if (((mode & EV_ANY) && (mask & event->value) != 0) ||
-	    (!(mode & EV_ANY) && ((mask & event->value) == mask))) {
-		*mask_r = (event->value & mask);
-		goto unlock_and_exit;
-	}
-
-	if (xnpod_unblockable_p()) {
-		err = -EPERM;
-		goto unlock_and_exit;
-	}
-
-	task = xeno_current_task();
-	task->wait_args.event.mode = mode;
-	task->wait_args.event.mask = mask;
-	xnsynch_sleep_on(&event->synch_base, timeout, XN_RELATIVE);
-	/* The returned mask is only significant if the operation has
-	   succeeded, but do always write it back anyway. */
-	*mask_r = task->wait_args.event.mask;
-
-	if (xnthread_test_info(&task->thread_base, XNRMID))
-		err = -EIDRM;	/* Event group deleted while pending. */
-	else if (xnthread_test_info(&task->thread_base, XNTIMEO))
-		err = -ETIMEDOUT;	/* Timeout. */
-	else if (xnthread_test_info(&task->thread_base, XNBREAK))
-		err = -EINTR;	/* Unblocked. */
-
-      unlock_and_exit:
-
-	xnlock_put_irqrestore(&nklock, s);
-
-	return err;
+int rt_event_wait_until(RT_EVENT *event,
+		  unsigned long mask,
+		  unsigned long *mask_r, int mode, RTIME timeout)
+{
+	return rt_event_wait_inner(event, mask, mask_r, mode, XN_REALTIME, timeout);
 }
 
 /**
@@ -678,8 +761,8 @@ int rt_event_inquire(RT_EVENT *event, RT_EVENT_INFO *info)
  * the specified amount of time.
  *
  * - -EPERM is returned if this service should block, but was called
- * from a context which cannot sleep (e.g. interrupt, non-realtime or
- * scheduler locked).
+ * from a context which cannot sleep (e.g. interrupt, non-realtime
+ * context).
  *
  * Environments:
  *
@@ -732,5 +815,6 @@ EXPORT_SYMBOL(rt_event_create);
 EXPORT_SYMBOL(rt_event_delete);
 EXPORT_SYMBOL(rt_event_signal);
 EXPORT_SYMBOL(rt_event_wait);
+EXPORT_SYMBOL(rt_event_wait_until);
 EXPORT_SYMBOL(rt_event_clear);
 EXPORT_SYMBOL(rt_event_inquire);

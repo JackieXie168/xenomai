@@ -7,10 +7,11 @@ SUBDIRS = \
 	asm-generic \
 	asm-blackfin \
 	asm-x86 \
-	asm-ia64 \
 	asm-powerpc \
 	asm-arm \
+	asm-nios2 \
 	asm-sim \
+	analogy \
 	native \
 	nucleus \
 	posix \
@@ -40,4 +41,4 @@ uninstall-local:
 dist-hook:
 	find $(distdir)/compat -name .svn -depth -exec rm -fr \{\} \;
 
-EXTRA_DIST = compat
+EXTRA_DIST = compat testing
