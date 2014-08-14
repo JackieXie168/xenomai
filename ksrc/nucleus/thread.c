@@ -42,14 +42,23 @@ static void xnthread_periodic_handler(xntimer_t *timer)
 }
 
 int xnthread_init(xnthread_t *thread,
+		  xntbase_t *tbase,
 		  const char *name,
-		  int prio, xnflags_t flags, unsigned stacksize)
+		  int prio, xnflags_t flags, unsigned stacksize,
+		  xnthrops_t *ops)
 {
 	int err;
 
-	xntimer_init(&thread->rtimer, &xnthread_timeout_handler);
+	if (name)
+		xnobject_copy_name(thread->name, name);
+	else
+		snprintf(thread->name, sizeof(thread->name), "%p", thread);
+
+	xntimer_init(&thread->rtimer, tbase, xnthread_timeout_handler);
+	xntimer_set_name(&thread->rtimer, thread->name);
 	xntimer_set_priority(&thread->rtimer, XNTIMER_HIPRIO);
-	xntimer_init(&thread->ptimer, &xnthread_periodic_handler);
+	xntimer_init(&thread->ptimer, tbase, xnthread_periodic_handler);
+	xntimer_set_name(&thread->ptimer, thread->name);
 	xntimer_set_priority(&thread->ptimer, XNTIMER_HIPRIO);
 
 	/* Setup the TCB. */
@@ -82,8 +91,6 @@ int xnthread_init(xnthread_t *thread,
 	thread->rrperiod = XN_INFINITE;
 	thread->rrcredit = XN_INFINITE;
 	thread->wchan = NULL;
- 	thread->wwake = NULL;
-	thread->magic = 0;
 	thread->errcode = 0;
 #ifdef CONFIG_XENO_OPT_REGISTRY
 	thread->registry.handle = XN_NO_HANDLE;
@@ -96,21 +103,16 @@ int xnthread_init(xnthread_t *thread,
 	thread->imode = 0;
 	thread->entry = NULL;
 	thread->cookie = 0;
-	thread->stime = 0;
-
-	if (name)
-		xnobject_copy_name(thread->name, name);
-	else
-		snprintf(thread->name, sizeof(thread->name), "%p", thread);
+	thread->ops = ops;
 
 	inith(&thread->glink);
 	initph(&thread->rlink);
 	initph(&thread->plink);
-#if !defined(CONFIG_XENO_OPT_RPIDISABLE) && defined(CONFIG_XENO_OPT_PERVASIVE)
+#ifdef CONFIG_XENO_OPT_PRIOCPL
 	initph(&thread->xlink);
 	thread->rpi = NULL;
-#endif /* !CONFIG_XENO_OPT_RPIDISABLE && CONFIG_XENO_OPT_PERVASIVE */
-	initpq(&thread->claimq, xnpod_get_qdir(nkpod));
+#endif /* CONFIG_XENO_OPT_PRIOCPL */
+	initpq(&thread->claimq);
 
 	xnarch_init_display_context(thread);
 
@@ -126,7 +128,6 @@ void xnthread_cleanup_tcb(xnthread_t *thread)
 #ifdef CONFIG_XENO_OPT_REGISTRY
 	thread->registry.handle = XN_NO_HANDLE;
 #endif /* CONFIG_XENO_OPT_REGISTRY */
-	thread->magic = 0;
 }
 
 char *xnthread_symbolic_status(xnflags_t status, char *buf, int size)
@@ -198,13 +199,13 @@ int *xnthread_get_errno_location(void)
 {
 	static int fallback_errno;
 
-	if (unlikely(!nkpod))
+	if (unlikely(!xnpod_active_p()))
 		goto fallback;
 
-#if defined(__KERNEL__) && defined(CONFIG_XENO_OPT_PERVASIVE)
+#ifdef CONFIG_XENO_OPT_PERVASIVE
 	if (likely(xnpod_userspace_p()))
 		return &xnshadow_errno(current);
-#endif /* __KERNEL__ && CONFIG_XENO_OPT_PERVASIVE */
+#endif /* CONFIG_XENO_OPT_PERVASIVE */
 
 	if (likely(xnpod_primary_p()))
 		return &xnpod_current_thread()->errcode;

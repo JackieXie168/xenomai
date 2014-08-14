@@ -1,7 +1,7 @@
 /*
  * Copyright (C) 2001,2002 IDEALX (http://www.idealx.com/).
  * Written by Gilles Chanteperdrix <gilles.chanteperdrix@laposte.net>.
- * Copyright (C) 2003 Philippe Gerum <rpm@xenomai.org>.
+ * Copyright (C) 2003,2007 Philippe Gerum <rpm@xenomai.org>.
  *
  * Xenomai is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -24,6 +24,7 @@
 #include <nucleus/xenomai.h>
 #include <nucleus/registry.h>
 #include <vxworks/vxworks.h>
+#include <vxworks/ppd.h>
 
 #define WIND_MAGIC(n) (0x8383##n##n)
 #define WIND_TASK_MAGIC WIND_MAGIC(01)
@@ -126,11 +127,7 @@ typedef struct wind_tcb wind_task_t;
 
 typedef struct wind_wd {
 
-    unsigned magic;   /* Magic code - must be first */
-
-    xnholder_t link;
-
-#define link2wind_wd(ln) container_of(ln, wind_wd_t, link)
+    unsigned magic;		/* Magic code - must be first */
 
     xntimer_t timerbase;
 
@@ -142,37 +139,43 @@ typedef struct wind_wd {
     char name[XNOBJECT_NAME_LEN];
 #endif /* CONFIG_XENO_OPT_REGISTRY */
 
-#if defined(__KERNEL__) && defined(CONFIG_XENO_OPT_PERVASIVE)
-    xnsynch_t synchbase;
-    wind_wd_utarget_t wdt;
-#endif /* __KERNEL__ && CONFIG_XENO_OPT_PERVASIVE */
+#ifdef CONFIG_XENO_OPT_PERVASIVE
+    wind_rholder_t *rh;		/* !< Resource holder of owner. */
+    wind_wd_utarget_t wdt;	/* !< User-space handler and arg. */
+    xnholder_t plink;		/* !< Link in owner's pending queue. */
+#define link2wind_wd(ln) container_of(ln, wind_wd_t, plink)
+#endif /* CONFIG_XENO_OPT_PERVASIVE */
+
+    xnholder_t rlink;		/* !< Link in resource queue. */
+#define rlink2wd(ln)		container_of(ln, wind_wd_t, rlink)
+
+    xnqueue_t *rqueue;		/* !< Backpointer to resource queue. */
 
 } wind_wd_t;
 
+static inline void wind_wd_flush_rq(xnqueue_t *rq)
+{
+	wind_flush_rq(wind_wd_t, rq, wd);
+}
+
 /* Internal flag marking a user-space task. */
-#define VX_SHADOW (0x8000)
+#define VX_SHADOW 0x8000
 
 #define WIND_TASK_OPTIONS_MASK \
 (VX_FP_TASK|VX_PRIVATE_ENV|VX_NO_STACK_FILL|VX_UNBREAKABLE|VX_SHADOW) 
 
 #define wind_current_task() (thread2wind_task(xnpod_current_thread()))
 
-/* The following macros return normalized or native priority values
-   for the underlying pod. The core pod providing user-space support
-   uses an ascending [0-257] priority scale (include/nucleus/core.h),
-   whilst the VxWorks personality exhibits a decreasing scale [255-0];
-   normalization is done in the [1-256] range so that priority 0 is
-   kept for non-realtime shadows. Normalization is not needed when the
-   underlying pod supporting the VxWorks skin is standalone, i.e. pure
-   kernel, or simulation modes. */
+/* The following macros return normalized or native VxWorks priority
+   values. The core pod uses an ascending [0-257] priority scale
+   (include/nucleus/core.h), whilst the VxWorks personality exhibits a
+   decreasing scale [255-0]; normalization is done in the [1-256]
+   range so that priority 0 is kept for non-realtime shadows. */
 
-#if defined(__KERNEL__) && defined(CONFIG_XENO_OPT_PERVASIVE)
-#define wind_normalized_prio(prio)	(XNCORE_MAX_PRIO - (prio) - 1)
-#define wind_denormalized_prio(prio)	(256 - (prio))
-#else /* !(__KERNEL__ && CONFIG_XENO_OPT_PERVASIVE) */
-#define wind_normalized_prio(prio)	prio
-#define wind_denormalized_prio(prio)	prio
-#endif /* __KERNEL__ && CONFIG_XENO_OPT_PERVASIVE */
+#define wind_normalized_prio(prio)  \
+  ({ int __p = (prio) ? XNCORE_MAX_PRIO - (prio) - 1 : 0; __p; })
+#define wind_denormalized_prio(prio) \
+  ({ int __p = (prio) ? 256 - (prio) : 0; __p; })
 
 int *wind_errno_location(void);
 
@@ -254,13 +257,14 @@ static inline int taskUnsafeInner (wind_task_t *cur)
     return OK;
 }
 
+extern xntbase_t *wind_tbase;
 
 /* modules initialization and cleanup: */
 #ifdef __cplusplus
 extern "C" {
 #endif
 
-    int wind_sysclk_init(u_long init_rate);
+    int wind_sysclk_init(u_long period);
 
     void wind_sysclk_cleanup(void);
     

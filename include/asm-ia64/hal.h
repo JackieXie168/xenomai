@@ -29,6 +29,9 @@
 
 #include <asm-generic/xenomai/hal.h>	/* Read the generic bits. */
 
+#define RTHAL_TIMER_DEVICE	"itm"
+#define RTHAL_CLOCK_DEVICE	"itc"
+
 typedef unsigned long long rthal_time_t;
 
 static inline __attribute_const__ unsigned long ffnz (unsigned long ul)

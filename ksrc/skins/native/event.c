@@ -37,8 +37,11 @@
  *
  *@{*/
 
+/** @example event_flags.c */
+
 #include <nucleus/pod.h>
 #include <nucleus/registry.h>
+#include <nucleus/heap.h>
 #include <native/task.h>
 #include <native/event.h>
 
@@ -175,6 +178,7 @@ int rt_event_create(RT_EVENT *event,
 		    const char *name, unsigned long ivalue, int mode)
 {
 	int err = 0;
+	spl_t s;
 
 	if (xnpod_asynch_p())
 		return -EPERM;
@@ -184,10 +188,15 @@ int rt_event_create(RT_EVENT *event,
 	event->handle = 0;	/* i.e. (still) unregistered event. */
 	event->magic = XENO_EVENT_MAGIC;
 	xnobject_copy_name(event->name, name);
+	inith(&event->rlink);
+	event->rqueue = &xeno_get_rholder()->eventq;
+	xnlock_get_irqsave(&nklock, s);
+	appendq(event->rqueue, &event->rlink);
+	xnlock_put_irqrestore(&nklock, s);
 
-#if defined(__KERNEL__) && defined(CONFIG_XENO_OPT_PERVASIVE)
+#ifdef CONFIG_XENO_OPT_PERVASIVE
 	event->cpid = 0;
-#endif /* __KERNEL__ && CONFIG_XENO_OPT_PERVASIVE */
+#endif /* CONFIG_XENO_OPT_PERVASIVE */
 
 #ifdef CONFIG_XENO_OPT_REGISTRY
 	/* <!> Since xnregister_enter() may reschedule, only register
@@ -264,6 +273,8 @@ int rt_event_delete(RT_EVENT *event)
 		err = xeno_handle_error(event, XENO_EVENT_MAGIC, RT_EVENT);
 		goto unlock_and_exit;
 	}
+
+	removeq(event->rqueue, &event->rlink);
 
 	rc = xnsynch_destroy(&event->synch_base);
 
@@ -439,11 +450,9 @@ int rt_event_signal(RT_EVENT *event, unsigned long mask)
  * Rescheduling: always unless the request is immediately satisfied or
  * @a timeout specifies a non-blocking operation.
  *
- * @note This service is sensitive to the current operation mode of
- * the system timer, as defined by the CONFIG_XENO_OPT_TIMING_PERIOD
- * parameter. In periodic mode, clock ticks are interpreted as
- * periodic jiffies. In oneshot mode, clock ticks are interpreted as
- * nanoseconds.
+ * @note The @a timeout value will be interpreted as jiffies if the
+ * native skin is bound to a periodic time base (see
+ * CONFIG_XENO_OPT_NATIVE_PERIOD), or nanoseconds otherwise.
  */
 
 int rt_event_wait(RT_EVENT *event,
@@ -495,7 +504,7 @@ int rt_event_wait(RT_EVENT *event,
 	task = xeno_current_task();
 	task->wait_args.event.mode = mode;
 	task->wait_args.event.mask = mask;
-	xnsynch_sleep_on(&event->synch_base, timeout);
+	xnsynch_sleep_on(&event->synch_base, timeout, XN_RELATIVE);
 	/* The returned mask is only significant if the operation has
 	   succeeded, but do always write it back anyway. */
 	*mask_r = task->wait_args.event.mask;
@@ -681,11 +690,9 @@ int rt_event_inquire(RT_EVENT *event, RT_EVENT_INFO *info)
  * Rescheduling: always unless the request is immediately satisfied or
  * @a timeout specifies a non-blocking operation.
  *
- * @note This service is sensitive to the current operation mode of
- * the system timer, as defined by the CONFIG_XENO_OPT_TIMING_PERIOD
- * parameter. In periodic mode, clock ticks are interpreted as
- * periodic jiffies. In oneshot mode, clock ticks are interpreted as
- * nanoseconds.
+ * @note The @a timeout value will be interpreted as jiffies if the
+ * native skin is bound to a periodic time base (see
+ * CONFIG_XENO_OPT_NATIVE_PERIOD), or nanoseconds otherwise.
  */
 
 /**
@@ -716,6 +723,7 @@ int __native_event_pkg_init(void)
 
 void __native_event_pkg_cleanup(void)
 {
+	__native_event_flush_rq(&__native_global_rholder.eventq);
 }
 
 /*@}*/

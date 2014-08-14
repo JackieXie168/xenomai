@@ -41,6 +41,9 @@
  *
  *@{*/
 
+/** @example local_heap.c */
+/** @example shared_mem.c */
+
 #include <nucleus/pod.h>
 #include <nucleus/registry.h>
 #include <native/task.h>
@@ -60,7 +63,7 @@ static int __heap_read_proc(char *page,
 	p += sprintf(p, "type=%s:size=%lu:used=%lu\n",
 		     (heap->mode & H_SHARED) == H_SHARED ? "shared" :
 		     (heap->mode & H_MAPPABLE) ? "mappable" : "kernel",
-		     (u_long)heap->csize, xnheap_used_mem(&heap->heap_base));
+		     xnheap_usable_mem(&heap->heap_base), xnheap_used_mem(&heap->heap_base));
 
 	xnlock_get_irqsave(&nklock, s);
 
@@ -121,7 +124,7 @@ static xnpnode_t __heap_pnode = {
 static void __heap_flush_private(xnheap_t *heap,
 				 void *heapmem, u_long heapsize, void *cookie)
 {
-	xnarch_sysfree(heapmem, heapsize);
+	xnarch_free_host_mem(heapmem, heapsize);
 }
 
 /*! 
@@ -170,7 +173,9 @@ static void __heap_flush_private(xnheap_t *heap,
  * going to be pre-allocated to the heap. Memory blocks will be
  * claimed and released to this pool.  The block pool is not
  * extensible, so this value must be compatible with the highest
- * memory pressure that could be expected.
+ * memory pressure that could be expected. A minimum of 2 * PAGE_SIZE
+ * will be enforced for mappable heaps, 2 * XNCORE_PAGE_SIZE
+ * otherwise.
  *
  * @param mode The heap creation mode. The following flags can be
  * OR'ed into this bitmask, each of them affecting the new heap:
@@ -231,6 +236,7 @@ static void __heap_flush_private(xnheap_t *heap,
 int rt_heap_create(RT_HEAP *heap, const char *name, size_t heapsize, int mode)
 {
 	int err;
+	spl_t s;
 
 	if (!xnpod_root_p())
 		return -EPERM;
@@ -243,14 +249,14 @@ int rt_heap_create(RT_HEAP *heap, const char *name, size_t heapsize, int mode)
 
 	heap->csize = heapsize;	/* Record this for SBA management and inquiry. */
 
-	heapsize = xnheap_rounded_size(heapsize, PAGE_SIZE);
-
 #ifdef __KERNEL__
 	if (mode & H_MAPPABLE) {
 		if (!name || !*name)
 			return -EINVAL;
 
 #ifdef CONFIG_XENO_OPT_PERVASIVE
+		heapsize = xnheap_rounded_size(heapsize, PAGE_SIZE);
+
 		err = xnheap_init_mapped(&heap->heap_base,
 					 heapsize,
 					 (mode & H_DMA) ? GFP_DMA : 0);
@@ -264,15 +270,18 @@ int rt_heap_create(RT_HEAP *heap, const char *name, size_t heapsize, int mode)
 	} else
 #endif /* __KERNEL__ */
 	{
-		void *heapmem = xnarch_sysalloc(heapsize);
+		void *heapmem;
+
+		heapsize = xnheap_rounded_size(heapsize, XNCORE_PAGE_SIZE);
+
+		heapmem = xnarch_alloc_host_mem(heapsize);
 
 		if (!heapmem)
 			return -ENOMEM;
 
-		err = xnheap_init(&heap->heap_base, heapmem, heapsize, PAGE_SIZE);
-
+		err = xnheap_init(&heap->heap_base, heapmem, heapsize, XNCORE_PAGE_SIZE);
 		if (err) {
-			xnarch_sysfree(heapmem, heapsize);
+			xnarch_free_host_mem(heapmem, heapsize);
 			return err;
 		}
 	}
@@ -283,6 +292,11 @@ int rt_heap_create(RT_HEAP *heap, const char *name, size_t heapsize, int mode)
 	heap->mode = mode;
 	heap->sba = NULL;
 	xnobject_copy_name(heap->name, name);
+	inith(&heap->rlink);
+	heap->rqueue = &xeno_get_rholder()->heapq;
+	xnlock_get_irqsave(&nklock, s);
+	appendq(heap->rqueue, &heap->rlink);
+	xnlock_put_irqrestore(&nklock, s);
 
 #ifdef CONFIG_XENO_OPT_REGISTRY
 	/* <!> Since xnregister_enter() may reschedule, only register
@@ -324,6 +338,9 @@ int rt_heap_create(RT_HEAP *heap, const char *name, size_t heapsize, int mode)
  * @param heap The descriptor address of the affected heap.
  *
  * @return 0 is returned upon success. Otherwise:
+ *
+ * - -EBUSY is returned if @a heap is in use by another process and the
+ * descriptor is not destroyed.
  *
  * - -EINVAL is returned if @a heap is not a heap descriptor.
  *
@@ -373,16 +390,18 @@ int rt_heap_delete(RT_HEAP *heap)
 	   calls of rt_heap_delete(), so now we can actually destroy
 	   it safely. */
 
-#if defined(__KERNEL__) && defined(CONFIG_XENO_OPT_PERVASIVE)
+#ifdef CONFIG_XENO_OPT_PERVASIVE
 	if (heap->mode & H_MAPPABLE)
 		err = xnheap_destroy_mapped(&heap->heap_base);
 	else
-#endif /* __KERNEL__ && CONFIG_XENO_OPT_PERVASIVE */
+#endif /* CONFIG_XENO_OPT_PERVASIVE */
 		err = xnheap_destroy(&heap->heap_base, &__heap_flush_private, NULL);
 
 	xnlock_get_irqsave(&nklock, s);
 
 	if (!err) {
+		removeq(heap->rqueue, &heap->rlink);
+
 #ifdef CONFIG_XENO_OPT_REGISTRY
 		if (heap->handle)
 			xnregistry_remove(heap->handle);
@@ -475,11 +494,9 @@ int rt_heap_delete(RT_HEAP *heap)
  * @a timeout specifies a non-blocking operation. Operations on
  * single-block heaps never start the rescheduling procedure.
  *
- * @note This service is sensitive to the current operation mode of
- * the system timer, as defined by the CONFIG_XENO_OPT_TIMING_PERIOD
- * parameter. In periodic mode, clock ticks are interpreted as
- * periodic jiffies. In oneshot mode, clock ticks are interpreted as
- * nanoseconds.
+ * @note The @a timeout value will be interpreted as jiffies if the
+ * native skin is bound to a periodic time base (see
+ * CONFIG_XENO_OPT_NATIVE_PERIOD), or nanoseconds otherwise.
  */
 
 int rt_heap_alloc(RT_HEAP *heap, size_t size, RTIME timeout, void **blockp)
@@ -494,7 +511,7 @@ int rt_heap_alloc(RT_HEAP *heap, size_t size, RTIME timeout, void **blockp)
 	heap = xeno_h2obj_validate(heap, XENO_HEAP_MAGIC, RT_HEAP);
 
 	if (!heap) {
-		err = -EINVAL;
+		err = xeno_handle_error(heap, XENO_HEAP_MAGIC, RT_HEAP);
 		goto unlock_and_exit;
 	}
 
@@ -547,7 +564,7 @@ int rt_heap_alloc(RT_HEAP *heap, size_t size, RTIME timeout, void **blockp)
 	task = xeno_current_task();
 	task->wait_args.heap.size = size;
 	task->wait_args.heap.block = NULL;
-	xnsynch_sleep_on(&heap->synch_base, timeout);
+	xnsynch_sleep_on(&heap->synch_base, timeout, XN_RELATIVE);
 
 	if (xnthread_test_info(&task->thread_base, XNRMID))
 		err = -EIDRM;	/* Heap deleted while pending. */
@@ -710,6 +727,8 @@ int rt_heap_inquire(RT_HEAP *heap, RT_HEAP_INFO *info)
 	strcpy(info->name, heap->name);
 	info->nwaiters = xnsynch_nsleepers(&heap->synch_base);
 	info->heapsize = heap->csize;
+	info->usablemem = xnheap_usable_mem(&heap->heap_base);
+	info->usedmem = xnheap_used_mem(&heap->heap_base);
 	info->mode = heap->mode;
 
       unlock_and_exit:
@@ -773,11 +792,9 @@ int rt_heap_inquire(RT_HEAP *heap, RT_HEAP_INFO *info)
  * Rescheduling: always unless the request is immediately satisfied or
  * @a timeout specifies a non-blocking operation.
  *
- * @note This service is sensitive to the current operation mode of
- * the system timer, as defined by the CONFIG_XENO_OPT_TIMING_PERIOD
- * parameter. In periodic mode, clock ticks are interpreted as
- * periodic jiffies. In oneshot mode, clock ticks are interpreted as
- * nanoseconds.
+ * @note The @a timeout value will be interpreted as jiffies if the
+ * native skin is bound to a periodic time base (see
+ * CONFIG_XENO_OPT_NATIVE_PERIOD), or nanoseconds otherwise.
  */
 
 /**
@@ -788,7 +805,7 @@ int rt_heap_inquire(RT_HEAP *heap, RT_HEAP_INFO *info)
  * This user-space only service unbinds the calling task from the heap
  * object previously retrieved by a call to rt_heap_bind().
  *
- * Unbinding from a heap when it is no more needed is especially
+ * Unbinding from a heap when it is no longer needed is especially
  * important in order to properly release the mapping resources used
  * to attach the heap memory to the caller's address space.
  *
@@ -810,6 +827,7 @@ int __native_heap_pkg_init(void)
 
 void __native_heap_pkg_cleanup(void)
 {
+	__native_heap_flush_rq(&__native_global_rholder.heapq);
 }
 
 /*@}*/

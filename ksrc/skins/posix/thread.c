@@ -38,6 +38,21 @@ xnticks_t pse51_time_slice;
 
 static pthread_attr_t default_attr;
 
+static int pse51_get_denormalized_prio(xnthread_t *thread)
+{
+	return xnthread_current_priority(thread);
+}
+
+static unsigned pse51_get_magic(void)
+{
+	return PSE51_SKIN_MAGIC;
+}
+
+static xnthrops_t pse51_thread_ops = {
+	.get_denormalized_prio = &pse51_get_denormalized_prio,
+	.get_magic = &pse51_get_magic,
+};
+
 static void thread_destroy(pthread_t thread)
 {
 	removeq(thread->container, &thread->link);
@@ -181,13 +196,11 @@ int pthread_create(pthread_t *tid,
 	if (!start)
 		flags |= XNSHADOW;	/* Note: no interrupt shield. */
 
-	if (xnpod_init_thread(&thread->threadbase,
-			      name, prio, flags, stacksize) != 0) {
+	if (xnpod_init_thread(&thread->threadbase, pse51_tbase,
+			      name, prio, flags, stacksize, &pse51_thread_ops) != 0) {
 		xnfree(thread);
 		return EAGAIN;
 	}
-
-	xnthread_set_magic(&thread->threadbase, PSE51_SKIN_MAGIC);
 
 	thread->attr.name = xnthread_name(&thread->threadbase);
 
@@ -215,10 +228,10 @@ int pthread_create(pthread_t *tid,
 	appendq(thread->container, &thread->link);
 	xnlock_put_irqrestore(&nklock, s);
 
-#if defined(__KERNEL__) && defined(CONFIG_XENO_OPT_PERVASIVE)
+#ifdef CONFIG_XENO_OPT_PERVASIVE
 	thread->hkey.u_tid = 0;
 	thread->hkey.mm = NULL;
-#endif /* __KERNEL__ && CONFIG_XENO_OPT_PERVASIVE */
+#endif /* CONFIG_XENO_OPT_PERVASIVE */
 
 	*tid = thread;		/* Must be done before the thread is started. */
 
@@ -420,7 +433,7 @@ int pthread_join(pthread_t thread, void **value_ptr)
 		if (!xnpod_root_p()) {
 			thread_cancellation_point(cur);
 
-			xnsynch_sleep_on(&thread->join_synch, XN_INFINITE);
+			xnsynch_sleep_on(&thread->join_synch, XN_INFINITE, XN_RELATIVE);
 
 			is_last_joiner =
 				xnsynch_wakeup_one_sleeper(&thread->join_synch)
@@ -517,7 +530,7 @@ pthread_t pthread_self(void)
  * - ESRCH, @a thread is invalid;
  * - ETIMEDOUT, the start time has already passed.
  *
- * Rescheduling: always, until the @starttp start time has been reached.
+ * Rescheduling: always, until the @a starttp start time has been reached.
  */
 int pthread_make_periodic_np(pthread_t thread,
 			     struct timespec *starttp,
@@ -625,28 +638,27 @@ int pthread_set_mode_np(int clrmask, int setmask)
 {
 	xnthread_t *cur = xnpod_current_thread();
 	xnflags_t valid_flags = XNLOCK;
-	int err;
 
-#if defined(__KERNEL__) && defined(CONFIG_XENO_OPT_PERVASIVE)
+#ifdef CONFIG_XENO_OPT_PERVASIVE
 	if (xnthread_test_state(cur, XNSHADOW))
 		valid_flags |= XNTHREAD_STATE_SPARE1 | XNSHIELD | XNTRAPSW | XNRPIOFF;
-#endif /* __KERNEL__ && CONFIG_XENO_OPT_PERVASIVE */
+#endif /* CONFIG_XENO_OPT_PERVASIVE */
 
 	/* XNTHREAD_STATE_SPARE1 is used for primary mode switch. */
 
 	if ((clrmask & ~valid_flags) != 0 || (setmask & ~valid_flags) != 0)
 		return EINVAL;
 
-	err = -xnpod_set_thread_mode(cur,
-				     clrmask & ~XNTHREAD_STATE_SPARE1,
-				     setmask & ~XNTHREAD_STATE_SPARE1);
+	xnpod_set_thread_mode(cur,
+			      clrmask & ~XNTHREAD_STATE_SPARE1,
+			      setmask & ~XNTHREAD_STATE_SPARE1);
 
-#if defined(__KERNEL__) && defined(CONFIG_XENO_OPT_PERVASIVE)
+#ifdef CONFIG_XENO_OPT_PERVASIVE
 	if (xnthread_test_state(cur, XNSHADOW) && (clrmask & XNTHREAD_STATE_SPARE1) != 0)
 		xnshadow_relax(0);
-#endif /* __KERNEL__ && CONFIG_XENO_OPT_PERVASIVE */
+#endif /* CONFIG_XENO_OPT_PERVASIVE */
 
-	return err;
+	return 0;
 }
 
 /**
@@ -706,7 +718,7 @@ void pse51_threadq_cleanup(pse51_kqueues_t *q)
 		/* Enter the abort state (see xnpod_abort_thread()). */
 		if (!xnpod_current_p(&thread->threadbase))
 			xnpod_suspend_thread(&thread->threadbase, XNDORMANT,
-					     XN_INFINITE, NULL);
+					     XN_INFINITE, XN_RELATIVE, NULL);
 		if (pse51_obj_active
 		    (thread, PSE51_THREAD_MAGIC, struct pse51_thread)) {
 			/* Remaining running thread. */

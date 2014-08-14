@@ -36,105 +36,97 @@
 #include <rtdm/syscall.h>
 #endif /* __KERNEL__ */
 
-#include "rtdm/device.h"
-#include "rtdm/proc.h"
-
+#include "rtdm/internal.h"
 
 MODULE_DESCRIPTION("Real-Time Driver Model");
 MODULE_AUTHOR("jan.kiszka@web.de");
 MODULE_LICENSE("GPL");
 
-#if !defined(__KERNEL__) || !defined(CONFIG_XENO_OPT_PERVASIVE)
-static xnpod_t __rtdm_pod;
-#endif /* !__KERNEL__ && CONFIG_XENO_OPT_PERVASIVE) */
-
+static u_long tick_arg = CONFIG_XENO_OPT_RTDM_PERIOD;
+module_param_named(tick_arg, tick_arg, ulong, 0444);
+MODULE_PARM_DESC(tick_arg, "Fixed clock tick value (us), 0 for tick-less mode");
 
 static void __exit rtdm_skin_shutdown(int xtype)
 {
-    rtdm_dev_cleanup();
+	rtdm_dev_cleanup();
 
 #ifdef CONFIG_PROC_FS
-    rtdm_proc_cleanup();
+	rtdm_proc_cleanup();
 #endif /* CONFIG_PROC_FS */
 
-#if defined(__KERNEL__) && defined(CONFIG_XENO_OPT_PERVASIVE)
-    rtdm_syscall_cleanup();
-    xncore_detach(xtype);
-#else /* !(__KERNEL__ && CONFIG_XENO_OPT_PERVASIVE) */
-    xnpod_shutdown(xtype);
-#endif /* __KERNEL__ && CONFIG_XENO_OPT_PERVASIVE */
+#ifdef CONFIG_XENO_OPT_PERVASIVE
+	rtdm_syscall_cleanup();
+#endif /* CONFIG_XENO_OPT_PERVASIVE */
+	xntbase_free(rtdm_tbase);
+	xnpod_shutdown(xtype);
 }
 
-
-int __init SKIN_INIT(rtdm)
+static int __init SKIN_INIT(rtdm)
 {
-    int err;
+	int err;
 
-#if defined(__KERNEL__) && defined(CONFIG_XENO_OPT_PERVASIVE)
-    /* The RTDM skin is stacked over the Xenomai pod. */
-    err = xncore_attach();
-#else /* !(__KERNEL__ && CONFIG_XENO_OPT_PERVASIVE) */
-    /* The RTDM skin is standalone. */
-    err = xnpod_init(&__rtdm_pod, XNCORE_LOW_PRIO, XNCORE_HIGH_PRIO, XNREUSE);
-#endif /* __KERNEL__ && CONFIG_XENO_OPT_PERVASIVE */
+	err = xnpod_init();
 
-    if (err)
-        goto fail;
+	if (err)
+		goto fail;
 
-    err = rtdm_dev_init();
-    if (err)
-        goto cleanup_pod;
+	err = xntbase_alloc("rtdm", tick_arg * 1000, 0, &rtdm_tbase);
+	if (err)
+		goto cleanup_pod;
+
+	xntbase_start(rtdm_tbase);
+
+	err = rtdm_dev_init();
+	if (err)
+		goto cleanup_tbase;
 
 #ifdef CONFIG_PROC_FS
-    err = rtdm_proc_init();
-    if (err)
-        goto cleanup_dev;
+	err = rtdm_proc_init();
+	if (err)
+		goto cleanup_dev;
 #endif /* CONFIG_PROC_FS */
 
-#if defined(__KERNEL__) && defined(CONFIG_XENO_OPT_PERVASIVE)
-    err = rtdm_syscall_init();
-    if (err)
-        goto cleanup_proc;
-#endif /* __KERNEL__ && CONFIG_XENO_OPT_PERVASIVE */
+#ifdef CONFIG_XENO_OPT_PERVASIVE
+	err = rtdm_syscall_init();
+	if (err)
+		goto cleanup_proc;
+#endif /* CONFIG_XENO_OPT_PERVASIVE */
 
 #ifndef MODULE
-    rtdm_initialised = 1;
+	rtdm_initialised = 1;
 #endif /* !MODULE */
 
-    xnprintf("starting RTDM services.\n");
+	xnprintf("starting RTDM services.\n");
 
-    return 0;
+	return 0;
 
-#if defined(__KERNEL__) && defined(CONFIG_XENO_OPT_PERVASIVE)
-  cleanup_proc:
-#endif /* __KERNEL__ && CONFIG_XENO_OPT_PERVASIVE */
+#ifdef CONFIG_XENO_OPT_PERVASIVE
+cleanup_proc:
+#endif /* CONFIG_XENO_OPT_PERVASIVE */
 
 #ifdef CONFIG_PROC_FS
-    rtdm_proc_cleanup();
+	rtdm_proc_cleanup();
 
-  cleanup_dev:
+cleanup_dev:
 #endif /* CONFIG_PROC_FS */
 
-    rtdm_dev_cleanup();
+	rtdm_dev_cleanup();
 
-  cleanup_pod:
-#if defined(__KERNEL__) && defined(CONFIG_XENO_OPT_PERVASIVE)
-    xncore_detach(err);
-#else /* !(__KERNEL__ && CONFIG_XENO_OPT_PERVASIVE) */
-    xnpod_shutdown(err);
-#endif /* __KERNEL__ && CONFIG_XENO_OPT_PERVASIVE */
+cleanup_tbase:
+	xntbase_free(rtdm_tbase);
 
-  fail:
+cleanup_pod:
+	xnpod_shutdown(err);
 
-    xnlogerr("RTDM skin init failed, code %d.\n",err);
-
-    return err;
+fail:
+	xnlogerr("RTDM skin init failed, code %d.\n", err);
+	return err;
 }
 
-void __exit SKIN_EXIT(rtdm)
+static void __exit SKIN_EXIT(rtdm)
 {
-    xnprintf("stopping RTDM services.\n");
-    rtdm_skin_shutdown(XNPOD_NORMAL_EXIT);
+	xnprintf("stopping RTDM services.\n");
+	rtdm_skin_shutdown(XNPOD_NORMAL_EXIT);
 }
 
 module_init(__rtdm_skin_init);

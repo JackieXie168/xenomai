@@ -1,5 +1,5 @@
 /* 
- * Copyright (C) 2001,2002,2003 Philippe Gerum <rpm@xenomai.org>.
+ * @note Copyright (C) 2001,2002,2003 Philippe Gerum <rpm@xenomai.org>.
  *
  * Xenomai is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published
@@ -15,6 +15,8 @@
  * along with Xenomai; if not, write to the Free Software
  * Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
  * 02111-1307, USA.
+ *
+ * \ingroup thread
  */
 
 #ifndef _XENO_NUCLEUS_THREAD_H
@@ -38,15 +40,20 @@
 #define XNZOMBIE  0x00000020 /**< Zombie thread in deletion process */
 #define XNRESTART 0x00000040 /**< Restarting thread */
 #define XNSTARTED 0x00000080 /**< Thread has been started */
-#define XNMAPPED  0x00000100 /**< Mapped to regular Linux task (shadow only) */
+#define XNMAPPED  0x00000100 /**< Mapped to a regular Linux task (shadow only) */
 #define XNRELAX   0x00000200 /**< Relaxed shadow thread (blocking bit) */
 #define XNHELD    0x00000400 /**< Held thread from suspended partition */
 
-#define XNBOOST   0x00000800 /**< Undergoes regular PIP boost */
-#define XNDEBUG   0x00001000 /**< Hit debugger breakpoint (shadow only) */
-#define XNLOCK    0x00002000 /**< Not preemptible */
+#define XNBOOST   0x00000800 /**< Undergoes a PIP boost */
+#define XNDEBUG   0x00001000 /**< Hit a debugger breakpoint (shadow only) */
+#define XNLOCK    0x00002000 /**< Holds the scheduler lock (i.e. not preemptible) */
 #define XNRRB     0x00004000 /**< Undergoes a round-robin scheduling */
 #define XNASDI    0x00008000 /**< ASR are disabled */
+
+/* Some skins may depend on the following fields to live in the high
+   16-bit word, in order to be combined with the emulated RTOS flags
+   which use the low one, so don't change them carelessly. */
+
 #define XNSHIELD  0x00010000 /**< IRQ shield is enabled (shadow only) */
 #define XNTRAPSW  0x00020000 /**< Trap execution mode switches */
 #define XNRPIOFF  0x00040000 /**< Stop priority coupling (shadow only) */
@@ -54,7 +61,6 @@
 #define XNFPU     0x00100000 /**< Thread uses FPU */
 #define XNSHADOW  0x00200000 /**< Shadow thread */
 #define XNROOT    0x00400000 /**< Root thread (that is, Linux/IDLE) */
-#define XNINVPS   0x00800000 /**< Using inverted priority scale */
 
 /*! @} */ /* Ends doxygen comment group: nucleus_state_flags */
 
@@ -82,7 +88,7 @@
 	'.', '.', '.', '.', 'X',	\
 	'H', 'b', 'T', 'l', 'r',	\
 	'.', 's', 't', 'o', '.',	\
-	'f', '.', '.', '.',		\
+	'f', '.', '.',			\
 }
 
 #define XNTHREAD_BLOCK_BITS   (XNSUSP|XNPEND|XNDELAY|XNDORMANT|XNRELAX|XNHELD)
@@ -110,6 +116,7 @@
 #define XNWAKEN   0x00000010 /**< Thread waken up upon resource availability */
 #define XNROBBED  0x00000020 /**< Robbed from resource ownership */
 #define XNATOMIC  0x00000040 /**< In atomic switch from secondary to primary mode */
+#define XNAFFSET  0x00000080 /**< CPU affinity changed from primary mode */
 
 /* These information flags are available to the real-time interfaces */
 #define XNTHREAD_INFO_SPARE0  0x10000000
@@ -132,9 +139,17 @@
 
 #define XNTHREAD_INVALID_ASR  ((void (*)(xnsigmask_t))0)
 
+struct xnthread;
 struct xnsched;
 struct xnsynch;
 struct xnrpi;
+
+typedef struct xnthrops {
+
+	int (*get_denormalized_prio)(struct xnthread *);
+	unsigned (*get_magic)(void);
+
+} xnthrops_t;
 
 typedef void (*xnasr_t)(xnsigmask_t sigs);
 
@@ -160,11 +175,11 @@ typedef struct xnthread {
 
     xnpholder_t plink;		/* Thread holder in synchronization queue(s) */
 
-#if !defined(CONFIG_XENO_OPT_RPIDISABLE) && defined(CONFIG_XENO_OPT_PERVASIVE)
+#ifdef CONFIG_XENO_OPT_PRIOCPL
     xnpholder_t xlink;		/* Thread holder in the RPI queue (shadow only) */
 
     struct xnrpi *rpi;		/* Backlink pointer to the RPI slot (shadow only) */
-#endif /* !CONFIG_XENO_OPT_RPIDISABLE && CONFIG_XENO_OPT_PERVASIVE */
+#endif /* CONFIG_XENO_OPT_PRIOCPL */
 
     xnholder_t glink;		/* Thread holder in global queue */
 
@@ -174,13 +189,9 @@ typedef struct xnthread {
 
     struct xnsynch *wchan;	/* Resource the thread pends on */
 
-    struct xnsynch *wwake;	/* Wait channel the thread was resumed from */
-
     xntimer_t rtimer;		/* Resource timer */
 
     xntimer_t ptimer;		/* Periodic timer */
-
-    xnticks_t pexpect;		/* Date of next periodic release point (raw ticks). */
 
     xnsigmask_t signals;	/* Pending core signals */
 
@@ -192,7 +203,8 @@ typedef struct xnthread {
 	xnstat_counter_t ssw;	/* Primary -> secondary mode switch count */
 	xnstat_counter_t csw;	/* Context switches (includes secondary -> primary switches) */
 	xnstat_counter_t pf;	/* Number of page faults */
-	xnstat_runtime_t account; /* Runtime accounting entity */
+	xnstat_exectime_t account; /* Execution time accounting entity */
+	xnstat_exectime_t lastperiod; /* Interval marker for execution time reports */
     } stat;
 
     int errcode;		/* Local errno */
@@ -218,11 +230,9 @@ typedef struct xnthread {
     } registry;
 #endif /* CONFIG_XENO_OPT_REGISTRY */
 
-    unsigned magic;		/* Skin magic. */
+    xnthrops_t *ops;		/* Thread class operations. */
 
     char name[XNOBJECT_NAME_LEN]; /* Symbolic name of thread */
-
-    xnticks_t stime;		/* Start time */
 
     void (*entry)(void *cookie); /* Thread entry routine */
 
@@ -238,11 +248,10 @@ typedef struct xnthread {
 
 typedef struct xnhook {
 
-    xnholder_t link;
-
+	xnholder_t link;
 #define link2hook(ln)		container_of(ln, xnhook_t, link)
 
-    void (*routine)(xnthread_t *thread);
+	void (*routine)(xnthread_t *thread);
 
 } xnhook_t;
 
@@ -269,23 +278,44 @@ typedef struct xnhook {
 #define xnthread_timeout(thread)           xntimer_get_timeout(&(thread)->rtimer)
 #define xnthread_stack_size(thread)        xnarch_stack_size(xnthread_archtcb(thread))
 #define xnthread_handle(thread)            ((thread)->registry.handle)
-#define xnthread_set_magic(thread,m)       do { (thread)->magic = (m); } while(0)
-#define xnthread_get_magic(thread)         ((thread)->magic)
+#ifdef CONFIG_XENO_OPT_TIMING_PERIODIC
+#define xnthread_time_base(thread)         ((thread)->rtimer.base)
+#else /* !CONFIG_XENO_OPT_TIMING_PERIODIC */
+#define xnthread_time_base(thread)         (&nktbase)
+#endif /* !CONFIG_XENO_OPT_TIMING_PERIODIC */
 #define xnthread_signaled_p(thread)        ((thread)->signals != 0)
+#define xnthread_timed_p(thread)	      (!!testbits(xnthread_time_base(thread)->status, XNTBRUN))
 #define xnthread_user_task(thread)         xnarch_user_task(xnthread_archtcb(thread))
 #define xnthread_user_pid(thread) \
     (xnthread_test_state((thread),XNROOT) || !xnthread_user_task(thread) ? \
     0 : xnarch_user_pid(xnthread_archtcb(thread)))
+#define xnthread_affinity(thread)          ((thread)->affinity)
+#define xnthread_affine_p(thread, cpu)     xnarch_cpu_isset(cpu, (thread)->affinity)
+#define xnthread_get_exectime(thread)      xnstat_exectime_get_total(&(thread)->stat.account)
+#define xnthread_get_lastswitch(thread)    xnstat_exectime_get_last_switch((thread)->sched)
+
+/* Class-level operations for threads. */
+static inline int xnthread_get_denormalized_prio(xnthread_t *t)
+{
+	return t->ops ? t->ops->get_denormalized_prio(t) : xnthread_current_priority(t);
+}
+
+static inline unsigned xnthread_get_magic(xnthread_t *t)
+{
+	return t->ops ? t->ops->get_magic() : 0;
+}
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
 int xnthread_init(xnthread_t *thread,
+		  xntbase_t *tbase,
 		  const char *name,
 		  int prio,
 		  xnflags_t flags,
-		  unsigned stacksize);
+		  unsigned stacksize,
+		  xnthrops_t *ops);
 
 void xnthread_cleanup_tcb(xnthread_t *thread);
 
@@ -293,38 +323,61 @@ char *xnthread_symbolic_status(xnflags_t status, char *buf, int size);
 
 int *xnthread_get_errno_location(void);
 
-static inline xnticks_t xnthread_get_timeout(xnthread_t *thread, xnticks_t now)
+static inline xnticks_t xnthread_get_timeout(xnthread_t *thread, xnticks_t tsc_ns)
 {
-    xnticks_t timeout;
+	xnticks_t timeout;
+	xntimer_t *timer;
 
-    if (!xnthread_test_state(thread,XNDELAY))
-	return 0LL;
+	if (!xnthread_test_state(thread,XNDELAY))
+		return 0LL;
 
-    timeout = (xntimer_get_date(&thread->rtimer) ? : xntimer_get_date(&thread->ptimer));
+	if (xntimer_running_p(&thread->rtimer))
+		timer = &thread->rtimer;
+	else if (xntimer_running_p(&thread->ptimer))
+		timer = &thread->ptimer;
+	else
+		return 0LL;
 
-    if (timeout <= now)
-	return 1;
+	/*
+	 * The caller should have masked IRQs while collecting the
+	 * timeout(s), so no tick could be announced in the meantime,
+	 * and all timeouts would always use the same epoch
+	 * value. Obviously, this can't be a valid assumption for
+	 * aperiodic timers, which values are based on the hardware
+	 * TSC, and as such the current time will change regardless of
+	 * the interrupt state; for this reason, we use the "tsc_ns"
+	 * input parameter (TSC converted to nanoseconds) the caller
+	 * has passed us as the epoch value instead.
+	 */
 
-    return timeout - now;
+	if (xntbase_periodic_p(xnthread_time_base(thread)))
+		return xntimer_get_timeout(timer);
+
+	timeout = xntimer_get_date(timer);
+
+	if (timeout <= tsc_ns)
+		return 1;
+
+	return timeout - tsc_ns;
 }
 
 static inline xnticks_t xnthread_get_period(xnthread_t *thread)
 {
-    xnticks_t period = 0;
+	xnticks_t period = 0;
 
-    /*
-     * The current thread period might be:
-     * - the value of the timer interval for periodic threads (ns/ticks)
-     * - or, the value of the alloted round-robin quantum (ticks)
-     * - or zero, meaning "no periodic activity".
-     */
+	/*
+	 * The current thread period might be:
+	 * - the value of the timer interval for periodic threads (ns/ticks)
+	 * - or, the value of the alloted round-robin quantum (ticks)
+	 * - or zero, meaning "no periodic activity".
+	 */
        
-    if (xntimer_running_p(&thread->ptimer))
-	period = xntimer_get_interval(&thread->ptimer);
-    else if (xnthread_test_state(thread,XNRRB))
-	period = xnthread_time_slice(thread);
+	if (xntimer_running_p(&thread->ptimer))
+		period = xntimer_get_interval(&thread->ptimer);
+	else if (xnthread_test_state(thread,XNRRB))
+		period = xnthread_time_slice(thread);
 
-    return period;
+	return period;
 }
 
 #ifdef __cplusplus

@@ -47,7 +47,9 @@ typedef struct rt_event_placeholder {
     xnhandle_t opaque;
 } RT_EVENT_PLACEHOLDER;
 
-#if defined(__KERNEL__) || defined(__XENO_SIM__)
+#if (defined(__KERNEL__) || defined(__XENO_SIM__)) && !defined(DOXYGEN_CPP)
+
+#include <native/ppd.h>
 
 #define XENO_EVENT_MAGIC 0x55550404
 
@@ -63,9 +65,15 @@ typedef struct rt_event {
 
     char name[XNOBJECT_NAME_LEN]; /* !< Symbolic name. */
 
-#if defined(__KERNEL__) && defined(CONFIG_XENO_OPT_PERVASIVE)
+#ifdef CONFIG_XENO_OPT_PERVASIVE
     pid_t cpid;			/* !< Creator's pid. */
-#endif /* __KERNEL__ && CONFIG_XENO_OPT_PERVASIVE */
+#endif /* CONFIG_XENO_OPT_PERVASIVE */
+
+    xnholder_t rlink;		/* !< Link in resource queue. */
+
+#define rlink2event(ln)	container_of(ln, RT_EVENT, rlink)
+
+    xnqueue_t *rqueue;		/* !< Backpointer to resource queue. */
 
 } RT_EVENT;
 
@@ -73,9 +81,24 @@ typedef struct rt_event {
 extern "C" {
 #endif
 
+#ifdef CONFIG_XENO_OPT_NATIVE_EVENT
+
 int __native_event_pkg_init(void);
 
 void __native_event_pkg_cleanup(void);
+
+static inline void __native_event_flush_rq(xnqueue_t *rq)
+{
+	xeno_flush_rq(RT_EVENT, rq, event);
+}
+
+#else /* !CONFIG_XENO_OPT_NATIVE_EVENT */
+
+#define __native_event_pkg_init()		({ 0; })
+#define __native_event_pkg_cleanup()		do { } while(0)
+#define __native_event_flush_rq(rq)		do { } while(0)
+
+#endif /* !CONFIG_XENO_OPT_NATIVE_EVENT */
 
 #ifdef __cplusplus
 }

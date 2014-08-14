@@ -36,6 +36,7 @@
 #include <native/alarm.h>
 #include <native/intr.h>
 #include <native/pipe.h>
+#include <native/misc.h>
 
 /* This file implements the Xenomai syscall wrappers;
  *
@@ -48,7 +49,7 @@
  * and the use of it in the actual syscall.
  */
 
-static int __muxid;
+int __native_muxid;
 
 static int __rt_bind_helper(struct task_struct *curr,
 			    struct pt_regs *regs,
@@ -178,6 +179,9 @@ static int __rt_task_create(struct task_struct *curr, struct pt_regs *regs)
 	err = rt_task_create(task, name, 0, prio, XNFPU | XNSHADOW | mode);
 
 	if (err == 0) {
+		/* Apply CPU affinity */
+		set_cpus_allowed(current, task->affinity);
+
 		/* Copy back the registry handle to the ph struct. */
 		ph.opaque = xnthread_handle(&task->thread_base);
 		ph.opaque2 = bulk.a5;	/* hidden pthread_t identifier. */
@@ -502,8 +506,8 @@ static int __rt_task_inquire(struct task_struct *curr, struct pt_regs *regs)
 	RT_TASK *task;
 	int err;
 
-	if (!__xn_access_ok
-	    (curr, VERIFY_WRITE, __xn_reg_arg2(regs), sizeof(info)))
+	if (__xn_reg_arg2(regs) &&
+	    !__xn_access_ok(curr, VERIFY_WRITE, __xn_reg_arg2(regs), sizeof(info)))
 		return -EFAULT;
 
 	if (__xn_reg_arg1(regs)) {
@@ -521,6 +525,10 @@ static int __rt_task_inquire(struct task_struct *curr, struct pt_regs *regs)
 
 	if (!task)
 		return -ESRCH;
+
+	if (unlikely(!__xn_reg_arg2(regs)))
+		/* Probe for existence. */
+		return 0;
 
 	err = rt_task_inquire(task, &info);
 
@@ -2337,18 +2345,17 @@ static int __rt_queue_write(struct task_struct *curr, struct pt_regs *regs)
 	/* Sending mode. */
 	mode = (int)__xn_reg_arg4(regs);
 
+	if (!__xn_access_ok(curr, VERIFY_READ, buf, size))
+		return -EFAULT;
+
 	mbuf = rt_queue_alloc(q, size);
 
 	if (!mbuf)
 		return -ENOMEM;
 
-	if (size > 0) {
-		if (!__xn_access_ok(curr, VERIFY_READ, buf, size))
-			return -EFAULT;
-
+	if (size > 0)
 		/* Slurp the message directly into the conveying buffer. */
 		__xn_copy_from_user(curr, mbuf, buf, size);
-	}
 
 	return rt_queue_send(q, mbuf, size, mode);
 }
@@ -2970,7 +2977,7 @@ static int __rt_alarm_stop(struct task_struct *curr, struct pt_regs *regs)
 
 static int __rt_alarm_wait(struct task_struct *curr, struct pt_regs *regs)
 {
-	RT_TASK *task = xeno_current_task();
+	xnthread_t *thread = xnpod_current_thread();
 	RT_ALARM_PLACEHOLDER ph;
 	RT_ALARM *alarm;
 	int err = 0;
@@ -2993,15 +3000,15 @@ static int __rt_alarm_wait(struct task_struct *curr, struct pt_regs *regs)
 		goto unlock_and_exit;
 	}
 
-	if (xnthread_base_priority(&task->thread_base) != XNCORE_IRQ_PRIO)
+	if (xnthread_base_priority(thread) != XNCORE_IRQ_PRIO)
 		/* Renice the waiter above all regular tasks if needed. */
-		xnpod_renice_thread(&task->thread_base, XNCORE_IRQ_PRIO);
+		xnpod_renice_thread(thread, XNCORE_IRQ_PRIO);
 
-	xnsynch_sleep_on(&alarm->synch_base, XN_INFINITE);
+	xnsynch_sleep_on(&alarm->synch_base, XN_INFINITE, XN_RELATIVE);
 
-	if (xnthread_test_info(&task->thread_base, XNRMID))
+	if (xnthread_test_info(thread, XNRMID))
 		err = -EIDRM;	/* Alarm deleted while pending. */
-	else if (xnthread_test_info(&task->thread_base, XNBREAK))
+	else if (xnthread_test_info(thread, XNBREAK))
 		err = -EINTR;	/* Unblocked. */
 
       unlock_and_exit:
@@ -3198,9 +3205,9 @@ static int __rt_intr_delete(struct task_struct *curr, struct pt_regs *regs)
 static int __rt_intr_wait(struct task_struct *curr, struct pt_regs *regs)
 {
 	RT_INTR_PLACEHOLDER ph;
+	xnthread_t *thread;
 	RTIME timeout;
 	RT_INTR *intr;
-	RT_TASK *task;
 	int err = 0;
 	spl_t s;
 
@@ -3232,21 +3239,19 @@ static int __rt_intr_wait(struct task_struct *curr, struct pt_regs *regs)
 	}
 
 	if (!intr->pending) {
-		task = xeno_current_task();
+		thread = xnpod_current_thread();
 
-		if (xnthread_base_priority(&task->thread_base) !=
-		    XNCORE_IRQ_PRIO)
+		if (xnthread_base_priority(thread) != XNCORE_IRQ_PRIO)
 			/* Renice the waiter above all regular tasks if needed. */
-			xnpod_renice_thread(&task->thread_base,
-					    XNCORE_IRQ_PRIO);
+			xnpod_renice_thread(thread, XNCORE_IRQ_PRIO);
 
-		xnsynch_sleep_on(&intr->synch_base, timeout);
+		xnsynch_sleep_on(&intr->synch_base, timeout, XN_RELATIVE);
 
-		if (xnthread_test_info(&task->thread_base, XNRMID))
+		if (xnthread_test_info(thread, XNRMID))
 			err = -EIDRM;	/* Interrupt object deleted while pending. */
-		else if (xnthread_test_info(&task->thread_base, XNTIMEO))
+		else if (xnthread_test_info(thread, XNTIMEO))
 			err = -ETIMEDOUT;	/* Timeout. */
-		else if (xnthread_test_info(&task->thread_base, XNBREAK))
+		else if (xnthread_test_info(thread, XNBREAK))
 			err = -EINTR;	/* Unblocked. */
 		else
 			err = intr->pending;
@@ -3507,6 +3512,9 @@ static int __rt_pipe_read(struct task_struct *curr, struct pt_regs *regs)
 	if (err < 0)
 		return err;
 
+	if (msg == NULL)	/* Closed by peer? */
+		return 0;
+
 	if (size < P_MSGSIZE(msg))
 		err = -ENOBUFS;
 	else if (P_MSGSIZE(msg) > 0)
@@ -3649,45 +3657,177 @@ static int __rt_pipe_stream(struct task_struct *curr, struct pt_regs *regs)
 #endif /* CONFIG_XENO_OPT_NATIVE_PIPE */
 
 /*
- * int __rt_misc_get_io_region(unsigned long start,
- *                             unsigned long len,
- *                             const char *label)
+ * int __rt_io_get_region(RT_IOREGION_PLACEHOLDER *ph,
+ *                        const char *name,
+ *                        uint64_t *startp,
+ *                        uint64_t *lenp,
+ *                        int flags)
  */
 
-static int __rt_misc_get_io_region(struct task_struct *curr,
-				   struct pt_regs *regs)
+static int __rt_io_get_region(struct task_struct *curr,
+			      struct pt_regs *regs)
 {
-	unsigned long start, len;
-	char label[64];
+	RT_IOREGION_PLACEHOLDER ph;
+	uint64_t start, len;
+	RT_IOREGION *iorn;
+	int err, flags;
+	spl_t s;
 
 	if (!__xn_access_ok
-	    (curr, VERIFY_READ, __xn_reg_arg3(regs), sizeof(label)))
+	    (curr, VERIFY_WRITE, __xn_reg_arg1(regs), sizeof(ph)))
 		return -EFAULT;
 
-	__xn_strncpy_from_user(curr, label,
-			       (const char __user *)__xn_reg_arg3(regs),
-			       sizeof(label) - 1);
-	label[sizeof(label) - 1] = '\0';
+	if (!__xn_access_ok
+	    (curr, VERIFY_READ, __xn_reg_arg2(regs), sizeof(iorn->name)))
+		return -EFAULT;
 
-	start = __xn_reg_arg1(regs);
-	len = __xn_reg_arg2(regs);
+	if (!__xn_access_ok
+	    (curr, VERIFY_READ, __xn_reg_arg3(regs), sizeof(start)))
+		return -EFAULT;
 
-	return request_region(start, len, label) ? 0 : -EBUSY;
+	if (!__xn_access_ok
+	    (curr, VERIFY_READ, __xn_reg_arg4(regs), sizeof(len)))
+		return -EFAULT;
+
+	iorn = (RT_IOREGION *)xnmalloc(sizeof(*iorn));
+
+	if (!iorn)
+		return -ENOMEM;
+
+	__xn_strncpy_from_user(curr, iorn->name,
+			       (const char __user *)__xn_reg_arg2(regs),
+			       sizeof(iorn->name) - 1);
+	iorn->name[sizeof(iorn->name) - 1] = '\0';
+
+	err = xnregistry_enter(iorn->name, iorn, &iorn->handle, NULL);
+
+	if (err)
+		goto fail;
+
+	__xn_copy_from_user(curr, &start, (void __user *)__xn_reg_arg3(regs),
+			    sizeof(start));
+
+	__xn_copy_from_user(curr, &len, (void __user *)__xn_reg_arg4(regs),
+			    sizeof(len));
+
+	flags = __xn_reg_arg5(regs);
+
+	if (flags & IORN_IOPORT)
+		err = request_region(start, len, iorn->name) ? 0 : -EBUSY;
+	else if (flags & IORN_IOMEM)
+		err = request_mem_region(start, len, iorn->name) ? 0 : -EBUSY;
+	else
+		err = -EINVAL;
+
+	if (unlikely(err != 0))
+		goto fail;
+
+	iorn->magic = XENO_IOREGION_MAGIC;
+	iorn->start = start;
+	iorn->len = len;
+	iorn->flags = flags;
+	inith(&iorn->rlink);
+	iorn->rqueue = &xeno_get_rholder()->ioregionq;
+	xnlock_get_irqsave(&nklock, s);
+	appendq(iorn->rqueue, &iorn->rlink);
+	xnlock_put_irqrestore(&nklock, s);
+	iorn->cpid = curr->pid;
+	/* Copy back the registry handle to the ph struct. */
+	ph.opaque = iorn->handle;
+	ph.start = start;
+	ph.len = len;
+	__xn_copy_to_user(curr, (void __user *)__xn_reg_arg1(regs), &ph, sizeof(ph));
+
+	return 0;
+
+fail:
+	xnfree(iorn);
+
+	return err;
+}
+
+/* Provided for auto-cleanup support. */
+int rt_ioregion_delete(RT_IOREGION *iorn)
+{
+	uint64_t start, len;
+	int flags;
+	spl_t s;
+
+	xnlock_get_irqsave(&nklock, s);
+
+	flags = iorn->flags;
+	start = iorn->start;
+	len = iorn->len;
+	removeq(iorn->rqueue, &iorn->rlink);
+	xnregistry_remove(iorn->handle);
+
+	xnlock_put_irqrestore(&nklock, s);
+
+	if (flags & IORN_IOPORT)
+		release_region(start, len);
+	else if (flags & IORN_IOMEM)
+		release_mem_region(start, len);
+
+	return 0;
 }
 
 /*
- * int __rt_misc_put_io_region(unsigned long start,
- *                             unsigned long len)
+ * int __rt_io_put_region(RT_IOREGION_PLACEHOLDER *ph)
  */
 
-static int __rt_misc_put_io_region(struct task_struct *curr,
-				   struct pt_regs *regs)
+static int __rt_io_put_region(struct task_struct *curr,
+			      struct pt_regs *regs)
 {
-	unsigned long start, len;
+	RT_IOREGION_PLACEHOLDER ph;
+	uint64_t start, len;
+	RT_IOREGION *iorn;
+	int flags;
+	spl_t s;
 
-	start = __xn_reg_arg1(regs);
-	len = __xn_reg_arg2(regs);
-	release_region(start, len);
+	if (!__xn_access_ok
+	    (curr, VERIFY_READ, __xn_reg_arg1(regs), sizeof(ph)))
+		return -EFAULT;
+
+	__xn_copy_from_user(curr, &ph, (void __user *)__xn_reg_arg1(regs),
+			    sizeof(ph));
+
+	xnlock_get_irqsave(&nklock, s);
+
+	if (unlikely(ph.opaque == XN_NO_HANDLE)) { /* Legacy compat. */
+		xnqueue_t *rq = &xeno_get_rholder()->ioregionq;
+		RT_IOREGION *_iorn;
+		xnholder_t *holder;
+
+		for (holder = getheadq(rq), iorn = NULL;
+		     holder; holder = nextq(rq, holder)) {
+			_iorn = rlink2ioregion(holder);
+			if (_iorn->start == ph.start && _iorn->len == ph.len) {
+				iorn = _iorn;
+				break;
+			}
+		}
+	} else
+		iorn = (RT_IOREGION *)xnregistry_fetch(ph.opaque);
+
+	if (iorn == NULL) {
+		xnlock_put_irqrestore(&nklock, s);
+		return -ESRCH;
+	}
+
+	flags = iorn->flags;
+	start = iorn->start;
+	len = iorn->len;
+	removeq(iorn->rqueue, &iorn->rlink);
+	xnregistry_remove(iorn->handle);
+
+	xnlock_put_irqrestore(&nklock, s);
+
+	xnfree(iorn);
+
+	if (flags & IORN_IOPORT)
+		release_region(start, len);
+	else if (flags & IORN_IOMEM)
+		release_mem_region(start, len);
 
 	return 0;
 }
@@ -3696,6 +3836,59 @@ static __attribute__ ((unused))
 int __rt_call_not_available(struct task_struct *curr, struct pt_regs *regs)
 {
 	return -ENOSYS;
+}
+
+static void __shadow_delete_hook(xnthread_t *thread)
+{
+	if (xnthread_get_magic(thread) == XENO_SKIN_MAGIC &&
+	    xnthread_test_state(thread, XNMAPPED))
+		xnshadow_unmap(thread);
+}
+
+static void *__shadow_eventcb(int event, void *data)
+{
+	struct xeno_resource_holder *rh;
+	switch(event) {
+
+	case XNSHADOW_CLIENT_ATTACH:
+
+		rh = (struct xeno_resource_holder *) xnarch_alloc_host_mem(sizeof(*rh));
+		if (!rh)
+			return ERR_PTR(-ENOMEM);
+
+		initq(&rh->alarmq);
+		initq(&rh->condq);
+		initq(&rh->eventq);
+		initq(&rh->heapq);
+		initq(&rh->intrq);
+		initq(&rh->mutexq);
+		initq(&rh->pipeq);
+		initq(&rh->queueq);
+		initq(&rh->semq);
+		initq(&rh->ioregionq);
+
+		return &rh->ppd;
+
+	case XNSHADOW_CLIENT_DETACH:
+
+		rh = ppd2rholder((xnshadow_ppd_t *) data);
+		__native_alarm_flush_rq(&rh->alarmq);
+		__native_cond_flush_rq(&rh->condq);
+		__native_event_flush_rq(&rh->eventq);
+		__native_heap_flush_rq(&rh->heapq);
+		__native_intr_flush_rq(&rh->intrq);
+		__native_mutex_flush_rq(&rh->mutexq);
+		__native_pipe_flush_rq(&rh->pipeq);
+		__native_queue_flush_rq(&rh->queueq);
+		__native_sem_flush_rq(&rh->semq);
+		__native_ioregion_flush_rq(&rh->ioregionq);
+
+		xnarch_free_host_mem(rh, sizeof(*rh));
+
+		return NULL;
+	}
+
+	return ERR_PTR(-EINVAL);
 }
 
 static xnsysent_t __systab[] = {
@@ -3790,34 +3983,36 @@ static xnsysent_t __systab[] = {
 	[__native_intr_inquire] = {&__rt_intr_inquire, __xn_exec_any},
 	[__native_pipe_create] = {&__rt_pipe_create, __xn_exec_lostage},
 	[__native_pipe_bind] = {&__rt_pipe_bind, __xn_exec_conforming},
-	[__native_pipe_delete] = {&__rt_pipe_delete, __xn_exec_lostage},
+	[__native_pipe_delete] = {&__rt_pipe_delete, __xn_exec_any},
 	[__native_pipe_read] = {&__rt_pipe_read, __xn_exec_primary},
 	[__native_pipe_write] = {&__rt_pipe_write, __xn_exec_any},
 	[__native_pipe_stream] = {&__rt_pipe_stream, __xn_exec_any},
 	[__native_unimp_89] = {&__rt_call_not_available, __xn_exec_any},
-	[__native_misc_get_io_region] =
-	    {&__rt_misc_get_io_region, __xn_exec_lostage},
-	[__native_misc_put_io_region] =
-	    {&__rt_misc_put_io_region, __xn_exec_lostage},
+	[__native_io_get_region] =
+	    {&__rt_io_get_region, __xn_exec_lostage},
+	[__native_io_put_region] =
+	    {&__rt_io_put_region, __xn_exec_lostage},
 	[__native_timer_ns2tsc] = {&__rt_timer_ns2tsc, __xn_exec_any},
 	[__native_timer_tsc2ns] = {&__rt_timer_tsc2ns, __xn_exec_any},
 };
 
-static void __shadow_delete_hook(xnthread_t *thread)
-{
-	if (xnthread_get_magic(thread) == XENO_SKIN_MAGIC &&
-	    xnthread_test_state(thread, XNMAPPED))
-		xnshadow_unmap(thread);
-}
+extern xntbase_t *__native_tbase;
+
+static struct xnskin_props __props = {
+	.name = "native",
+	.magic = XENO_SKIN_MAGIC,
+	.nrcalls = sizeof(__systab) / sizeof(__systab[0]),
+	.systab = __systab,
+	.eventcb = &__shadow_eventcb,
+	.timebasep = &__native_tbase,
+	.module = THIS_MODULE
+};
 
 int __native_syscall_init(void)
 {
-	__muxid =
-	    xnshadow_register_interface("native",
-					XENO_SKIN_MAGIC,
-					sizeof(__systab) / sizeof(__systab[0]),
-					__systab, NULL, THIS_MODULE);
-	if (__muxid < 0)
+	__native_muxid = xnshadow_register_interface(&__props);
+
+	if (__native_muxid < 0)
 		return -ENOSYS;
 
 	xnpod_add_hook(XNHOOK_THREAD_DELETE, &__shadow_delete_hook);
@@ -3828,5 +4023,5 @@ int __native_syscall_init(void)
 void __native_syscall_cleanup(void)
 {
 	xnpod_remove_hook(XNHOOK_THREAD_DELETE, &__shadow_delete_hook);
-	xnshadow_unregister_interface(__muxid);
+	xnshadow_unregister_interface(__native_muxid);
 }

@@ -75,10 +75,12 @@ typedef struct xnqueue {
 } xnqueue_t;
 
 #if XENO_DEBUG(QUEUES) && defined(CONFIG_SMP)
-#define DECLARE_XNQUEUE(q) xnqueue_t q = { { &(q).head, &(q).head }, 0, XNARCH_LOCK_UNLOCKED }
+#define XNQUEUE_INITIALIZER(q) { { &(q).head, &(q).head }, 0, XNARCH_LOCK_UNLOCKED }
 #else /* !(XENO_DEBUG(QUEUES) && CONFIG_SMP) */
-#define DECLARE_XNQUEUE(q) xnqueue_t q = { { &(q).head, &(q).head }, 0 }
+#define XNQUEUE_INITIALIZER(q) { { &(q).head, &(q).head }, 0 }
 #endif /* XENO_DEBUG(QUEUES) && CONFIG_SMP */
+
+#define DEFINE_XNQUEUE(q) xnqueue_t q = XNQUEUE_INITIALIZER(q)
 
 static inline void initq(xnqueue_t *qslot)
 {
@@ -93,7 +95,7 @@ static inline void initq(xnqueue_t *qslot)
 
 #if defined(__KERNEL__) || defined(__XENO_SIM__)
 
-#define XENO_DEBUG_CHECK_QUEUE(__qslot)				\
+#define XENO_DEBUG_CHECK_QUEUE(__qslot)					\
 	do {								\
 		xnholder_t *curr;					\
 		spl_t s;						\
@@ -285,22 +287,14 @@ static inline void initph(xnpholder_t *holder)
 	/* Priority is set upon queue insertion */
 }
 
-/* Prioritized element queue */
+/* Prioritized element queue - we only manage a descending queuing
+   order (highest numbered priorities are linked first). */
 
-#define xnqueue_up   (-1)
-#define xnqueue_down   1
+typedef struct xnpqueue { xnqueue_t pqueue; } xnpqueue_t;
 
-typedef struct xnpqueue {
-
-	xnqueue_t pqueue;
-	int qdir;
-
-} xnpqueue_t;
-
-static inline void initpq(xnpqueue_t *pqslot, int qdir)
+static inline void initpq(xnpqueue_t *pqslot)
 {
 	initq(&pqslot->pqueue);
-	pqslot->qdir = qdir;
 }
 
 static inline void insertpq(xnpqueue_t *pqslot,
@@ -316,18 +310,10 @@ static inline void insertpqf(xnpqueue_t *pqslot, xnpholder_t *holder, int prio)
 
 	xnholder_t *curr;
 
-	if (pqslot->qdir == xnqueue_down) {
-		for (curr = pqslot->pqueue.head.last;
-		     curr != &pqslot->pqueue.head; curr = curr->last) {
-			if (prio <= ((xnpholder_t *)curr)->prio)
-				break;
-		}
-	} else {
-		for (curr = pqslot->pqueue.head.last;
-		     curr != &pqslot->pqueue.head; curr = curr->last) {
-			if (prio >= ((xnpholder_t *)curr)->prio)
-				break;
-		}
+	for (curr = pqslot->pqueue.head.last;
+	     curr != &pqslot->pqueue.head; curr = curr->last) {
+		if (prio <= ((xnpholder_t *)curr)->prio)
+			break;
 	}
 
 	holder->prio = prio;
@@ -341,18 +327,10 @@ static inline void insertpql(xnpqueue_t *pqslot, xnpholder_t *holder, int prio)
 
 	xnholder_t *curr;
 
-	if (pqslot->qdir == xnqueue_down) {
-		for (curr = pqslot->pqueue.head.next;
-		     curr != &pqslot->pqueue.head; curr = curr->next) {
-			if (prio >= ((xnpholder_t *)curr)->prio)
-				break;
-		}
-	} else {
-		for (curr = pqslot->pqueue.head.next;
-		     curr != &pqslot->pqueue.head; curr = curr->next) {
-			if (prio <= ((xnpholder_t *)curr)->prio)
-				break;
-		}
+	for (curr = pqslot->pqueue.head.next;
+	     curr != &pqslot->pqueue.head; curr = curr->next) {
+		if (prio >= ((xnpholder_t *)curr)->prio)
+			break;
 	}
 
 	holder->prio = prio;
@@ -366,18 +344,71 @@ static inline xnpholder_t *findpqh(xnpqueue_t *pqslot, int prio)
 
 	xnholder_t *curr;
 
-	if (pqslot->qdir == xnqueue_down) {
-		for (curr = pqslot->pqueue.head.next;
-		     curr != &pqslot->pqueue.head; curr = curr->next) {
-			if (prio >= ((xnpholder_t *)curr)->prio)
-				break;
-		}
-	} else {
-		for (curr = pqslot->pqueue.head.next;
-		     curr != &pqslot->pqueue.head; curr = curr->next) {
-			if (prio <= ((xnpholder_t *)curr)->prio)
-				break;
-		}
+	for (curr = pqslot->pqueue.head.next;
+	     curr != &pqslot->pqueue.head; curr = curr->next) {
+		if (prio >= ((xnpholder_t *)curr)->prio)
+			break;
+	}
+
+	if (curr && ((xnpholder_t *)curr)->prio == prio)
+		return (xnpholder_t *)curr;
+
+	return NULL;
+}
+
+static inline void insertpqfr(xnpqueue_t *pqslot, xnpholder_t *holder, int prio)
+{
+	/*
+	 * Insert the element at the front of its priority group
+	 * (FIFO) - Reverse queueing applied (lowest numbered
+	 * priorities are put at front).
+	 */
+	xnholder_t *curr;
+
+	for (curr = pqslot->pqueue.head.last;
+	     curr != &pqslot->pqueue.head; curr = curr->last) {
+		if (prio >= ((xnpholder_t *)curr)->prio)
+			break;
+	}
+
+	holder->prio = prio;
+
+	insertq(&pqslot->pqueue, curr->next, &holder->plink);
+}
+
+static inline void insertpqlr(xnpqueue_t *pqslot, xnpholder_t *holder, int prio)
+{
+	/*
+	 * Insert the element at the front of its priority group
+	 * (LIFO) - Reverse queueing applied (lowest numbered
+	 * priorities are put at front).
+	 */
+	xnholder_t *curr;
+
+	for (curr = pqslot->pqueue.head.next;
+	     curr != &pqslot->pqueue.head; curr = curr->next) {
+		if (prio <= ((xnpholder_t *)curr)->prio)
+			break;
+	}
+
+	holder->prio = prio;
+
+	insertq(&pqslot->pqueue, curr, &holder->plink);
+}
+
+static inline xnpholder_t *findpqhr(xnpqueue_t *pqslot, int prio)
+{
+	/*
+	 * Find the element heading a given priority group - Reverse
+	 * queueing assumed (lowest numbered priorities should be at
+	 * front).
+	 */
+	xnholder_t *curr;
+
+	for (curr = pqslot->pqueue.head.next;
+	     curr != &pqslot->pqueue.head; curr = curr->next) {
+		if (prio <= ((xnpholder_t *)curr)->prio)
+			break;
 	}
 
 	if (curr && ((xnpholder_t *)curr)->prio == prio)
@@ -462,9 +493,9 @@ typedef struct xngqueue {
 static inline void initgq(xngqueue_t *gqslot,
 			  xnqueue_t *freehq,
 			  void (*starvation) (xnqueue_t *),
-			  int threshold, int qdir)
+			  int threshold)
 {
-	initpq(&gqslot->gqueue, qdir);
+	initpq(&gqslot->gqueue);
 	gqslot->freehq = freehq;
 	gqslot->starvation = starvation;
 	gqslot->threshold = threshold;
@@ -526,9 +557,12 @@ static inline xngholder_t *nextgq(xngqueue_t *gqslot, xngholder_t *holder)
 static inline void *getgq(xngqueue_t *gqslot)
 {
 	xngholder_t *holder = getheadgq(gqslot);
+
 	if (!holder)
 		return NULL;
+
 	appendq(gqslot->freehq, &getpq(&gqslot->gqueue)->plink);
+
 	return holder->data;
 }
 
@@ -571,7 +605,8 @@ static inline int emptygq_p(xngqueue_t *gqslot)
 #ifdef CONFIG_XENO_OPT_SCALABLE_SCHED
 
 /* Multi-level priority queue, suitable for handling the runnable
-   thread queue. */
+   thread queue. We only manage a descending queuing order,
+   i.e. highest numbered priorities come first. */
 
 #if BITS_PER_LONG * BITS_PER_LONG < XNCORE_NR_PRIO
 #error "Internal bitmap cannot hold so many priority levels"
@@ -581,7 +616,7 @@ static inline int emptygq_p(xngqueue_t *gqslot)
 
 typedef struct xnmlqueue {
 
-	int qdir, loprio, hiprio, elems;
+	int loprio, hiprio, elems;
 
 	u_long himap, lomap[__MLQ_LONGS];
 
@@ -607,13 +642,8 @@ static inline int indexmlq(xnmlqueue_t *mlqslot, int prio)
 	   range. We use ffnz() to scan the bitmap which MUST be based
 	   on a bit scan forward op. Therefore, the lower the index
 	   value, the higher the priority (since least significant
-	   bits will be found first when scanning). */
-
-	if (mlqslot->qdir == xnqueue_up)
-		/* loprio numerically greater than hiprio. */
-		return -mlqslot->hiprio + prio;
-	else
-		return mlqslot->hiprio - prio;
+	   bits will be found first when scanning the bitmaps). */
+	return mlqslot->hiprio - prio;
 }
 
 static inline int ffsmlq(xnmlqueue_t *mlqslot)
@@ -623,13 +653,11 @@ static inline int ffsmlq(xnmlqueue_t *mlqslot)
 	return hi * BITS_PER_LONG + lo;	/* Result is undefined if none set. */
 }
 
-static inline void initmlq(xnmlqueue_t *mlqslot, int qdir, int loprio,
-			   int hiprio)
+static inline void initmlq(xnmlqueue_t *mlqslot, int loprio, int hiprio)
 {
 	int prio;
 
 	mlqslot->elems = 0;
-	mlqslot->qdir = qdir;
 	mlqslot->loprio = loprio;
 	mlqslot->hiprio = hiprio;
 	mlqslot->himap = 0;
@@ -639,7 +667,7 @@ static inline void initmlq(xnmlqueue_t *mlqslot, int qdir, int loprio,
 		initq(&mlqslot->queue[prio]);
 
 	XENO_ASSERT(NUCLEUS, 
-		    indexmlq(mlqslot, qdir == xnqueue_up ? loprio : hiprio) < XNCORE_NR_PRIO,
+		    hiprio - loprio < XNCORE_NR_PRIO,
 		    xnpod_fatal("priority range [%d..%d] is beyond multi-level "
 				"queue indexing capabilities",
 				loprio, hiprio));
@@ -729,7 +757,7 @@ static inline xnpholder_t *getheadmlq(xnmlqueue_t *mlqslot)
 		    xnpod_fatal
 		    ("corrupted multi-level queue, qslot=%p at %s:%d", mlqslot,
 		     __FILE__, __LINE__);
-	    );
+		);
 
 	return holder;
 }

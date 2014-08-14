@@ -33,7 +33,7 @@
 #include <asm/mmu.h>
 
 /*
- * void rthal_thread_switch(struct thread_struct *prev, struct thread_struct *next, int kernel_thread)
+ * void rthal_thread_switch(struct thread_struct *prev, struct thread_struct *next, int kthreadp)
  */
 	.align	7
 _GLOBAL(rthal_thread_switch)
@@ -128,5 +128,4 @@ _GLOBAL(rthal_thread_trampoline)
 	mtlr	r15
 	mr	r2,r16
 	mr	r3,r17
-	stdu	r1,-STACK_FRAME_OVERHEAD(r1)
 	blr

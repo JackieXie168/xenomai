@@ -17,10 +17,10 @@
  * 02111-1307, USA.
  */
 
-#ifndef _psos_task_h
-#define _psos_task_h
+#ifndef _PSOS_TASK_H
+#define _PSOS_TASK_H
 
-#include "psos+/event.h"
+#include <psos+/event.h>
 
 #define PSOSTASK_NOTEPAD_REGS 16
 
@@ -66,7 +66,7 @@ typedef struct psostask {
 
 } psostask_t;
 
-static inline psostask_t *thread2psostask(xnthread_t *t)
+static inline psostask_t *thread2psostask (xnthread_t *t)
 {
     return t ? container_of(t, psostask_t, threadbase) : NULL;
 }
@@ -90,6 +90,8 @@ static inline xnflags_t psos_mode_to_xeno (u_long mode)
     if (mode & T_NOASR)
 	xnmode |= XNASDI;
 
+    xnmode |= (mode & (T_SHIELD|T_TRAPSW|T_RPIOFF));
+
     return xnmode;
 }
 
@@ -106,6 +108,8 @@ static inline u_long xeno_mode_to_psos (xnflags_t xnmode)
     if (xnmode & XNASDI)
 	mode |= T_NOASR;
 
+    mode |= (xnmode & (XNSHIELD|XNTRAPSW|XNRPIOFF));
+
     return mode;
 }
 
@@ -117,4 +121,4 @@ void psostask_cleanup(void);
 }
 #endif
 
-#endif /* !_psos_task_h */
+#endif /* !_PSOS_TASK_H */

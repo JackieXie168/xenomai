@@ -32,6 +32,33 @@
 #include <asm-generic/xenomai/hal.h>	/* Read the generic bits. */
 #include <asm/byteorder.h>
 
+#ifdef CONFIG_ARCH_AT91
+#include <linux/stringify.h>
+#define RTHAL_TIMER_DEVICE	"TC" __stringify(CONFIG_IPIPE_AT91_TC) " RC"
+#define RTHAL_CLOCK_DEVICE	"TC" __stringify(CONFIG_IPIPE_AT91_TC) " CV"
+#elif defined(CONFIG_ARCH_IMX)
+#define RTHAL_TIMER_DEVICE	"TCMP"
+#define RTHAL_CLOCK_DEVICE	"TCN"
+#elif defined(CONFIG_ARCH_IMX21)
+#define RTHAL_TIMER_DEVICE	"TCMP"
+#define RTHAL_CLOCK_DEVICE	"TCN"
+#elif defined(CONFIG_ARCH_INTEGRATOR)
+#define RTHAL_TIMER_DEVICE	"TIMER1"
+#define RTHAL_CLOCK_DEVICE	"TIMER1"
+#elif defined(CONFIG_ARCH_IXP4XX)
+#define RTHAL_TIMER_DEVICE	"OSRT1"
+#define RTHAL_CLOCK_DEVICE	"OSTS"
+#elif defined(CONFIG_ARCH_PXA)
+#define RTHAL_TIMER_DEVICE	"OSMR0"
+#define RTHAL_CLOCK_DEVICE	"OSCR"
+#elif defined(CONFIG_ARCH_S3C2410)
+#define RTHAL_TIMER_DEVICE	"TCNTB4"
+#define RTHAL_CLOCK_DEVICE	"TCNTO3"
+#elif defined(CONFIG_ARCH_SA1100)
+#define RTHAL_TIMER_DEVICE	"OSMR0"
+#define RTHAL_CLOCK_DEVICE	"OSCR"
+#endif /* CONFIG_ARCH_SA1100 */
+
 typedef unsigned long long rthal_time_t;
 
 #if __LINUX_ARM_ARCH__ < 5
@@ -116,7 +143,9 @@ static inline struct mm_struct *rthal_get_active_mm(void)
 
     /* Private interface -- Internal use only */
 
-asmlinkage void rthal_thread_switch(struct task_struct *prev, struct thread_info *out, struct thread_info *in);
+asmlinkage void rthal_thread_switch(struct task_struct *prev,
+				    struct thread_info *out,
+				    struct thread_info *in);
 
 asmlinkage void rthal_thread_trampoline(void);
 
@@ -153,15 +182,15 @@ static inline void rthal_restore_fpu(rthal_fpenv_t *fpuenv)
 
 #define rthal_get_fpu_owner(cur) ({                                         \
     struct task_struct * _cur = (cur);                                      \
-    (((_cur)->thread_info->used_cp[1] | (_cur)->thread_info->used_cp[2])    \
+    ((task_thread_info(_cur)->used_cp[1] | task_thread_info(_cur)->used_cp[2])    \
         ? _cur : NULL);                                                     \
 })
 
 #define rthal_disable_fpu() \
-    current->thread_info->used_cp[1] = current->thread_info->used_cp[2] = 0;
+	task_thread_info(current)->used_cp[1] = task_thread_info(current)->used_cp[2] = 0;
 
 #define rthal_enable_fpu() \
-    current->thread_info->used_cp[1] = current->thread_info->used_cp[2] = 1;
+	task_thread_info(current)->used_cp[1] = task_thread_info(current)->used_cp[2] = 1;
 
 #endif /* CONFIG_XENO_HW_FPU */
 

@@ -19,7 +19,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <native/syscall.h>
-#include <native/task.h>
+#include <native/timer.h>
 #include <asm/xenomai/arith.h>
 
 extern int __native_muxid;

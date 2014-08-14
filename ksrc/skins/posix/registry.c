@@ -31,8 +31,6 @@ struct {
 	unsigned mapsz;
 } pse51_reg;
 
-#define PSE51_NODE_PARTIAL_INIT 1
-
 static unsigned pse51_reg_crunch(const char *key)
 {
 	unsigned h = 0, g;
@@ -102,7 +100,6 @@ int pse51_node_add(pse51_node_t * node, const char *name, unsigned magic)
 	node->magic = magic;
 	node->flags = 0;
 	node->refcount = 1;
-	node->completion_synch = NULL;
 
 	/* Insertion in hash table. */
 	node->next = NULL;
@@ -152,85 +149,24 @@ int pse51_node_get(pse51_node_t ** nodep,
 	pse51_node_t *node, **node_link;
 	int err;
 
-	do {
-		err = pse51_node_lookup(&node_link, name, magic);
-
-		if (err)
-			return err;
-
-		node = *node_link;
-
-		if (node && (oflags & (O_CREAT | O_EXCL)) == (O_CREAT | O_EXCL))
-			return EEXIST;
-
-		if (!node && !(oflags & O_CREAT))
-			return ENOENT;
-
-		*nodep = node;
-
-		if (!node)
-			return 0;
-
-		++node->refcount;
-
-		while (node->flags & PSE51_NODE_PARTIAL_INIT) {
-			xnthread_t *cur;
-
-			if (xnpod_unblockable_p()) {
-				pse51_node_put(node);
-				return EPERM;
-			}
-
-			xnsynch_sleep_on(node->completion_synch, XN_INFINITE);
-
-			cur = xnpod_current_thread();
-
-			if (xnthread_test_info(cur, XNRMID)) {
-				err = EAGAIN;
-				break;
-			}
-
-			if (xnthread_test_info(cur, XNBREAK)) {
-				pse51_node_put(node);
-				return EINTR;
-			}
-		}
-	} while (err == EAGAIN);
-
-	return err;
-}
-
-/* Add a partially built object. */
-int pse51_node_add_start(pse51_node_t * node,
-			 const char *name,
-			 unsigned magic, xnsynch_t *completion_synch)
-{
-	int err;
-
-	err = pse51_node_add(node, name, magic);
-
+	err = pse51_node_lookup(&node_link, name, magic);
 	if (err)
 		return err;
+	
+	node = *node_link;
+	if (node && (oflags & (O_CREAT | O_EXCL)) == (O_CREAT | O_EXCL))
+		return EEXIST;
 
-	xnsynch_init(completion_synch, XNSYNCH_PRIO);
-	node->completion_synch = completion_synch;
-	node->flags |= PSE51_NODE_PARTIAL_INIT;
+	if (!node && !(oflags & O_CREAT))
+		return ENOENT;
+
+	*nodep = node;
+	if (!node)
+		return 0;
+
+	++node->refcount;
+
 	return 0;
-}
-
-void pse51_node_add_finished(pse51_node_t * node, int error)
-{
-	if (error) {
-		node->refcount = 0;
-		pse51_node_unbind(node);
-	}
-
-	if (xnsynch_flush(node->completion_synch,
-			  error ? XNRMID : 0) == XNSYNCH_RESCHED)
-		xnpod_schedule();
-
-	node->flags &= ~PSE51_NODE_PARTIAL_INIT;
-	node->completion_synch = NULL;
 }
 
 static int pse51_reg_fd_get(void)
@@ -276,29 +212,41 @@ static int pse51_reg_fd_lookup(pse51_desc_t ** descp, int fd)
 	return 0;
 }
 
-int pse51_desc_create(pse51_desc_t ** descp, pse51_node_t * node)
+int pse51_desc_create(pse51_desc_t ** descp, pse51_node_t * node, long flags)
 {
-	int fd = pse51_reg_fd_get();
 	pse51_desc_t *desc;
-
-	if (fd == -1)
-		return EMFILE;
+	spl_t s;
+	int fd;
 
 	desc = (pse51_desc_t *) xnmalloc(sizeof(*desc));
-
 	if (!desc)
 		return ENOSPC;
+
+	xnlock_get_irqsave(&nklock, s);
+	fd = pse51_reg_fd_get();
+	if (fd == -1) {
+		xnlock_put_irqrestore(&nklock, s);
+		xnfree(desc);
+		return EMFILE;
+	}
 
 	pse51_reg.descs[fd] = desc;
 	desc->node = node;
 	desc->fd = fd;
+	desc->flags = flags;
+	xnlock_put_irqrestore(&nklock, s);
+
 	*descp = desc;
 	return 0;
 }
 
 int pse51_desc_destroy(pse51_desc_t * desc)
 {
+	spl_t s;
+
+	xnlock_get_irqsave(&nklock, s);
 	pse51_reg_fd_put(desc->fd);
+	xnlock_put_irqrestore(&nklock, s);
 	xnfree(desc);
 	return 0;
 }
@@ -322,11 +270,9 @@ int pse51_desc_get(pse51_desc_t ** descp, int fd, unsigned magic)
 	return 0;
 }
 
-#if defined(__KERNEL__) && defined(CONFIG_XENO_OPT_PERVASIVE)
+#ifdef CONFIG_XENO_OPT_PERVASIVE
 
-#ifdef CONFIG_SMP
-xnlock_t pse51_assoc_lock;
-#endif
+DEFINE_XNLOCK(pse51_assoc_lock);
 
 static int pse51_assoc_lookup_inner(pse51_assocq_t * q,
 				    pse51_assoc_t ** passoc,
@@ -435,7 +381,7 @@ void pse51_assocq_destroy(pse51_assocq_t * q, void (*destroy) (pse51_assoc_t *))
 	xnlock_put_irqrestore(&pse51_assoc_lock, s);
 }
 
-#endif /* __KERNEL__ && CONFIG_XENO_OPT_PERVASIVE */
+#endif /* CONFIG_XENO_OPT_PERVASIVE */
 
 pse51_kqueues_t pse51_global_kqueues;
 
@@ -452,7 +398,7 @@ int pse51_reg_pkg_init(unsigned buckets_count, unsigned maxfds)
 	size = sizeof(pse51_node_t) * buckets_count +
 		sizeof(pse51_desc_t) * maxfds + sizeof(unsigned) * mapsize;
 
-	chunk = (char *)xnarch_sysalloc(size);
+	chunk = (char *)xnarch_alloc_host_mem(size);
 	if (!chunk)
 		return ENOMEM;
 
@@ -478,9 +424,9 @@ int pse51_reg_pkg_init(unsigned buckets_count, unsigned maxfds)
 		pse51_reg.fdsmap[mapsize - 1] =
 		    (1 << (maxfds % BITS_PER_INT)) - 1;
 
-#if defined(__KERNEL__) && defined(CONFIG_XENO_OPT_PERVASIVE)
+#ifdef CONFIG_XENO_OPT_PERVASIVE
 	xnlock_init(&pse51_assoc_lock);
-#endif /* __KERNEL__ && CONFIG_XENO_OPT_PERVASIVE */
+#endif /* CONFIG_XENO_OPT_PERVASIVE */
 	return 0;
 }
 
@@ -510,5 +456,5 @@ void pse51_reg_pkg_cleanup(void)
 		+ sizeof(pse51_desc_t) * pse51_reg.maxfds
 		+ sizeof(unsigned) * pse51_reg.mapsz;
 
-	xnarch_sysfree(pse51_reg.node_buckets, size);
+	xnarch_free_host_mem(pse51_reg.node_buckets, size);
 }

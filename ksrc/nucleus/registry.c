@@ -40,6 +40,11 @@
 #include <nucleus/heap.h>
 #include <nucleus/registry.h>
 #include <nucleus/thread.h>
+#include <nucleus/assert.h>
+
+#ifndef CONFIG_XENO_OPT_DEBUG_REGISTRY
+#define CONFIG_XENO_OPT_DEBUG_REGISTRY  0
+#endif
 
 static xnobject_t registry_obj_slots[CONFIG_XENO_OPT_REGISTRY_NRSLOTS];
 
@@ -79,14 +84,14 @@ static int registry_proc_apc;
 
 int xnregistry_init(void)
 {
-	static const int primes[] = {
+	static const u_short primes[] = {
 		101, 211, 307, 401, 503, 601,
 		701, 809, 907, 1009, 1103
 	};
 
 #define obj_hash_max(n)			 \
-((n) < sizeof(primes) / sizeof(int) ? \
- (n) : sizeof(primes) / sizeof(int) - 1)
+((n) < sizeof(primes) / sizeof(u_long) ? \
+ (n) : sizeof(primes) / sizeof(u_long) - 1)
 
 	int n;
 
@@ -122,7 +127,7 @@ int xnregistry_init(void)
 	registry_hash_entries =
 	    primes[obj_hash_max(CONFIG_XENO_OPT_REGISTRY_NRSLOTS / 100)];
 	registry_hash_table =
-	    (xnobjhash_t **) xnarch_sysalloc(sizeof(xnobjhash_t *) *
+	    (xnobjhash_t **) xnarch_alloc_host_mem(sizeof(xnobjhash_t *) *
 					     registry_hash_entries);
 
 	if (!registry_hash_table) {
@@ -180,7 +185,7 @@ void xnregistry_cleanup(void)
 		}
 	}
 
-	xnarch_sysfree(registry_hash_table,
+	xnarch_free_host_mem(registry_hash_table,
 		       sizeof(xnobjhash_t *) * registry_hash_entries);
 
 	xnsynch_destroy(&registry_hash_synch);
@@ -621,6 +626,17 @@ int xnregistry_enter(const char *key,
 
 	xnlock_put_irqrestore(&nklock, s);
 
+#if XENO_DEBUG(REGISTRY)
+	if (err)
+		xnlogerr("FAILED to register object %s (%s), status %d\n",
+			 key,
+			 pnode ? pnode->type : "unknown type",
+			 err);
+	else if (pnode)
+		xnloginfo("registered exported object %s (%s)\n",
+			  key, pnode->type);
+#endif
+
 	return err;
 }
 
@@ -677,16 +693,16 @@ int xnregistry_enter(const char *key,
  * Rescheduling: always unless the request is immediately satisfied or
  * @a timeout specifies a non-blocking operation.
  *
- * @note This service is sensitive to the current operation mode of
- * the system timer, as defined by the xnpod_start_timer() service. In
- * periodic mode, clock ticks are interpreted as periodic jiffies. In
- * oneshot mode, clock ticks are interpreted as nanoseconds.
+ * @note The @a timeout value will be interpreted as jiffies if @a
+ * thread is bound to a periodic time base (see xnpod_init_thread), or
+ * nanoseconds otherwise.
  */
 
 int xnregistry_bind(const char *key, xnticks_t timeout, xnhandle_t *phandle)
 {
 	xnobject_t *object;
 	xnthread_t *thread;
+	xntbase_t *tbase;
 	xnticks_t stime;
 	int err = 0;
 	spl_t s;
@@ -694,9 +710,12 @@ int xnregistry_bind(const char *key, xnticks_t timeout, xnhandle_t *phandle)
 	if (!key)
 		return -EINVAL;
 
+	thread = xnpod_current_thread();
+	tbase = xnthread_time_base(thread);
+
 	xnlock_get_irqsave(&nklock, s);
 
-	stime = xnpod_get_time();
+	stime = xntbase_get_time(tbase);
 
 	for (;;) {
 		object = registry_hash_find(key);
@@ -712,7 +731,7 @@ int xnregistry_bind(const char *key, xnticks_t timeout, xnhandle_t *phandle)
 		}
 
 		if (timeout != XN_INFINITE) {
-			xnticks_t now = xnpod_get_time();
+			xnticks_t now = xntbase_get_time(tbase);
 
 			if (stime + timeout >= now)
 				break;
@@ -721,9 +740,8 @@ int xnregistry_bind(const char *key, xnticks_t timeout, xnhandle_t *phandle)
 			stime = now;
 		}
 
-		thread = xnpod_current_thread();
 		thread->registry.waitkey = key;
-		xnsynch_sleep_on(&registry_hash_synch, timeout);
+		xnsynch_sleep_on(&registry_hash_synch, timeout, XN_RELATIVE);
 
 		if (xnthread_test_info(thread, XNTIMEO)) {
 			err = -ETIMEDOUT;
@@ -737,6 +755,16 @@ int xnregistry_bind(const char *key, xnticks_t timeout, xnhandle_t *phandle)
 	}
 
       unlock_and_exit:
+
+#if XENO_DEBUG(REGISTRY) && 0	/* XXX: GCC emits bad code. */
+	if (err)
+		xnlogerr("FAILED to bind to object %s (%s), status %d\n",
+			 key, object->pnode ? object->pnode->type : "unknown type",
+			 err);
+	else if (object->pnode)
+		xnloginfo("bound to exported object %s (%s)\n",
+			  key, object->pnode->type);
+#endif
 
 	xnlock_put_irqrestore(&nklock, s);
 
@@ -783,12 +811,21 @@ int xnregistry_remove(xnhandle_t handle)
 		goto unlock_and_exit;
 	}
 
+#if XENO_DEBUG(REGISTRY)
+	/* We must keep the lock and report early, when the object
+	 * slot is still valid. Note: we only report about exported
+	 * objects. */
+	if (object->pnode)
+		xnloginfo("unregistered exported object %s (%s)\n",
+			  object->key,
+			  object->pnode->type);
+#endif
+
 	registry_hash_remove(object);
 	object->objaddr = NULL;
 	object->cstamp = 0;
 
 #ifdef CONFIG_XENO_EXPORT_REGISTRY
-
 	if (object->pnode) {
 		registry_proc_unexport(object);
 
@@ -832,8 +869,8 @@ int xnregistry_remove(xnhandle_t handle)
  * - -ESRCH is returned if @a handle does not reference a registered
  * object.
  *
- * - -EWOULDBLOCK is returned if @a timeout is equal to
- * XN_NONBLOCK and the object is locked on entry.
+ * - -EWOULDBLOCK is returned if @a timeout is equal to XN_NONBLOCK
+ * and the object is locked on entry.
  *
  * - -EBUSY is returned if @a handle refers to a locked object and the
  * caller could not sleep until it is unlocked.
@@ -857,10 +894,9 @@ int xnregistry_remove(xnhandle_t handle)
  * Rescheduling: possible if the object to remove is currently locked
  * and the calling context can sleep.
  *
- * @note This service is sensitive to the current operation mode of
- * the system timer, as defined by the xnpod_start_timer() service. In
- * periodic mode, clock ticks are interpreted as periodic jiffies. In
- * oneshot mode, clock ticks are interpreted as nanoseconds.
+ * @note The @a timeout value will be interpreted as jiffies if the
+ * current thread is bound to a periodic time base (see
+ * xnpod_init_thread), or nanoseconds otherwise.
  */
 
 int xnregistry_remove_safe(xnhandle_t handle, xnticks_t timeout)
@@ -911,7 +947,7 @@ int xnregistry_remove_safe(xnhandle_t handle, xnticks_t timeout)
 	cstamp = object->cstamp;
 
 	do {
-		xnsynch_sleep_on(&object->safesynch, timeout);
+		xnsynch_sleep_on(&object->safesynch, timeout, XN_RELATIVE);
 
 		if (xnthread_test_info(xnpod_current_thread(), XNBREAK)) {
 			err = -EINTR;

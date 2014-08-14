@@ -34,8 +34,13 @@
 #include <linux/module.h>
 #include <linux/console.h>
 #include <linux/kallsyms.h>
-#include <asm/system.h>
+#include <linux/bitops.h>
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,0)
+#include <linux/hardirq.h>
+#else
 #include <asm/hardirq.h>
+#endif
+#include <asm/system.h>
 #include <asm/irq.h>
 #include <asm/uaccess.h>
 #include <asm/unistd.h>
@@ -168,7 +173,7 @@ int rthal_irq_request(unsigned irq,
 
 /**
  * @fn int rthal_irq_release(unsigned irq)
- *                           
+ *
  * @brief Uninstall a real-time interrupt handler.
  *
  * Uninstalls an interrupt handler previously attached using the
@@ -202,8 +207,8 @@ int rthal_irq_release(unsigned irq)
 }
 
 /**
- * @fn int rthal_irq_host_request (unsigned irq,irqreturn_t (*handler)(int irq,void *dev_id,struct pt_regs *regs),char *name,void *dev_id)
- *                           
+ * @fn int rthal_irq_host_request(unsigned irq,rthal_irq_host_handler_t handler,char *name,void *dev_id)
+ *
  * @brief Install a shared Linux interrupt handler.
  *
  * Installs a shared interrupt handler in the Linux domain for the
@@ -239,7 +244,7 @@ int rthal_irq_release(unsigned irq)
 
 /**
  * @fn int rthal_irq_host_release (unsigned irq,void *dev_id)
- *                           
+ *
  * @brief Uninstall a shared Linux interrupt handler.
  *
  * Uninstalls a shared interrupt handler from the Linux domain for the
@@ -269,7 +274,7 @@ int rthal_irq_release(unsigned irq)
 
 /**
  * @fn int rthal_irq_host_pend (unsigned irq)
- *                           
+ *
  * @brief Propagate an IRQ event to Linux.
  *
  * Causes the given IRQ to be propagated down to the Adeos pipeline to
@@ -294,19 +299,18 @@ int rthal_irq_release(unsigned irq)
 
 int rthal_irq_host_pend(unsigned irq)
 {
-    rthal_propagate_irq(irq);
-    return 0;
+    return rthal_propagate_irq(irq);
 }
 
 /**
  * @fn int rthal_irq_affinity (unsigned irq,cpumask_t cpumask,cpumask_t *oldmask)
- *                           
+ *
  * @brief Set/Get processor affinity for external interrupt.
  *
  * On SMP systems, this service ensures that the given interrupt is
  * preferably dispatched to the specified set of processors. The
  * previous affinity mask is returned by this service.
- * 
+ *
  * @param irq The interrupt source whose processor affinity is
  * affected by the operation. Only external interrupts can have their
  * affinity changed/queried, thus virtual interrupt numbers allocated
@@ -316,7 +320,7 @@ int rthal_irq_host_pend(unsigned irq)
  * representing the new affinity for this interrupt. A zero value
  * cause this service to return the current affinity mask without
  * changing it.
- * 
+ *
  * @param oldmask If non-NULL, a pointer to a memory area which will
  * bve overwritten by the previous affinity mask used for this
  * interrupt source, or a zeroed mask if an error occurred.  This
@@ -361,7 +365,7 @@ int rthal_irq_affinity(unsigned irq, cpumask_t cpumask, cpumask_t *oldmask)
 
 /**
  * @fn int rthal_trap_catch (rthal_trap_handler_t handler)
- *                           
+ *
  * @brief Installs a fault handler.
  *
  * The HAL attempts to invoke a fault handler whenever an uncontrolled
@@ -574,7 +578,7 @@ int rthal_apc_free(int apc)
  * domain gets back in control.
  *
  * When posted from the Linux domain, the APC handler is fired as soon
- * as the interrupt mask is explicitely cleared by some kernel
+ * as the interrupt mask is explicitly cleared by some kernel
  * code. When posted from the Xenomai domain, the APC handler is
  * fired as soon as the Linux domain is resumed, i.e. after Xenomai has
  * completed all its pending duties.
@@ -901,9 +905,29 @@ void rthal_exit(void)
     rthal_arch_cleanup();
 }
 
+unsigned long long __rthal_generic_full_divmod64(unsigned long long a,
+						 unsigned long long b,
+						 unsigned long long *rem)
+{
+	unsigned long long q = 0, r = a;
+	int i;
+
+	for (i = fls(a >> 32) - fls(b >> 32), b <<= i; i >= 0; i--, b >>= 1) {
+		q <<= 1;
+		if (b <= r) {
+			r -= b;
+			q++;
+		}
+	}
+
+	if (rem)
+		*rem = r;
+	return q;
+}
+
 /**
  * @fn int rthal_irq_enable(unsigned irq)
- *                           
+ *
  * @brief Enable an interrupt source.
  *
  * Enables an interrupt source at PIC level. Since Adeos masks and
@@ -934,7 +958,7 @@ void rthal_exit(void)
 
 /**
  * @fn int rthal_irq_disable(unsigned irq)
- *                           
+ *
  * @brief Disable an interrupt source.
  *
  * Disables an interrupt source at PIC level. After this call has
@@ -959,40 +983,55 @@ void rthal_exit(void)
  * - Any domain context.
  */
 
-/*! 
- * \fn int rthal_timer_request(void (*handler)(void),unsigned long nstick)
+/**
+ * \fn int rthal_timer_request(void (*tick_handler)(void),
+ *             void (*mode_emul)(enum clock_event_mode mode, struct clock_event_device *cdev),
+ *             int (*tick_emul)(unsigned long delay, struct clock_event_device *cdev), int cpu)
  * \brief Grab the hardware timer.
  *
- * rthal_timer_request() grabs and tunes the hardware timer so that a
- * user-defined routine is called according to a given frequency. On
- * architectures that provide a oneshot-programmable time source, the
- * hardware timer can operate either in aperiodic or periodic
- * mode. Using the aperiodic mode still allows to run periodic timings
- * over it: the underlying hardware simply needs to be reprogrammed
- * after each tick using the appropriate interval value
+ * rthal_timer_request() grabs and tunes the hardware timer in oneshot
+ * mode in order to clock the master time base.
  *
- * The time interval that elapses between two consecutive invocations
- * of the handler is called a tick. The user-supplied handler will
- * always be invoked on behalf of the Xenomai domain for each incoming
- * tick.
+ * A user-defined routine is registered as the clock tick handler.
+ * This handler will always be invoked on behalf of the Xenomai domain
+ * for each incoming tick.
  *
- * @param handler The address of the tick handler which will process
- * each incoming tick.
+ * Hooks for emulating oneshot mode for the tick device are accepted
+ * when CONFIG_GENERIC_CLOCKEVENTS is defined for the host
+ * kernel. Hist tick emulation is a way to share the clockchip
+ * hardware between Linux and Xenomai, when the former provides
+ * support for oneshot timing (i.e. high resolution timers and no-HZ
+ * scheduler ticking).
  *
- * @param nstick The timer period in nanoseconds. If this parameter is
- * zero, the underlying hardware timer is set to operate in
- * oneshot-programming mode. In this mode, timing accuracy is higher -
- * since it is not rounded to a constant time slice - at the expense
- * of a lesser efficicency due to the timer chip programming
- * duties. On the other hand, the shorter the period, the higher the
- * overhead induced by the periodic mode, since the handler will end
- * up consuming a lot of CPU power to process useless ticks.
+ * @param tick_handler The address of the Xenomai tick handler which will
+ * process each incoming tick.
  *
- * @return 0 is returned on success. Otherwise:
+ * @param mode_emul The optional address of a callback to be invoked
+ * upon mode switch of the host tick device, notified by the Linux
+ * kernel. This parameter is only considered whenever
+ * CONFIG_GENERIC_CLOCKEVENTS is defined.
+ *
+ * @param tick_emul The optional address of a callback to be invoked
+ * upon setup of the next shot date for the host tick device, notified
+ * by the Linux kernel. This parameter is only considered whenever
+ * CONFIG_GENERIC_CLOCKEVENTS is defined.
+ *
+ * @param cpu The CPU number to grab the timer from.
+ *
+ * @return a positive value is returned on success, representing the
+ * duration of a Linux periodic tick expressed as a count of
+ * nanoseconds; zero should be returned when the Linux kernel does not
+ * undergo periodic timing on the given CPU (e.g. oneshot
+ * mode). Otherwise:
  *
  * - -EBUSY is returned if the hardware timer has already been
  * grabbed.  rthal_timer_request() must be issued before
  * rthal_timer_request() is called again.
+ *
+ * - -ENODEV is returned if the hardware timer cannot be used.  This
+ * situation may occur after the kernel disabled the timer due to
+ * invalid calibration results; in such a case, such hardware is
+ * unusable for any timing duties.
  *
  * Environments:
  *
@@ -1001,14 +1040,16 @@ void rthal_exit(void)
  * - Linux domain context.
  */
 
-/*! 
- * \fn void rthal_timer_release(void)
+/**
+ * \fn void rthal_timer_release(int cpu)
  * \brief Release the hardware timer.
  *
  * Releases the hardware timer, thus reverting the effect of a
  * previous call to rthal_timer_request(). In case the timer hardware
  * is shared with Linux, a periodic setup suitable for the Linux
  * kernel will be reset.
+ *
+ * @param cpu The CPU number the timer was grabbed from.
  *
  * Environments:
  *
@@ -1047,3 +1088,4 @@ EXPORT_SYMBOL(rthal_proc_root);
 
 EXPORT_SYMBOL(rthal_init);
 EXPORT_SYMBOL(rthal_exit);
+EXPORT_SYMBOL(__rthal_generic_full_divmod64);

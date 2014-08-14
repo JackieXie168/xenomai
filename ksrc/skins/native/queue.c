@@ -40,6 +40,8 @@
  *
  *@{*/
 
+/** @example msg_queue.c */
+
 #include <nucleus/pod.h>
 #include <nucleus/registry.h>
 #include <native/task.h>
@@ -116,7 +118,7 @@ static xnpnode_t __queue_pnode = {
 static void __queue_flush_private(xnheap_t *heap,
 				  void *poolmem, u_long poolsize, void *cookie)
 {
-	xnarch_sysfree(poolmem, poolsize);
+	xnarch_free_host_mem(poolmem, poolsize);
 }
 
 /**
@@ -208,6 +210,7 @@ int rt_queue_create(RT_QUEUE *q,
 		    const char *name, size_t poolsize, size_t qlimit, int mode)
 {
 	int err;
+	spl_t s;
 
 	if (!xnpod_root_p())
 		return -EPERM;
@@ -215,14 +218,14 @@ int rt_queue_create(RT_QUEUE *q,
 	if (poolsize == 0)
 		return -EINVAL;
 
-	poolsize = xnheap_rounded_size(poolsize, PAGE_SIZE);
-
 #ifdef __KERNEL__
 	if (mode & Q_SHARED) {
 		if (!name || !*name)
 			return -EINVAL;
 
 #ifdef CONFIG_XENO_OPT_PERVASIVE
+		poolsize = xnheap_rounded_size(poolsize, PAGE_SIZE);
+
 		err = xnheap_init_mapped(&q->bufpool,
 					 poolsize,
 					 (mode & Q_DMA) ? GFP_DMA : 0);
@@ -236,14 +239,18 @@ int rt_queue_create(RT_QUEUE *q,
 	} else
 #endif /* __KERNEL__ */
 	{
-		void *poolmem = xnarch_sysalloc(poolsize);
+		void *poolmem;
+
+		poolsize = xnheap_rounded_size(poolsize, XNCORE_PAGE_SIZE);
+
+		poolmem = xnarch_alloc_host_mem(poolsize);
 
 		if (!poolmem)
 			return -ENOMEM;
 
-		err = xnheap_init(&q->bufpool, poolmem, poolsize, PAGE_SIZE);
+		err = xnheap_init(&q->bufpool, poolmem, poolsize, XNCORE_PAGE_SIZE);
 		if (err) {
-			xnarch_sysfree(poolmem, poolsize);
+			xnarch_free_host_mem(poolmem, poolsize);
 			return err;
 		}
 	}
@@ -255,6 +262,11 @@ int rt_queue_create(RT_QUEUE *q,
 	q->qlimit = qlimit;
 	q->mode = mode;
 	xnobject_copy_name(q->name, name);
+	inith(&q->rlink);
+	q->rqueue = &xeno_get_rholder()->queueq;
+	xnlock_get_irqsave(&nklock, s);
+	appendq(q->rqueue, &q->rlink);
+	xnlock_put_irqrestore(&nklock, s);
 
 #ifdef CONFIG_XENO_OPT_REGISTRY
 	/* <!> Since xnregister_enter() may reschedule, only register
@@ -268,8 +280,7 @@ int rt_queue_create(RT_QUEUE *q,
 			/* Since this is an anonymous object (empty name on entry)
 			   from user-space, it gets registered under an unique
 			   internal name but is not exported through /proc. */
-			xnobject_create_name(q->name, sizeof(q->name),
-					     (void *)q);
+			xnobject_create_name(q->name, sizeof(q->name), q);
 			pnode = NULL;
 		}
 
@@ -347,16 +358,18 @@ int rt_queue_delete(RT_QUEUE *q)
 	   calls of rt_queue_delete(), so now we can actually destroy the
 	   associated heap safely. */
 
-#if defined(__KERNEL__) && defined(CONFIG_XENO_OPT_PERVASIVE)
+#ifdef CONFIG_XENO_OPT_PERVASIVE
 	if (q->mode & Q_SHARED)
 		err = xnheap_destroy_mapped(&q->bufpool);
 	else
-#endif /* __KERNEL__ && CONFIG_XENO_OPT_PERVASIVE */
+#endif /* CONFIG_XENO_OPT_PERVASIVE */
 		err = xnheap_destroy(&q->bufpool, &__queue_flush_private, NULL);
 
 	xnlock_get_irqsave(&nklock, s);
 
 	if (!err) {
+		removeq(q->rqueue, &q->rlink);
+
 #ifdef CONFIG_XENO_OPT_REGISTRY
 		if (q->handle)
 			xnregistry_remove(q->handle);
@@ -778,11 +791,9 @@ int rt_queue_write(RT_QUEUE *q, const void *buf, size_t size, int mode)
  * Rescheduling: always unless the request is immediately satisfied or
  * @a timeout specifies a non-blocking operation.
  *
- * @note This service is sensitive to the current operation mode of
- * the system timer, as defined by the CONFIG_XENO_OPT_TIMING_PERIOD
- * parameter. In periodic mode, clock ticks are interpreted as
- * periodic jiffies. In oneshot mode, clock ticks are interpreted as
- * nanoseconds.
+ * @note The @a timeout value will be interpreted as jiffies if the
+ * native skin is bound to a periodic time base (see
+ * CONFIG_XENO_OPT_NATIVE_PERIOD), or nanoseconds otherwise.
  */
 
 ssize_t rt_queue_receive(RT_QUEUE *q, void **bufp, RTIME timeout)
@@ -818,7 +829,7 @@ ssize_t rt_queue_receive(RT_QUEUE *q, void **bufp, RTIME timeout)
 			goto unlock_and_exit;
 		}
 
-		xnsynch_sleep_on(&q->synch_base, timeout);
+		xnsynch_sleep_on(&q->synch_base, timeout, XN_RELATIVE);
 
 		task = xeno_current_task();
 
@@ -913,11 +924,9 @@ ssize_t rt_queue_receive(RT_QUEUE *q, void **bufp, RTIME timeout)
  * Rescheduling: always unless the request is immediately satisfied or
  * @a timeout specifies a non-blocking operation.
  *
- * @note This service is sensitive to the current operation mode of
- * the system timer, as defined by the CONFIG_XENO_OPT_TIMING_PERIOD
- * parameter. In periodic mode, clock ticks are interpreted as
- * periodic jiffies. In oneshot mode, clock ticks are interpreted as
- * nanoseconds.
+ * @note The @a timeout value will be interpreted as jiffies if the
+ * native skin is bound to a periodic time base (see
+ * CONFIG_XENO_OPT_NATIVE_PERIOD), or nanoseconds otherwise.
  */
 
 ssize_t rt_queue_read(RT_QUEUE *q, void *buf, size_t size, RTIME timeout)
@@ -1040,7 +1049,10 @@ int rt_queue_inquire(RT_QUEUE *q, RT_QUEUE_INFO *info)
  *
  * - -EPERM is returned if this service should block, but was called
  * from a context which cannot sleep (e.g. interrupt, non-realtime or
- * scheduler locked).
+ * scheduler locked). This error may also be returned whenever the
+ * call attempts to bind from a user-space application to a local
+ * queue defined from kernel space (i.e. Q_SHARED was not passed to
+ * rt_queue_create()).
  *
  * - -ENOENT is returned if the special file /dev/rtheap
  * (character-mode, major 10, minor 254) is not available from the
@@ -1057,11 +1069,9 @@ int rt_queue_inquire(RT_QUEUE *q, RT_QUEUE_INFO *info)
  * Rescheduling: always unless the request is immediately satisfied or
  * @a timeout specifies a non-blocking operation.
  *
- * @note This service is sensitive to the current operation mode of
- * the system timer, as defined by the CONFIG_XENO_OPT_TIMING_PERIOD
- * parameter. In periodic mode, clock ticks are interpreted as
- * periodic jiffies. In oneshot mode, clock ticks are interpreted as
- * nanoseconds.
+ * @note The @a timeout value will be interpreted as jiffies if the
+ * native skin is bound to a periodic time base (see
+ * CONFIG_XENO_OPT_NATIVE_PERIOD), or nanoseconds otherwise.
  */
 
 /**
@@ -1098,6 +1108,7 @@ int __native_queue_pkg_init(void)
 
 void __native_queue_pkg_cleanup(void)
 {
+	__native_queue_flush_rq(&__native_global_rholder.queueq);
 }
 
 /*@}*/

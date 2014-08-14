@@ -28,9 +28,6 @@
 #include <linux/ptrace.h>
 #include <asm-generic/xenomai/system.h>
 
-#define XNARCH_DEFAULT_TICK     1000000	/* ns, i.e. 1ms */
-#define XNARCH_HOST_TICK        (1000000000UL/HZ)
-
 #ifdef CONFIG_PPC64
 #define XNARCH_THREAD_STACKSZ   16384
 #else
@@ -59,17 +56,15 @@ typedef struct xnarchtcb {	/* Per-thread arch-dependent block */
 	/* Kernel mode side */
 	struct thread_struct ts;	/* Holds kernel-based thread context. */
 #ifdef CONFIG_XENO_HW_FPU
-	/*
-	 * We only care for basic FPU handling in kernel-space; Altivec
-	 * and SPE are not available to kernel-based nucleus threads.
-	 */
-	struct thread_struct *fpup;	/* Pointer to the FPU backup container */
+	/* We only care for basic FPU handling in kernel-space; Altivec
+	   and SPE are not available to kernel-based nucleus threads. */
+	rthal_fpenv_t *fpup;	/* Pointer to the FPU backup area */
 	struct task_struct *user_fpu_owner;
-	/*
-	 * Pointer to the FPU owner in userspace:
-	 * - NULL for RT K threads,
-	 * - last_task_used_math for Linux US threads (current or NULL when SMP)
-	 * - current for RT US threads.
+	unsigned long user_fpu_owner_prev_msr;
+	/* Pointer the the FPU owner in userspace:
+	   - NULL for RT K threads,
+	   - last_task_used_math for Linux US threads (only current or NULL when MP)
+	   - current for RT US threads.
 	 */
 #define xnarch_fpu_ptr(tcb)     ((tcb)->fpup)
 #else				/* !CONFIG_XENO_HW_FPU */
@@ -121,7 +116,7 @@ typedef struct xnarch_fltinfo {
 extern "C" {
 #endif
 
-static inline void *xnarch_sysalloc(u_long bytes)
+static inline void *xnarch_alloc_host_mem(u_long bytes)
 {
 	if (bytes > 128 * 1024)
 		return vmalloc(bytes);
@@ -129,7 +124,7 @@ static inline void *xnarch_sysalloc(u_long bytes)
 	return kmalloc(bytes, GFP_KERNEL);
 }
 
-static inline void xnarch_sysfree(void *chunk, u_long bytes)
+static inline void xnarch_free_host_mem(void *chunk, u_long bytes)
 {
 	if (bytes > 128 * 1024)
 		vfree(chunk);

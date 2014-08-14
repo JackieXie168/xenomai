@@ -385,25 +385,19 @@ EXCLUDE_SYMLINKS       = NO
 
 EXCLUDE_PATTERNS       = 
 
-# The EXAMPLE_PATH tag can be used to specify one or more files or 
-# directories that contain example code fragments that are included (see 
-# the \include command).
-
-EXAMPLE_PATH           = 
-
 # If the value of the EXAMPLE_PATH tag contains directories, you can use the 
 # EXAMPLE_PATTERNS tag to specify one or more wildcard pattern (like *.cpp 
 # and *.h) to filter out the source-files in the directories. If left 
 # blank all files are included.
 
-EXAMPLE_PATTERNS       = 
+EXAMPLE_PATTERNS       = *.c
 
 # If the EXAMPLE_RECURSIVE tag is set to YES then subdirectories will be 
 # searched for input files to be used with the \include or \dontinclude 
 # commands irrespective of the value of the RECURSIVE tag. 
 # Possible values are YES and NO. If left blank NO is used.
 
-EXAMPLE_RECURSIVE      = NO
+EXAMPLE_RECURSIVE      = YES
 
 # The IMAGE_PATH tag can be used to specify one or more files or 
 # directories that contain image that are included in the documentation (see 
@@ -676,7 +670,28 @@ INCLUDE_FILE_PATTERNS  =
 
 PREDEFINED             = DOXYGEN_CPP \
         EXPORT_SYMBOL(symbol)=// \
-        CONFIG_XENO_OPT_NATIVE_MPS
+	__KERNEL__ \
+        CONFIG_XENO_OPT_PIPE \
+        CONFIG_XENO_OPT_REGISTRY \
+        CONFIG_XENO_OPT_PERVASIVE \
+        CONFIG_XENO_OPT_TIMING_PERIODIC \
+        CONFIG_XENO_OPT_NATIVE_MPS \
+        CONFIG_XENO_OPT_NATIVE_PIPE \
+        CONFIG_XENO_OPT_NATIVE_REGISTRY \
+        CONFIG_XENO_OPT_NATIVE_SEM \
+        CONFIG_XENO_OPT_NATIVE_EVENT \
+        CONFIG_XENO_OPT_NATIVE_MUTEX \
+        CONFIG_XENO_OPT_NATIVE_COND \
+        CONFIG_XENO_OPT_NATIVE_QUEUE \
+        CONFIG_XENO_OPT_NATIVE_HEAP \
+        CONFIG_XENO_OPT_NATIVE_ALARM \
+        CONFIG_XENO_OPT_NATIVE_INTR \
+        CONFIG_XENO_OPT_POSIX_SHM \
+        CONFIG_XENO_OPT_POSIX_INTR \
+        CONFIG_XENO_OPT_RTAI_FIFO \
+        CONFIG_XENO_OPT_RTAI_SEM \
+        CONFIG_XENO_OPT_RTAI_SHM \
+        CONFIG_GENERIC_CLOCKEVENTS
 
 # If the MACRO_EXPANSION and EXPAND_ONLY_PREDEF tags are set to YES then 
 # this tag can be used to specify a list of macro names that should be expanded. 

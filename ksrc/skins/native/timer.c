@@ -33,118 +33,6 @@
 #include <nucleus/pod.h>
 #include <native/timer.h>
 
-/**
- * @fn SRTIME rt_timer_ns2ticks(SRTIME ns)
- * @brief Convert nanoseconds to internal clock ticks.
- *
- * Convert a count of nanoseconds to internal clock ticks.
- * This routine operates on signed nanosecond values.
- *
- * @param ns The count of nanoseconds to convert.
- *
- * @return The corresponding value expressed in internal clock ticks.
- *
- * Environments:
- *
- * This service can be called from:
- *
- * - Kernel module initialization/cleanup code
- * - Interrupt service routine
- * - Kernel-based task
- * - User-space task
- *
- * Rescheduling: never.
- */
-
-SRTIME rt_timer_ns2ticks(SRTIME ns)
-{
-	return xnpod_ns2ticks(ns);
-}
-
-/**
- * @fn SRTIME rt_timer_ns2tsc(SRTIME ns)
- * @brief Convert nanoseconds to local CPU clock ticks.
- *
- * Convert a count of nanoseconds to local CPU clock ticks.
- * This routine operates on signed nanosecond values.
- *
- * @param ns The count of nanoseconds to convert.
- *
- * @return The corresponding value expressed in CPU clock ticks.
- *
- * Environments:
- *
- * This service can be called from:
- *
- * - Kernel module initialization/cleanup code
- * - Interrupt service routine
- * - Kernel-based task
- * - User-space task
- *
- * Rescheduling: never.
- */
-
-SRTIME rt_timer_ns2tsc(SRTIME ns)
-{
-	return xnarch_ns_to_tsc(ns);
-}
-
-/*!
- * @fn SRTIME rt_timer_ticks2ns(SRTIME ticks)
- * @brief Convert internal clock ticks to nanoseconds.
- *
- * Convert a count of internal clock ticks to nanoseconds.
- * This routine operates on signed tick values.
- *
- * @param ticks The count of internal clock ticks to convert.
- *
- * @return The corresponding value expressed in nanoseconds.
- *
- * Environments:
- *
- * This service can be called from:
- *
- * - Kernel module initialization/cleanup code
- * - Interrupt service routine
- * - Kernel-based task
- * - User-space task
- *
- * Rescheduling: never.
- */
-
-SRTIME rt_timer_ticks2ns(SRTIME ticks)
-{
-	return xnpod_ticks2ns(ticks);
-}
-
-/*!
- * @fn SRTIME rt_timer_tsc2ns(SRTIME ticks)
- * @brief Convert local CPU clock ticks to nanoseconds.
- *
- * Convert a local CPU clock ticks to nanoseconds.
- * This routine operates on signed tick values.
- *
- * @param ticks The count of local CPU clock ticks to convert.
- *
- * @return The corresponding value expressed in nanoseconds.
- *
- * Environments:
- *
- * This service can be called from:
- *
- * - Kernel module initialization/cleanup code
- * - Interrupt service routine
- * - Kernel-based task
- * - User-space task
- *
- * Rescheduling: never.
- */
-
-SRTIME rt_timer_tsc2ns(SRTIME ticks)
-{
-	return xnarch_tsc_to_ns(ticks);
-}
-
 /*!
  * @fn int rt_timer_inquire(RT_TIMER_INFO *info)
  * @brief Inquire about the timer.
@@ -186,84 +74,25 @@ int rt_timer_inquire(RT_TIMER_INFO *info)
 {
 	RTIME period, tsc;
 
-	if (!testbits(nkpod->status, XNTIMED))
-		period = TM_UNSET;
-	else if (!testbits(nkpod->status, XNTMPER))
-		period = TM_ONESHOT;
+	if (xntbase_periodic_p(__native_tbase))
+		period = xntbase_get_tickval(__native_tbase);
 	else
-		period = xnpod_get_tickval();
+		period = TM_ONESHOT;
 
 	tsc = xnarch_get_cpu_tsc();
 	info->period = period;
 	info->tsc = tsc;
 
 #ifdef CONFIG_XENO_OPT_TIMING_PERIODIC
-	if (period != TM_ONESHOT && period != TM_UNSET)
-		info->date = nkpod->jiffies + nkpod->wallclock_offset;
+	if (period != TM_ONESHOT)
+		info->date = xntbase_get_time(__native_tbase);
 	else
 #endif /* CONFIG_XENO_OPT_TIMING_PERIODIC */
 		/* In aperiodic mode, our idea of time is the same as the
 		   CPU's, and a tick equals a nanosecond. */
-		info->date = xnarch_tsc_to_ns(tsc) + nkpod->wallclock_offset;
+		info->date = xnarch_tsc_to_ns(tsc) + __native_tbase->wallclock_offset;
 
 	return 0;
-}
-
-/*!
- * @fn RTIME rt_timer_read(void)
- * @brief Return the current system time.
- *
- * Return the current time maintained by the system timer.
- *
- * @return The current time expressed in clock ticks (see note).
- *
- * Environments:
- *
- * This service can be called from:
- *
- * - Kernel module initialization/cleanup code
- * - Interrupt service routine
- * - Kernel-based task
- * - User-space task
- *
- * Rescheduling: never.
- *
- * @note This service is sensitive to the current operation mode of
- * the system timer, as defined by the CONFIG_XENO_OPT_TIMING_PERIOD
- * parameter. In periodic mode, clock ticks are interpreted as
- * periodic jiffies. In oneshot mode, clock ticks are interpreted as
- * nanoseconds.
- */
-
-RTIME rt_timer_read(void)
-{
-	return xnpod_get_time();
-}
-
-/*!
- * @fn RTIME rt_timer_tsc(void)
- * @brief Return the current TSC value.
- *
- * Return the value of the time stamp counter (TSC) maintained by the
- * CPU of the underlying architecture.
- *
- * @return The current value of the TSC.
- *
- * Environments:
- *
- * This service can be called from:
- *
- * - Kernel module initialization/cleanup code
- * - Interrupt service routine
- * - Kernel-based task
- * - User-space task
- *
- * Rescheduling: never.
- */
-
-RTIME rt_timer_tsc(void)
-{
-	return xnarch_get_cpu_tsc();
 }
 
 /**
@@ -296,7 +125,7 @@ void rt_timer_spin(RTIME ns)
 {
 	RTIME etime = xnarch_get_cpu_tsc() + xnarch_ns_to_tsc(ns);
 
-	while (xnarch_get_cpu_tsc() < etime)
+	while ((SRTIME)(xnarch_get_cpu_tsc() - etime) < 0)
 		cpu_relax();
 }
 
@@ -307,23 +136,23 @@ void rt_timer_spin(RTIME ns)
  * This routine switches to periodic timing mode and sets the clock
  * tick rate, or resets the current timing mode to aperiodic/oneshot
  * mode depending on the value of the @a nstick parameter. Since the
- * Xenomai nucleus automatically starts the system timer according to
- * the configured policy and period when a real-time skin is loaded
- * (see CONFIG_XENO_OPT_TIMING_PERIOD), calling rt_timer_set_mode() is
- * not required from applications unless the pre-defined mode and
- * period need to be changed dynamically.
+ * native skin automatically sets its time base according to the
+ * configured policy and period at load time (see
+ * CONFIG_XENO_OPT_NATIVE_PERIOD), calling rt_timer_set_mode() is not
+ * required from applications unless the pre-defined mode and period
+ * need to be changed dynamically.
  *
- * This service also sets the time unit which will be relevant when
+ * This service sets the time unit which will be relevant when
  * specifying time intervals to the services taking timeout or delays
  * as input parameters. In periodic mode, clock ticks will represent
  * periodic jiffies. In oneshot mode, clock ticks will represent
  * nanoseconds.
  *
- * @param nstick The timer period in nanoseconds. If this parameter is
- * equal to the special TM_ONESHOT value, the timer is set to operate
- * in oneshot-programmable mode. Other values are interpreted as the
- * time between two consecutive clock ticks in periodic timing mode
- * (i.e. clock HZ = 1e9 / nstick).
+ * @param nstick The time base period in nanoseconds. If this
+ * parameter is equal to the special TM_ONESHOT value, the time base
+ * is set to operate in a tick-less fashion (i.e. oneshot mode). Other
+ * values are interpreted as the time between two consecutive clock
+ * ticks in periodic timing mode (i.e. clock HZ = 1e9 / nstick).
  *
  * @return 0 is returned on success. Otherwise:
  *
@@ -343,25 +172,14 @@ void rt_timer_spin(RTIME ns)
 
 int rt_timer_set_mode(RTIME nstick)
 {
-	if (testbits(nkpod->status, XNTIMED)) {
-		if ((nstick == TM_ONESHOT && xnpod_get_tickval() == 1) ||
-		    (nstick != TM_ONESHOT && xnpod_get_tickval() == nstick))
-			return 0;
-
-		xnpod_stop_timer();
-	}
-
-	return xnpod_start_timer(nstick, XNPOD_DEFAULT_TICKHANDLER);
+	return xntbase_switch("native", nstick, &__native_tbase);
 }
 
 /*@}*/
 
 EXPORT_SYMBOL(rt_timer_ns2ticks);
 EXPORT_SYMBOL(rt_timer_ticks2ns);
-EXPORT_SYMBOL(rt_timer_ns2tsc);
-EXPORT_SYMBOL(rt_timer_tsc2ns);
 EXPORT_SYMBOL(rt_timer_inquire);
-EXPORT_SYMBOL(rt_timer_read);
-EXPORT_SYMBOL(rt_timer_tsc);
 EXPORT_SYMBOL(rt_timer_spin);
 EXPORT_SYMBOL(rt_timer_set_mode);
+EXPORT_SYMBOL(__native_tbase);

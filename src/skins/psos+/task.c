@@ -55,9 +55,12 @@ static void *psos_task_trampoline(void *cookie)
 	struct sched_param param;
 	long err;
 
-	/* Ok, this looks like weird, but we need this. */
-	param.sched_priority = sched_get_priority_max(SCHED_FIFO);
-	pthread_setschedparam(pthread_self(), SCHED_FIFO, &param);
+	if (iargs->prio > 0) {
+		/* Apply sched params here as some libpthread implementions
+		   fail doing this via pthread_create. */
+		param.sched_priority = sched_get_priority_max(SCHED_FIFO);
+		pthread_setschedparam(pthread_self(), SCHED_FIFO, &param);
+	}
 
 	pthread_setcanceltype(PTHREAD_CANCEL_ASYNCHRONOUS, NULL);
 
@@ -89,16 +92,15 @@ static void *psos_task_trampoline(void *cookie)
 	pthread_exit((void *)err);
 }
 
-u_long t_create(char name[4],
+u_long t_create(const char *name,
 		u_long prio,
-		u_long sstack,
+		u_long sstack,	/* Ignored. */
 		u_long ustack,
 		u_long flags,
 		u_long *tid_r)
 {
 	struct psos_task_iargs iargs;
 	xncompletion_t completion;
-	struct sched_param param;
 	pthread_attr_t thattr;
 	pthread_t thid;
 	long err;
@@ -130,9 +132,6 @@ u_long t_create(char name[4],
 
 	pthread_attr_setstacksize(&thattr, ustack);
 	pthread_attr_setdetachstate(&thattr, PTHREAD_CREATE_DETACHED);
-	pthread_attr_setschedpolicy(&thattr, SCHED_FIFO);
-	param.sched_priority = sched_get_priority_max(SCHED_FIFO);
-	pthread_attr_setschedparam(&thattr, &param);
 
 	err = pthread_create(&thid, &thattr, &psos_task_trampoline, &iargs);
 
@@ -145,6 +144,21 @@ u_long t_create(char name[4],
 	/* Sync with psos_task_trampoline() then return.*/
 
 	return XENOMAI_SYSCALL1(__xn_sys_completion, &completion);
+}
+
+u_long t_shadow(const char *name, /* Xenomai extension. */
+		u_long prio,
+		u_long flags,
+		u_long *tid_r)
+{
+	pthread_setcanceltype(PTHREAD_CANCEL_ASYNCHRONOUS, NULL);
+
+	old_sigharden_handler = signal(SIGHARDEN, &psos_task_sigharden);
+
+	return XENOMAI_SKINCALL5(__psos_muxid,
+				 __psos_t_create,
+				 name, prio, flags,
+				 tid_r, NULL);
 }
 
 u_long t_start(u_long tid,
@@ -174,7 +188,7 @@ u_long t_resume(u_long tid)
 	return XENOMAI_SKINCALL1(__psos_muxid, __psos_t_resume, tid);
 }
 
-u_long t_ident(char name[4], u_long nodeno, u_long *tid_r)
+u_long t_ident(const char *name, u_long nodeno, u_long *tid_r)
 {
 	return XENOMAI_SKINCALL2(__psos_muxid, __psos_t_ident, name, tid_r);
 }

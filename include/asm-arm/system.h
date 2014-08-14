@@ -29,9 +29,6 @@
 #include <asm-generic/xenomai/system.h>
 #include <asm/xenomai/syscall.h>
 
-#define XNARCH_DEFAULT_TICK     1000000 /* ns, i.e. 1ms */
-#define XNARCH_HOST_TICK        (1000000000UL/HZ)
-
 #define XNARCH_THREAD_STACKSZ   4096
 
 #define xnarch_stack_size(tcb)  ((tcb)->stacksize)
@@ -86,7 +83,7 @@ typedef struct xnarch_fltinfo {
 
 } xnarch_fltinfo_t;
 
-#define xnarch_fault_trap(fi)   (0)
+#define xnarch_fault_trap(fi)   ((fi)->exception)
 #define xnarch_fault_code(fi)   (0)
 #define xnarch_fault_pc(fi)     ((fi)->regs->ARM_pc - (thumb_mode((fi)->regs) ? 2 : 4)) /* XXX ? */
 #define xnarch_fault_fpu_p(fi)  (0)
@@ -102,7 +99,7 @@ typedef struct xnarch_fltinfo {
 extern "C" {
 #endif
 
-static inline void *xnarch_sysalloc (u_long bytes)
+static inline void *xnarch_alloc_host_mem (u_long bytes)
 {
     if (bytes > 128*1024)
 	return vmalloc(bytes);
@@ -110,7 +107,7 @@ static inline void *xnarch_sysalloc (u_long bytes)
     return kmalloc(bytes,GFP_KERNEL);
 }
 
-static inline void xnarch_sysfree (void *chunk, u_long bytes)
+static inline void xnarch_free_host_mem (void *chunk, u_long bytes)
 {
     if (bytes > 128*1024)
 	vfree(chunk);

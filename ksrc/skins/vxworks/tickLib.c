@@ -22,10 +22,14 @@
 
 ULONG tickGet(void)
 {
-	return (ULONG)xnpod_get_time();
+	return (ULONG)xntbase_get_time(wind_tbase);
 }
 
 void tickSet(ULONG newtime)
 {
-	xnpod_set_time(newtime);
+	spl_t s;
+
+	xnlock_get_irqsave(&nklock, s);
+	xntbase_adjust_time(wind_tbase, newtime - tickGet());
+	xnlock_put_irqrestore(&nklock, s);
 }

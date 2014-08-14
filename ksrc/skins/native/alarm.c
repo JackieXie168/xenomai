@@ -34,14 +34,16 @@
  *
  *@{*/
 
+/** @example user_alarm.c */
+
 #include <nucleus/pod.h>
 #include <nucleus/registry.h>
+#include <nucleus/heap.h>
 #include <native/task.h>
 #include <native/alarm.h>
+#include <native/timer.h>
 
 #ifdef CONFIG_XENO_EXPORT_REGISTRY
-
-#include <native/timer.h>
 
 static int __alarm_read_proc(char *page,
 			     char **start,
@@ -58,7 +60,7 @@ static int __alarm_read_proc(char *page,
 		     rt_timer_tsc2ns(xntimer_interval(&alarm->timer_base)),
 		     alarm->expiries);
 
-#if defined(__KERNEL__) && defined(CONFIG_XENO_OPT_PERVASIVE)
+#ifdef CONFIG_XENO_OPT_PERVASIVE
 	{
 		xnpholder_t *holder =
 		    getheadpq(xnsynch_wait_queue(&alarm->synch_base));
@@ -71,7 +73,7 @@ static int __alarm_read_proc(char *page,
 				   holder);
 		}
 	}
-#endif /* __KERNEL__ && CONFIG_XENO_OPT_PERVASIVE */
+#endif /* CONFIG_XENO_OPT_PERVASIVE */
 
 	xnlock_put_irqrestore(&nklock, s);
 
@@ -115,6 +117,7 @@ int __native_alarm_pkg_init(void)
 
 void __native_alarm_pkg_cleanup(void)
 {
+	__native_alarm_flush_rq(&__native_global_rholder.alarmq);
 }
 
 static void __alarm_trampoline(xntimer_t *timer)
@@ -185,29 +188,35 @@ int rt_alarm_create(RT_ALARM *alarm,
 		    const char *name, rt_alarm_t handler, void *cookie)
 {
 	int err = 0;
+	spl_t s;
 
 	if (xnpod_asynch_p())
 		return -EPERM;
 
-	xntimer_init(&alarm->timer_base, &__alarm_trampoline);
+	xntimer_init(&alarm->timer_base, __native_tbase, __alarm_trampoline);
 	alarm->handle = 0;	/* i.e. (still) unregistered alarm. */
 	alarm->magic = XENO_ALARM_MAGIC;
 	alarm->expiries = 0;
 	alarm->handler = handler;
 	alarm->cookie = cookie;
 	xnobject_copy_name(alarm->name, name);
+	inith(&alarm->rlink);
+	alarm->rqueue = &xeno_get_rholder()->alarmq;
+	xnlock_get_irqsave(&nklock, s);
+	appendq(alarm->rqueue, &alarm->rlink);
+	xnlock_put_irqrestore(&nklock, s);
 
-#if defined(__KERNEL__) && defined(CONFIG_XENO_OPT_PERVASIVE)
+#ifdef CONFIG_XENO_OPT_PERVASIVE
 	xnsynch_init(&alarm->synch_base, XNSYNCH_PRIO);
 	alarm->cpid = 0;
-#endif /* __KERNEL__ && CONFIG_XENO_OPT_PERVASIVE */
-
-#ifdef CONFIG_XENO_OPT_REGISTRY
-	/* <!> Since xnregister_enter() may reschedule, only register
-	   complete objects, so that the registry cannot return handles to
-	   half-baked objects... */
+#endif /* CONFIG_XENO_OPT_PERVASIVE */
 
 	if (name) {
+#ifdef CONFIG_XENO_OPT_REGISTRY
+		/* <!> Since xnregister_enter() may reschedule, only register
+		   complete objects, so that the registry cannot return
+		   handles to half-baked objects... */
+
 		xnpnode_t *pnode = &__alarm_pnode;
 
 		if (!*name) {
@@ -224,8 +233,10 @@ int rt_alarm_create(RT_ALARM *alarm,
 
 		if (err)
 			rt_alarm_delete(alarm);
-	}
 #endif /* CONFIG_XENO_OPT_REGISTRY */
+
+		xntimer_set_name(&alarm->timer_base, alarm->name);
+	}
 
 	return err;
 }
@@ -277,11 +288,13 @@ int rt_alarm_delete(RT_ALARM *alarm)
 		goto unlock_and_exit;
 	}
 
+	removeq(alarm->rqueue, &alarm->rlink);
+
 	xntimer_destroy(&alarm->timer_base);
 
-#if defined(__KERNEL__) && defined(CONFIG_XENO_OPT_PERVASIVE)
+#ifdef CONFIG_XENO_OPT_PERVASIVE
 	rc = xnsynch_destroy(&alarm->synch_base);
-#endif /* __KERNEL__ && CONFIG_XENO_OPT_PERVASIVE */
+#endif /* CONFIG_XENO_OPT_PERVASIVE */
 
 #ifdef CONFIG_XENO_OPT_REGISTRY
 	if (alarm->handle)
@@ -344,11 +357,9 @@ int rt_alarm_delete(RT_ALARM *alarm)
  *
  * Rescheduling: never.
  *
- * @note This service is sensitive to the current operation mode of
- * the system timer, as defined by the CONFIG_XENO_OPT_TIMING_PERIOD
- * parameter. In periodic mode, clock ticks are interpreted as
- * periodic jiffies. In oneshot mode, clock ticks are interpreted as
- * nanoseconds.
+ * @note The initial @a value and @a interval will be interpreted as
+ * jiffies if the native skin is bound to a periodic time base (see
+ * CONFIG_XENO_OPT_NATIVE_PERIOD), or nanoseconds otherwise.
  */
 
 int rt_alarm_start(RT_ALARM *alarm, RTIME value, RTIME interval)
@@ -365,7 +376,7 @@ int rt_alarm_start(RT_ALARM *alarm, RTIME value, RTIME interval)
 		goto unlock_and_exit;
 	}
 
-	xntimer_start(&alarm->timer_base, value, interval);
+	xntimer_start(&alarm->timer_base, value, interval, XN_RELATIVE);
 
       unlock_and_exit:
 

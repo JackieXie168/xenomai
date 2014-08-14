@@ -67,13 +67,15 @@ MODULE_DESCRIPTION("POSIX/PSE51 interface");
 MODULE_AUTHOR("gilles.chanteperdrix@laposte.net");
 MODULE_LICENSE("GPL");
 
+static u_long tick_arg = CONFIG_XENO_OPT_POSIX_PERIOD;
+module_param_named(tick_arg, tick_arg, ulong, 0444);
+MODULE_PARM_DESC(tick_arg, "Fixed clock tick value (us), 0 for tick-less mode");
+
 static u_long time_slice_arg = 1;	/* Default (round-robin) time slice */
 module_param_named(time_slice, time_slice_arg, ulong, 0444);
 MODULE_PARM_DESC(time_slice, "Default time slice (in ticks)");
 
-#if !defined(__KERNEL__) || !defined(CONFIG_XENO_OPT_PERVASIVE)
-static xnpod_t pod;
-#endif /* !defined(__KERNEL__) || !defined(CONFIG_XENO_OPT_PERVASIVE) */
+xntbase_t *pse51_tbase;
 
 static void pse51_shutdown(int xtype)
 {
@@ -92,12 +94,11 @@ static void pse51_shutdown(int xtype)
 #ifdef CONFIG_XENO_OPT_POSIX_INTR
 	pse51_intr_pkg_cleanup();
 #endif /* CONFIG_XENO_OPT_POSIX_INTR */
-#if defined(__KERNEL__) && defined(CONFIG_XENO_OPT_PERVASIVE)
+#ifdef CONFIG_XENO_OPT_PERVASIVE
 	pse51_syscall_cleanup();
-	xncore_detach(xtype);
-#else /* !(__KERNEL__ && CONFIG_XENO_OPT_PERVASIVE) */
+#endif /* CONFIG_XENO_OPT_PERVASIVE */
+	xntbase_free(pse51_tbase);
 	xnpod_shutdown(xtype);
-#endif /* __KERNEL__ && CONFIG_XENO_OPT_PERVASIVE */
 }
 
 int SKIN_INIT(posix)
@@ -106,28 +107,24 @@ int SKIN_INIT(posix)
 
 	xnprintf("starting POSIX services.\n");
 
-#if defined(__KERNEL__) && defined(CONFIG_XENO_OPT_PERVASIVE)
-	/* The POSIX skin is stacked over the core pod. */
-	err = xncore_attach();
-#else /* !(__KERNEL__ && CONFIG_XENO_OPT_PERVASIVE) */
-	/* The POSIX skin is standalone. */
-	err = xnpod_init(&pod, PSE51_MIN_PRIORITY, PSE51_MAX_PRIORITY, XNREUSE);
-#endif /* __KERNEL__ && CONFIG_XENO_OPT_PERVASIVE */
+	err = xnpod_init();
+	if (err != 0)
+		goto fail;
 
-	if (err != 0) {
-		xnlogerr("POSIX skin init failed, code %d.\n", err);
-		return err;
-	}
-#if defined(__KERNEL__) && defined(CONFIG_XENO_OPT_PERVASIVE)
+	err = xntbase_alloc("posix", tick_arg * 1000, 0, &pse51_tbase);
+	if (err)
+	    goto fail_shutdown_pod;
+
+	xntbase_start(pse51_tbase);
+
+#ifdef CONFIG_XENO_OPT_PERVASIVE
 	err = pse51_syscall_init();
-#endif /* __KERNEL__ && CONFIG_XENO_OPT_PERVASIVE */
-
+#endif /* CONFIG_XENO_OPT_PERVASIVE */
 	if (err != 0) {
-#if defined(__KERNEL__) && defined(CONFIG_XENO_OPT_PERVASIVE)
-		xncore_detach(err);
-#else /* !(__KERNEL__ && CONFIG_XENO_OPT_PERVASIVE) */
+		xntbase_free(pse51_tbase);
+	fail_shutdown_pod:
 		xnpod_shutdown(err);
-#endif /* __KERNEL__ && CONFIG_XENO_OPT_PERVASIVE */
+	  fail:
 		xnlogerr("POSIX skin init failed, code %d.\n", err);
 		return err;
 	}

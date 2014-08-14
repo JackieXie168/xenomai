@@ -23,7 +23,12 @@
 
 #include <linux/module.h>
 #include <linux/ioport.h>
+#include <linux/version.h>
 #include <linux/delay.h>
+
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,0)
+#include <linux/pnp.h>
+#endif /* Linux >= 2.6.0 */
 
 #include <rtdm/rtdm_driver.h>
 
@@ -219,7 +224,7 @@ int __init rtcan_peak_dng_init_one(int idx)
     else if (strncmp(type[idx], "epp", 3) == 0)
 	dtype = DONGLE_TYPE_EPP;
     else {
-	printk("%s: type %s is invalid, use \"sp\" or \"sp\".",
+	printk("%s: type %s is invalid, use \"sp\" or \"epp\".",
 	       RTCAN_DRV_NAME, type[idx]);
 	return -EINVAL;
     }
@@ -315,27 +320,29 @@ void __exit rtcan_peak_dng_exit_one(struct rtcan_device *dev)
     rtcan_dev_free(dev);
 }
 
-/** Init module */
-static int __init rtcan_peak_dng_init(void)
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,0)
+static const struct pnp_device_id rtcan_peak_dng_pnp_tbl[] = {
+    /* Standard LPT Printer Port */
+    {.id = "PNP0400", .driver_data = 0},
+    /* ECP Printer Port */
+    {.id = "PNP0401", .driver_data = 0},
+    { }
+};
+
+static int rtcan_peak_dng_pnp_probe(struct pnp_dev *dev,
+				    const struct pnp_device_id *id)
 {
-    int i, ret, done = 0;
-
-    for (i = 0; 
-	 i < RTCAN_PEAK_DNG_MAX_DEV && type[i] != 0; 
-	 i++) {
-
-	if ((ret = rtcan_peak_dng_init_one(i)) != 0) {
-	    printk("Init failed with %d\n", ret);
-	    return ret;
-	}
-	done++;
-    }
-    if (done)
-	return 0;
-    printk("Please specify type=epp or type=sp\n");
-    return -EINVAL;
+    return 0;
 }
 
+static struct pnp_driver rtcan_peak_dng_pnp_driver = {
+    .name     = RTCAN_DRV_NAME,
+    .id_table = rtcan_peak_dng_pnp_tbl,
+    .probe    = rtcan_peak_dng_pnp_probe,
+};
+
+static int pnp_registered;
+#endif /* Linux >= 2.6.0 */
 
 /** Cleanup module */
 static void __exit rtcan_peak_dng_exit(void)
@@ -343,10 +350,46 @@ static void __exit rtcan_peak_dng_exit(void)
     int i;
     struct rtcan_device *dev;
 
-    for (i = 0, dev = rtcan_peak_dng_devs[i]; 
+    for (i = 0, dev = rtcan_peak_dng_devs[i];
 	 i < RTCAN_PEAK_DNG_MAX_DEV && dev != NULL;
 	 i++)
 	rtcan_peak_dng_exit_one(dev);
+
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,0)
+    if (pnp_registered)
+	pnp_unregister_driver(&rtcan_peak_dng_pnp_driver);
+#endif /* Linux >= 2.6.0 */
+}
+
+/** Init module */
+static int __init rtcan_peak_dng_init(void)
+{
+    int i, ret = -EINVAL, done = 0;
+
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,0)
+    if (pnp_register_driver(&rtcan_peak_dng_pnp_driver) == 0)
+	pnp_registered = 1;
+#endif /* Linux >= 2.6.0 */
+
+    for (i = 0;
+	 i < RTCAN_PEAK_DNG_MAX_DEV && type[i] != 0;
+	 i++) {
+
+	if ((ret = rtcan_peak_dng_init_one(i)) != 0) {
+	    printk(KERN_ERR "%s: Init failed with %d\n", RTCAN_DRV_NAME, ret);
+	    goto cleanup;
+	}
+	done++;
+    }
+    if (done)
+	return 0;
+
+    printk(KERN_ERR "%s: Please specify type=epp or type=sp\n",
+	   RTCAN_DRV_NAME);
+
+cleanup:
+    rtcan_peak_dng_exit();
+    return ret;
 }
 
 module_init(rtcan_peak_dng_init);

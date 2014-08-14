@@ -29,16 +29,11 @@ void xnpod_welcome_thread(struct xnthread *, int);
 
 void xnpod_delete_thread(struct xnthread *);
 
-static inline int xnarch_start_timer(unsigned long ns,
-				     void (*tickhandler) (void))
-{
-	return rthal_timer_request(tickhandler, ns);
-}
+#define xnarch_start_timer(tick_handler, cpu)	\
+	({ int __tickval = rthal_timer_request(tick_handler, cpu) ?: \
+			(1000000000UL/HZ); __tickval; })
 
-static inline void xnarch_stop_timer(void)
-{
-	rthal_timer_release();
-}
+#define xnarch_stop_timer(cpu)	rthal_timer_release(cpu)
 
 static inline void xnarch_leave_root(xnarchtcb_t * rootcb)
 {
@@ -48,8 +43,10 @@ static inline void xnarch_leave_root(xnarchtcb_t * rootcb)
 #ifdef CONFIG_XENO_HW_FPU
 	rootcb->user_fpu_owner = rthal_get_fpu_owner(rootcb->user_task);
 	/* So that xnarch_save_fpu() will operate on the right FPU area. */
-	rootcb->fpup = rootcb->user_fpu_owner ?
-		&rootcb->user_fpu_owner->thread : NULL;
+	rootcb->fpup = (rootcb->user_fpu_owner
+			? (rthal_fpenv_t *) & rootcb->user_fpu_owner->thread.
+			fpr[0]
+			: NULL);
 #endif /* CONFIG_XENO_HW_FPU */
 }
 
@@ -73,25 +70,27 @@ static inline void xnarch_switch_to(xnarchtcb_t * out_tcb, xnarchtcb_t * in_tcb)
 	if (next && next != prev) {	/* Switch to new user-space thread? */
 		struct mm_struct *mm = next->active_mm;
 		/* Switch the mm context. */
-#ifdef CONFIG_ALTIVEC
-		asm volatile ("dssall;\n"
-#if !defined(CONFIG_POWER4) && !defined(CONFIG_PPC64)
-			      "sync;\n"
-#endif
-			      ::);
-#endif /* CONFIG_ALTIVEC */
-
 #ifdef CONFIG_PPC64
-		if (!cpu_isset(smp_processor_id(), mm->cpu_vm_mask))
-			cpu_set(smp_processor_id(), mm->cpu_vm_mask);
+#ifdef CONFIG_ALTIVEC
+		asm volatile ("dssall;\n" :/*empty*/:);
+#endif
+		if (!cpu_isset(rthal_processor_id(), mm->cpu_vm_mask))
+			cpu_set(rthal_processor_id(), mm->cpu_vm_mask);
 
 		if (cpu_has_feature(CPU_FTR_SLB))
 			switch_slb(next, mm);
 		else
 			switch_stab(next, mm);
-
-		arch_leave_lazy_mmu_mode();
-#else /* !CONFIG_PPC64 */
+        }
+	rthal_thread_switch(out_tcb->tsp, in_tcb->tsp, next == NULL);
+#else /* PPC32 */
+#ifdef CONFIG_ALTIVEC
+		asm volatile ("dssall;\n"
+#ifndef CONFIG_POWER4
+			      "sync;\n"
+#endif
+			      :/*empty*/:);
+#endif /* CONFIG_ALTIVEC */
 		next->thread.pgdir = mm->pgd;
 		get_mmu_context(mm);
 #if LINUX_VERSION_CODE < KERNEL_VERSION(2,6,18)
@@ -100,14 +99,9 @@ static inline void xnarch_switch_to(xnarchtcb_t * out_tcb, xnarchtcb_t * in_tcb)
 		set_context(mm->context.id, mm->pgd);
 #endif /* LINUX_VERSION_CODE < KERNEL_VERSION(2,6,18) */
 		current = prev;	/* Make sure r2 is valid. */
-#endif /* CONFIG_PPC64 */
 	}
-#ifdef CONFIG_PPC64
-	rthal_thread_switch(out_tcb->tsp, in_tcb->tsp,
-			    in_tcb->user_task == NULL ? 1 : 0);
-#else /* !CONFIG_PPC64 */
 	rthal_thread_switch(out_tcb->tsp, in_tcb->tsp);
-#endif /* CONFIG_PPC64 */
+#endif	/* PPC32 */
 
 	barrier();
 }
@@ -154,26 +148,24 @@ static inline void xnarch_init_thread(xnarchtcb_t * tcb,
 				      int imask,
 				      struct xnthread *thread, char *name)
 {
+	unsigned long *ksp, flags;
 	struct pt_regs *childregs;
-	unsigned long flags;
 
 	rthal_local_irq_flags_hw(flags);
-	childregs = (struct pt_regs *)((unsigned long)tcb->stackbase +
-				       tcb->stacksize - RTHAL_SWITCH_FRAME_SIZE);
-	memset(childregs, 0, sizeof(*childregs));
-	childregs->gpr[14] = flags & ~(MSR_EE | MSR_FP);
-	tcb->ts.ksp = (unsigned long)childregs - STACK_FRAME_OVERHEAD;
-	tcb->entry = entry;
-	tcb->cookie = cookie;
-	tcb->self = thread;
-	tcb->imask = imask;
-	tcb->name = name;
+
 #ifdef CONFIG_PPC64
+	ksp =
+	    (unsigned long *)((unsigned long)tcb->stackbase + tcb->stacksize -
+			      RTHAL_SWITCH_FRAME_SIZE - 32);
+	childregs = (struct pt_regs *)ksp;
+	memset(childregs, 0, sizeof(*childregs));
 	childregs->nip = ((unsigned long *)&rthal_thread_trampoline)[0];
 	childregs->gpr[2] = ((unsigned long *)&rthal_thread_trampoline)[1];
+	childregs->gpr[14] = flags & ~(MSR_EE | MSR_FP);
 	childregs->gpr[15] = ((unsigned long *)&xnarch_thread_trampoline)[0];	/* lr = entry addr. */
 	childregs->gpr[16] = ((unsigned long *)&xnarch_thread_trampoline)[1];	/* r2 = TOC base. */
 	childregs->gpr[17] = (unsigned long)tcb;
+	tcb->ts.ksp = (unsigned long)childregs - STACK_FRAME_OVERHEAD;
 	if (cpu_has_feature(CPU_FTR_SLB)) {	/* from process.c/copy_thread */
 		unsigned long sp_vsid = get_kernel_vsid(tcb->ts.ksp);
 
@@ -185,10 +177,23 @@ static inline void xnarch_init_thread(xnarchtcb_t * tcb,
 		tcb->ts.ksp_vsid = sp_vsid;
 	}
 #else /* !CONFIG_PPC64 */
+	ksp =
+	    (unsigned long *)((unsigned long)tcb->stackbase + tcb->stacksize -
+			      RTHAL_SWITCH_FRAME_SIZE - 4);
+	childregs = (struct pt_regs *)ksp;
+	memset(childregs, 0, sizeof(*childregs));
 	childregs->nip = (unsigned long)&rthal_thread_trampoline;
+	childregs->gpr[14] = flags & ~(MSR_EE | MSR_FP);
 	childregs->gpr[15] = (unsigned long)&xnarch_thread_trampoline;
 	childregs->gpr[16] = (unsigned long)tcb;
+	tcb->ts.ksp = (unsigned long)childregs - STACK_FRAME_OVERHEAD;
 #endif
+
+	tcb->entry = entry;
+	tcb->cookie = cookie;
+	tcb->self = thread;
+	tcb->imask = imask;
+	tcb->name = name;
 }
 
 /* No lazy FPU init on PPC. */
@@ -197,54 +202,57 @@ static inline void xnarch_init_thread(xnarchtcb_t * tcb,
 static inline void xnarch_enable_fpu(xnarchtcb_t * current_tcb)
 {
 #ifdef CONFIG_XENO_HW_FPU
-	rthal_enable_fpu();
+	if (!current_tcb->user_task)
+		rthal_enable_fpu();
 #endif /* CONFIG_XENO_HW_FPU */
 }
 
-static void xnarch_init_fpu(xnarchtcb_t * tcb)
+static inline void xnarch_init_fpu(xnarchtcb_t * tcb)
 {
 #ifdef CONFIG_XENO_HW_FPU
-	/*
-	 * Initialize the FPU for an emerging kernel-based RT
-	 * thread. This must be run on behalf of the emerging thread.
-	 * xnarch_init_tcb() guarantees that all FPU regs are zeroed
-	 * in tcb.
-	 */
-	rthal_init_fpu(&tcb->ts);
+	/* Initialize the FPU for an emerging kernel-based RT thread. This
+	   must be run on behalf of the emerging thread. */
+	memset(&tcb->ts.fpr[0], 0, sizeof(rthal_fpenv_t));
+	rthal_init_fpu((rthal_fpenv_t *) & tcb->ts.fpr[0]);
 #endif /* CONFIG_XENO_HW_FPU */
 }
 
-static void xnarch_save_fpu(xnarchtcb_t * tcb)
+static inline void xnarch_save_fpu(xnarchtcb_t * tcb)
 {
 #ifdef CONFIG_XENO_HW_FPU
+
 	if (tcb->fpup) {
 		rthal_save_fpu(tcb->fpup);
 
-		if (tcb->user_fpu_owner &&
-		    tcb->user_fpu_owner->thread.regs)
-			tcb->user_fpu_owner->thread.regs->msr &= ~(MSR_FP|MSR_FE0|MSR_FE1);
+		if (tcb->user_fpu_owner && tcb->user_fpu_owner->thread.regs) {
+			tcb->user_fpu_owner_prev_msr =
+			    tcb->user_fpu_owner->thread.regs->msr;
+			tcb->user_fpu_owner->thread.regs->msr &= ~MSR_FP;
+		}
 	}
 #endif /* CONFIG_XENO_HW_FPU */
 }
 
-static void xnarch_restore_fpu(xnarchtcb_t * tcb)
+static inline void xnarch_restore_fpu(xnarchtcb_t * tcb)
 {
 #ifdef CONFIG_XENO_HW_FPU
+
 	if (tcb->fpup) {
 		rthal_restore_fpu(tcb->fpup);
-		/*
-		 * Note: Only enable FP in MSR, if it was enabled when
-		 * we saved the fpu state.
+
+		/* Note: Only enable FP in MSR, if it was enabled when we saved the
+		 * fpu state. We might have preempted Linux when it had disabled FP
+		 * for the thread, but not yet set last_task_used_math to NULL 
 		 */
 		if (tcb->user_fpu_owner &&
-		    tcb->user_fpu_owner->thread.regs)
-			tcb->user_fpu_owner->thread.regs->msr |= (MSR_FP|MSR_FE0|MSR_FE1);
+		    tcb->user_fpu_owner->thread.regs &&
+		    ((tcb->user_fpu_owner_prev_msr & MSR_FP) != 0))
+			tcb->user_fpu_owner->thread.regs->msr |= MSR_FP;
 	}
-	/*
-	 * FIXME: We restore FPU "as it was" when Xenomai preempted Linux,
-	 * whereas we could be much lazier.
-	 */
-        if (tcb->user_task && tcb->user_task != tcb->user_fpu_owner)
+
+	/* FIXME: We restore FPU "as it was" when Xenomai preempted Linux,
+	   whereas we could be much lazier. */
+	if (tcb->user_task)
 		rthal_disable_fpu();
 
 #endif /* CONFIG_XENO_HW_FPU */

@@ -17,11 +17,11 @@
  * 02111-1307, USA.
  */
 
-#ifndef _psos_tm_h
-#define _psos_tm_h
+#ifndef _PSOS_TM_H
+#define _PSOS_TM_H
 
-#include "psos+/defs.h"
-#include "psos+/psos.h"
+#include <psos+/defs.h>
+#include <psos+/psos.h>
 
 #define PSOS_TM_MAGIC 0x81810505
 
@@ -35,7 +35,7 @@ typedef struct psostm {
 
 #define link2psostm(ln)  container_of(ln, psostm_t, link)
 
-    u_long events;	/* Event flags */
+    u_long data;	/* Event flags or signal */
 
 #ifdef CONFIG_XENO_OPT_REGISTRY
     xnhandle_t handle;
@@ -48,6 +48,8 @@ typedef struct psostm {
 
 } psostm_t;
 
+extern xntbase_t *psos_tbase;
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -58,8 +60,12 @@ void psostm_cleanup(void);
 
 void tm_destroy_internal(psostm_t *tm);
 
+u_long tm_start_signal_timer(u_long ticks,
+			     u_long interval,
+			     int signo,
+			     u_long *tmid);
 #ifdef __cplusplus
 }
 #endif
 
-#endif /* !_psos_tm_h */
+#endif /* !_PSOS_TM_H */

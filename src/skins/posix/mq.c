@@ -191,14 +191,6 @@ ssize_t __wrap_mq_timedreceive(mqd_t q,
 
 int __wrap_mq_notify(mqd_t mqdes, const struct sigevent *notification)
 {
-	int err;
-
-	err = XENOMAI_SKINCALL2(__pse51_muxid,
-				__pse51_mq_notify, mqdes, notification);
-	if (err) {
-		errno = -err;
-		return -1;
-	}
-
-	return 0;
+	return -XENOMAI_SKINCALL2(__pse51_muxid,
+				  __pse51_mq_notify, mqdes, notification);
 }

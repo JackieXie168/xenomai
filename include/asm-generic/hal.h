@@ -39,6 +39,9 @@
 #include <asm/byteorder.h>
 #include <asm/xenomai/wrappers.h>
 #include <asm/xenomai/arith.h>
+#ifdef CONFIG_GENERIC_CLOCKEVENTS
+#include <linux/ipipe_tickdev.h>
+#endif
 
 #define RTHAL_DOMAIN_ID		0x58454e4f
 
@@ -49,25 +52,10 @@
 #define RTHAL_EVENT_PROPAGATE   0
 #define RTHAL_EVENT_STOP        1
 
-#ifndef CONFIG_IPIPE
-#error "Adeos kernel support is required to run this software."
-#error "See http://download.gna.org/adeos/patches/"
-#endif /* !CONFIG_IPIPE */
-
 #define RTHAL_NR_CPUS		IPIPE_NR_CPUS
 #define RTHAL_NR_FAULTS		IPIPE_NR_FAULTS
 #define RTHAL_NR_IRQS		IPIPE_NR_IRQS
 #define RTHAL_VIRQ_BASE		IPIPE_VIRQ_BASE
-
-/* I-pipe domain priorities. If the invariant pipeline head feature is
-   available from the I-pipe support and enabled for Xenomai, use
-   it. */
-#define RTHAL_ROOT_PRIO		IPIPE_ROOT_PRIO
-#if defined(CONFIG_XENO_OPT_PIPELINE_HEAD) && defined(IPIPE_HEAD_PRIORITY)
-#define RTHAL_XENO_PRIO		IPIPE_HEAD_PRIORITY
-#else /* !(CONFIG_XENO_OPT_PIPELINE_HEAD && IPIPE_HEAD_PRIORITY) */
-#define RTHAL_XENO_PRIO		(RTHAL_ROOT_PRIO + 100)
-#endif /* CONFIG_XENO_OPT_PIPELINE_HEAD && IPIPE_HEAD_PRIORITY */
 
 #define rthal_virtual_irq_p(irq)	((irq) >= RTHAL_VIRQ_BASE && \
 					(irq) < RTHAL_NR_IRQS)
@@ -97,51 +85,36 @@ typedef spinlock_t rthal_spinlock_t;
 #endif /* !RAW_SPIN_LOCK_UNLOCKED */
 #endif /* !IPIPE_SPIN_LOCK_UNLOCKED */
 
-#ifdef IPIPE_RW_LOCK_UNLOCKED
-typedef ipipe_rwlock_t rthal_rwlock_t;
-#define RTHAL_RW_LOCK_UNLOCKED   IPIPE_RW_LOCK_UNLOCKED
-#else /* !IPIPE_RW_LOCK_UNLOCKED */
-#ifdef RAW_RW_LOCK_UNLOCKED
-typedef raw_rwlock_t rthal_rwlock_t;
-#define RTHAL_RW_LOCK_UNLOCKED RAW_RW_LOCK_UNLOCKED
-#else /* !RAW_RW_LOCK_UNLOCKED */
-typedef rwlock_t rthal_rwlock_t;
-#define RTHAL_RW_LOCK_UNLOCKED RW_LOCK_UNLOCKED
-#endif /* RAW_RW_LOCK_UNLOCKED */
-#endif /* IPIPE_RW_LOCK_UNLOCKED */
-
 #define rthal_irq_cookie(ipd,irq)	__ipipe_irq_cookie(ipd,irq)
 #define rthal_irq_handler(ipd,irq)	__ipipe_irq_handler(ipd,irq)
 
 #define rthal_cpudata_irq_hits(ipd,cpu,irq)	__ipipe_cpudata_irq_hits(ipd,cpu,irq)
 
-/* Obsolete Adeos patches do not support the invariant pipeline head
-   optimization, so we check for the presence of __ipipe_pipeline_head
-   to detect it. */
-#if defined(CONFIG_XENO_OPT_PIPELINE_HEAD) && defined(__ipipe_pipeline_head)
+/* I-pipe domain priorities and virtual interrupt mask handling. If
+   the invariant pipeline head feature is enabled for Xenomai, use
+   it. */
+#define RTHAL_ROOT_PRIO			IPIPE_ROOT_PRIO
+#ifdef CONFIG_XENO_OPT_PIPELINE_HEAD
+#define RTHAL_XENO_PRIO			IPIPE_HEAD_PRIORITY
 #define rthal_local_irq_disable()	ipipe_stall_pipeline_head()
 #define rthal_local_irq_enable()	ipipe_unstall_pipeline_head()
-#define rthal_local_irq_save(x)	((x) = ipipe_test_and_stall_pipeline_head() & 1)
+#define rthal_local_irq_save(x)		((x) = ipipe_test_and_stall_pipeline_head() & 1)
 #define rthal_local_irq_restore(x)	ipipe_restore_pipeline_head(x)
-#else /* !(CONFIG_XENO_OPT_PIPELINE_HEAD && __ipipe_pipeline_head) */
+#else /* !CONFIG_XENO_OPT_PIPELINE_HEAD */
+#define RTHAL_XENO_PRIO			(RTHAL_ROOT_PRIO + 100)
 #define rthal_local_irq_disable()	ipipe_stall_pipeline_from(&rthal_domain)
 #define rthal_local_irq_enable()	ipipe_unstall_pipeline_from(&rthal_domain)
-#define rthal_local_irq_save(x)	((x) = ipipe_test_and_stall_pipeline_from(&rthal_domain) & 1)
+#define rthal_local_irq_save(x)		((x) = ipipe_test_and_stall_pipeline_from(&rthal_domain) & 1)
 #define rthal_local_irq_restore(x)	ipipe_restore_pipeline_from(&rthal_domain,(x))
-#endif /* CONFIG_XENO_OPT_PIPELINE_HEAD && __ipipe_pipeline_head */
+#endif /* !CONFIG_XENO_OPT_PIPELINE_HEAD */
 #define rthal_local_irq_flags(x)	((x) = ipipe_test_pipeline_from(&rthal_domain) & 1)
-#define rthal_local_irq_test()	ipipe_test_pipeline_from(&rthal_domain)
+#define rthal_local_irq_test()		ipipe_test_pipeline_from(&rthal_domain)
 #define rthal_stage_irq_enable(dom)	ipipe_unstall_pipeline_from(dom)
 #define rthal_local_irq_save_hw(x)	local_irq_save_hw(x)
 #define rthal_local_irq_restore_hw(x)	local_irq_restore_hw(x)
 #define rthal_local_irq_enable_hw()	local_irq_enable_hw()
 #define rthal_local_irq_disable_hw()	local_irq_disable_hw()
 #define rthal_local_irq_flags_hw(x)	local_save_flags_hw(x)
-
-#define rthal_write_lock(lock)	write_lock_hw(lock)
-#define rthal_write_unlock(lock)	write_unlock_hw(lock)
-#define rthal_read_lock(lock)		read_lock_hw(lock)
-#define rthal_read_unlock(lock)	read_unlock_hw(lock)
 
 #ifdef spin_lock_hw
 #define rthal_spin_lock_init(lock)	spin_lock_init(lock)
@@ -155,42 +128,31 @@ typedef rwlock_t rthal_rwlock_t;
 
 #define rthal_root_domain		ipipe_root_domain
 #define rthal_current_domain		ipipe_current_domain
-#define rthal_declare_cpuid		ipipe_declare_cpuid
 
-#define rthal_load_cpuid()		ipipe_load_cpuid()
-#define rthal_suspend_domain()	ipipe_suspend_domain()
+#define rthal_suspend_domain()		ipipe_suspend_domain()
 #define rthal_grab_superlock(syncfn)	ipipe_critical_enter(syncfn)
 #define rthal_release_superlock(x)	ipipe_critical_exit(x)
 #define rthal_propagate_irq(irq)	ipipe_propagate_irq(irq)
 #define rthal_set_irq_affinity(irq,aff)	ipipe_set_irq_affinity(irq,aff)
-#define rthal_schedule_irq(irq)		ipipe_schedule_irq(irq)
-#define rthal_virtualize_irq(dom,irq,isr,cookie,ackfn,mode) ipipe_virtualize_irq(dom,irq,isr,cookie,ackfn,mode)
+#define rthal_schedule_irq(irq)	ipipe_schedule_irq(irq)
+#define rthal_virtualize_irq(dom,irq,isr,cookie,ackfn,mode) \
+    ipipe_virtualize_irq(dom,irq,isr,cookie,ackfn,mode)
 #define rthal_alloc_virq()		ipipe_alloc_virq()
 #define rthal_free_virq(irq)		ipipe_free_virq(irq)
-#define rthal_trigger_irq(irq)	ipipe_trigger_irq(irq)
-#define rthal_get_sysinfo(ibuf)	ipipe_get_sysinfo(ibuf)
+#define rthal_trigger_irq(irq)		ipipe_trigger_irq(irq)
+#define rthal_get_sysinfo(ibuf)		ipipe_get_sysinfo(ibuf)
 #define rthal_alloc_ptdkey()		ipipe_alloc_ptdkey()
-#define rthal_free_ptdkey(key)	ipipe_free_ptdkey(key)
+#define rthal_free_ptdkey(key)		ipipe_free_ptdkey(key)
 #define rthal_send_ipi(irq,cpus)	ipipe_send_ipi(irq,cpus)
 #define rthal_lock_irq(dom,cpu,irq)	__ipipe_lock_irq(dom,cpu,irq)
 #define rthal_unlock_irq(dom,irq)	__ipipe_unlock_irq(dom,irq)
-#ifdef IPIPE_GRAB_TIMER		/* FIXME: should we need this with the I-pipe? */
-#define rthal_set_timer(ns)		ipipe_tune_timer(ns,ns ? 0 : IPIPE_GRAB_TIMER)
-#else /* !IPIPE_GRAB_TIMER */
-#define rthal_set_timer(ns)		ipipe_tune_timer(ns,0)
-#endif /* IPIPE_GRAB_TIMER */
-#define rthal_reset_timer()		ipipe_tune_timer(0,IPIPE_RESET_TIMER)
 
-#define rthal_lock_cpu(x)		ipipe_lock_cpu(x)
-#define rthal_unlock_cpu(x)		ipipe_unlock_cpu(x)
-#define rthal_get_cpu(x)		ipipe_get_cpu(x)
-#define rthal_put_cpu(x)		ipipe_put_cpu(x)
 #define rthal_processor_id()		ipipe_processor_id()
 
 #define rthal_setsched_root(t,pol,prio)	ipipe_setscheduler_root(t,pol,prio)
 #define rthal_reenter_root(t,pol,prio)	ipipe_reenter_root(t,pol,prio)
-#define rthal_emergency_console()		ipipe_set_printk_sync(ipipe_current_domain)
-#define rthal_read_tsc(v)			ipipe_read_tsc(v)
+#define rthal_emergency_console()	ipipe_set_printk_sync(ipipe_current_domain)
+#define rthal_read_tsc(v)		ipipe_read_tsc(v)
 
 static inline unsigned long rthal_get_cpufreq(void)
 {
@@ -201,88 +163,70 @@ static inline unsigned long rthal_get_cpufreq(void)
 
 static inline unsigned long rthal_get_timerfreq(void)
 {
-    struct ipipe_sysinfo sysinfo;
-    rthal_get_sysinfo(&sysinfo);
-    return (unsigned long)sysinfo.archdep.tmfreq;
+	struct ipipe_sysinfo sysinfo;
+	rthal_get_sysinfo(&sysinfo);
+	return (unsigned long)sysinfo.archdep.tmfreq;
 }
 
-#define RTHAL_DECLARE_EVENT(hdlr) \
+#define RTHAL_DECLARE_EVENT(hdlr)				       \
 static int hdlr (unsigned event, struct ipipe_domain *ipd, void *data) \
-{ \
-    return do_##hdlr(event,ipd->domid,data); \
+{								       \
+	return do_##hdlr(event,ipd->domid,data);		       \
 }
 
-#define RTHAL_DECLARE_SCHEDULE_EVENT(hdlr) \
+#define RTHAL_DECLARE_SCHEDULE_EVENT(hdlr)			       \
 static int hdlr (unsigned event, struct ipipe_domain *ipd, void *data) \
-{ \
-    struct task_struct *p = (struct task_struct *)data; \
-    do_##hdlr(p);					\
-    return RTHAL_EVENT_PROPAGATE; \
+{								       \
+	struct task_struct *p = (struct task_struct *)data;	       \
+	do_##hdlr(p);						       \
+	return RTHAL_EVENT_PROPAGATE;				       \
 }
 
-#define RTHAL_DECLARE_SETSCHED_EVENT(hdlr) \
+#define RTHAL_DECLARE_SETSCHED_EVENT(hdlr)			       \
 static int hdlr (unsigned event, struct ipipe_domain *ipd, void *data) \
-{ \
-    struct task_struct *p = (struct task_struct *)data; \
-    do_##hdlr(p,p->rt_priority);			\
-    return RTHAL_EVENT_PROPAGATE; \
+{									\
+	struct task_struct *p = (struct task_struct *)data;		\
+	do_##hdlr(p,p->rt_priority);					\
+	return RTHAL_EVENT_PROPAGATE;					\
 }
 
-#define RTHAL_DECLARE_SIGWAKE_EVENT(hdlr) \
+#define RTHAL_DECLARE_SIGWAKE_EVENT(hdlr)			       \
 static int hdlr (unsigned event, struct ipipe_domain *ipd, void *data) \
-{ \
-    struct task_struct *p = (struct task_struct *)data; \
-    do_##hdlr(p);					\
-    return RTHAL_EVENT_PROPAGATE; \
+{								       \
+	struct task_struct *p = (struct task_struct *)data;	       \
+	do_##hdlr(p);						       \
+	return RTHAL_EVENT_PROPAGATE;				       \
 }
 
-#define RTHAL_DECLARE_EXIT_EVENT(hdlr) \
+#define RTHAL_DECLARE_EXIT_EVENT(hdlr)				       \
 static int hdlr (unsigned event, struct ipipe_domain *ipd, void *data) \
-{ \
-    struct task_struct *p = (struct task_struct *)data; \
-    do_##hdlr(p);					\
-    return RTHAL_EVENT_PROPAGATE; \
+{								       \
+	struct task_struct *p = (struct task_struct *)data;	       \
+	do_##hdlr(p);						       \
+	return RTHAL_EVENT_PROPAGATE;				       \
 }
 
-#define RTHAL_DECLARE_CLEANUP_EVENT(hdlr) \
+#define RTHAL_DECLARE_CLEANUP_EVENT(hdlr)			       \
 static int hdlr (unsigned event, struct ipipe_domain *ipd, void *data) \
-{ \
-    struct mm_struct *mm = (struct mm_struct *)data; \
-    do_##hdlr(mm);                                   \
-    return RTHAL_EVENT_PROPAGATE; \
+{								       \
+	struct mm_struct *mm = (struct mm_struct *)data;	       \
+	do_##hdlr(mm);						       \
+	return RTHAL_EVENT_PROPAGATE;				       \
 }
-
-#ifndef IPIPE_EVENT_SELF
-/* Some early I-pipe versions don't have this. */
-#define IPIPE_EVENT_SELF  0
-#endif /* !IPIPE_EVENT_SELF */
 
 #ifndef TASK_ATOMICSWITCH
-/* Early I-pipe versions don't have this either. */
-#define TASK_ATOMICSWITCH  0
 #ifdef CONFIG_PREEMPT
-#warning "Adeos: atomic task switch support is missing; upgrading"
-#warning "       to a recent I-pipe version is highly recommended."
+/* We want this feature for preemptible kernels, or the behaviour when
+   switching execution modes between Xenomai and Linux domains would
+   be unreliable. */
+#error "Adeos: atomic task switch support is missing; upgrading\n" \
+       "     to a recent I-pipe version is required."
 #endif /* CONFIG_PREEMPT */
+/* I-pipe releases for 2.4 kernels don't have this task mode bit
+   defined, so fake it. */
+#define TASK_ATOMICSWITCH  0
 #endif /* !TASK_ATOMICSWITCH */
 
-#ifndef TASK_NOWAKEUP
-/* Yet another one possibly missing from older Adeos patches. */
-static inline void set_task_nowakeup(struct task_struct *p)
-{
-	if (p->state & TASK_INTERRUPTIBLE)
-		set_task_state(p,
-			       (p->state & ~TASK_INTERRUPTIBLE) |
-			       TASK_UNINTERRUPTIBLE);
-}
-static inline void clear_task_nowakeup(struct task_struct *p)
-{
-	if (p->state & TASK_UNINTERRUPTIBLE)
-		set_task_state(p, (p->state & ~TASK_UNINTERRUPTIBLE) |
-			       TASK_INTERRUPTIBLE);
-
-}
-#else /* !TASK_NOWAKEUP */
 static inline void set_task_nowakeup(struct task_struct *p)
 {
 	if (p->state & (TASK_INTERRUPTIBLE|TASK_UNINTERRUPTIBLE))
@@ -293,24 +237,6 @@ static inline void clear_task_nowakeup(struct task_struct *p)
 {
 	set_task_state(p, p->state & ~TASK_NOWAKEUP);
 }
-#endif /* TASK_NOWAKEUP */
-
-#ifndef IPIPE_WIRED_MASK
-/* In case wired interrupt support is not available. */
-#define IPIPE_WIRED_MASK  0
-#endif /* !IPIPE_WIRED_MASK */
-
-#ifndef IPIPE_NOSTACK_FLAG
-/* In case the foreign stack marker is absent. */
-#define IPIPE_NOSTACK_FLAG 2
-#define ipipe_set_foreign_stack(ipd)		do { } while(0)
-#define ipipe_clear_foreign_stack(ipd)	do { } while(0)
-#endif /* !IPIPE_NOSTACK_FLAG */
-
-#ifndef PF_EVNOTIFY
-/* In case the I-pipe does not provide per-task event filter. */
-#define PF_EVNOTIFY  0
-#endif	/* !PF_EVNOTIFY */
 
 #ifdef VM_PINNED
 #define rthal_disable_ondemand_mappings(tsk)   ipipe_disable_ondemand_mappings(tsk)
@@ -320,7 +246,7 @@ static inline void clear_task_nowakeup(struct task_struct *p)
 #endif	/* !VM_PINNED */
 
 #ifdef CONFIG_KGDB
-#define rthal_set_foreign_stack(ipd)   	ipipe_set_foreign_stack(ipd)
+#define rthal_set_foreign_stack(ipd)	ipipe_set_foreign_stack(ipd)
 #define rthal_clear_foreign_stack(ipd)	ipipe_clear_foreign_stack(ipd)
 #else /* !CONFIG_KGDB */
 /* No need to track foreign stacks unless KGDB is active. */
@@ -346,49 +272,49 @@ static inline void clear_task_nowakeup(struct task_struct *p)
     ipipe_catch_event(&rthal_domain,ex|IPIPE_EVENT_SELF,hdlr)
 
 #define rthal_register_domain(_dom,_name,_id,_prio,_entry)	\
- ({	\
-    struct ipipe_domain_attr attr; \
-    ipipe_init_attr(&attr); \
-    attr.name = _name;	    \
-    attr.entry = _entry;   \
-    attr.domid = _id;	    \
-    attr.priority = _prio; \
-    ipipe_register_domain(_dom,&attr); \
- })
+({								\
+	struct ipipe_domain_attr attr;				\
+	ipipe_init_attr(&attr);					\
+	attr.name = _name;					\
+	attr.entry = _entry;					\
+	attr.domid = _id;					\
+	attr.priority = _prio;					\
+	ipipe_register_domain(_dom,&attr);			\
+})
 
 #define rthal_unregister_domain(dom)	ipipe_unregister_domain(dom)
 
-#define RTHAL_DECLARE_DOMAIN(entry)	\
-void entry (void)	\
-{				\
-    do_##entry();		\
-}
+#define RTHAL_DECLARE_DOMAIN(entry)		\
+	void entry (void)			\
+	{					\
+		do_##entry();			\
+	}
 
 extern void rthal_domain_entry(void);
 
-#define rthal_spin_lock_irq(lock) \
-do {  \
-    rthal_local_irq_disable(); \
-    rthal_spin_lock(lock); \
-} while(0)
+#define rthal_spin_lock_irq(lock)		\
+	do {					\
+		rthal_local_irq_disable();	\
+		rthal_spin_lock(lock);		\
+	} while(0)
 
-#define rthal_spin_unlock_irq(lock) \
-do {  \
-    rthal_spin_unlock(lock); \
-    rthal_local_irq_enable(); \
-} while(0)
+#define rthal_spin_unlock_irq(lock)		\
+	do {					\
+		rthal_spin_unlock(lock);	\
+		rthal_local_irq_enable();	\
+	} while(0)
 
-#define rthal_spin_lock_irqsave(lock,x) \
-do {  \
-    rthal_local_irq_save(x); \
-    rthal_spin_lock(lock); \
-} while(0)
+#define rthal_spin_lock_irqsave(lock,x)		\
+	do {					\
+		rthal_local_irq_save(x);	\
+		rthal_spin_lock(lock);		\
+	} while(0)
 
-#define rthal_spin_unlock_irqrestore(lock,x) \
-do {  \
-    rthal_spin_unlock(lock); \
-    rthal_local_irq_restore(x); \
-} while(0)
+#define rthal_spin_unlock_irqrestore(lock,x)	\
+	do {					\
+		rthal_spin_unlock(lock);	\
+		rthal_local_irq_restore(x);	\
+	} while(0)
 
 #define rthal_printk	printk
 
@@ -451,6 +377,7 @@ void rthal_nmi_proc_unregister(void);
 
 #else /* !CONFIG_XENO_HW_NMI_DEBUG_LATENCY */
 #define rthal_nmi_init(efn)		do { } while(0)
+#define rthal_nmi_release()		do { } while(0)
 #define rthal_nmi_proc_register()	do { } while(0)
 #define rthal_nmi_proc_unregister()	do { } while(0)
 #endif /* CONFIG_XENO_HW_NMI_DEBUG_LATENCY */
@@ -500,25 +427,36 @@ int rthal_irq_affinity(unsigned irq,
 		       cpumask_t cpumask,
 		       cpumask_t *oldmask);
 
-int rthal_timer_request(void (*handler)(void),
-			unsigned long nstick);
-
-void rthal_timer_release(void);
-
 rthal_trap_handler_t rthal_trap_catch(rthal_trap_handler_t handler);
 
 unsigned long rthal_timer_calibrate(void);
+
+#ifdef CONFIG_GENERIC_CLOCKEVENTS
+int rthal_timer_request(void (*tick_handler)(void),
+			void (*mode_emul)(enum clock_event_mode mode, struct clock_event_device *cdev),
+			int (*tick_emul) (unsigned long delay, struct clock_event_device *cdev),
+			int cpu);
+
+void rthal_timer_notify_switch(enum clock_event_mode mode,
+			       struct clock_event_device *cdev);
+
+#else
+int rthal_timer_request(void (*tick_handler)(void),
+			int cpu);
+#endif
+
+void rthal_timer_release(int cpu);
 
 #ifdef CONFIG_PROC_FS
 #include <linux/proc_fs.h>
 
 extern struct proc_dir_entry *rthal_proc_root;
 
-struct proc_dir_entry *__rthal_add_proc_leaf (const char *name,
-					      read_proc_t rdproc,
-					      write_proc_t wrproc,
-					      void *data,
-					      struct proc_dir_entry *parent);
+struct proc_dir_entry *__rthal_add_proc_leaf(const char *name,
+					     read_proc_t rdproc,
+					     write_proc_t wrproc,
+					     void *data,
+					     struct proc_dir_entry *parent);
 #endif /* CONFIG_PROC_FS */
 
 #ifdef CONFIG_IPIPE_TRACE
@@ -598,27 +536,18 @@ static inline int rthal_trace_panic_dump(void)
 #else /* !CONFIG_IPIPE_TRACE */
 
 #define rthal_trace_max_begin(v)		({int err = -ENOSYS; err; })
-#define rthal_trace_max_end(v)		({int err = -ENOSYS; err; })
+#define rthal_trace_max_end(v)			({int err = -ENOSYS; err; })
 #define rthal_trace_max_reset(v)		({int err = -ENOSYS; err; })
 #define rthal_trace_user_start()		({int err = -ENOSYS; err; })
 #define rthal_trace_user_stop(v)		({int err = -ENOSYS; err; })
 #define rthal_trace_user_freeze(v, once)	({int err = -ENOSYS; err; })
 #define rthal_trace_special(id, v)		({int err = -ENOSYS; err; })
-#define rthal_trace_special_u64(id, v)	({int err = -ENOSYS; err; })
+#define rthal_trace_special_u64(id, v)		({int err = -ENOSYS; err; })
 #define rthal_trace_pid(pid, prio)		({int err = -ENOSYS; err; })
 #define rthal_trace_panic_freeze()		({int err = -ENOSYS; err; })
 #define rthal_trace_panic_dump()		({int err = -ENOSYS; err; })
 
 #endif /* CONFIG_IPIPE_TRACE */
-
-#ifdef ipipe_timer_irq_p
-/* Timer IRQ can be shared. */
-#define rthal_timer_irq_p()          ipipe_timer_irq_p()
-#define rthal_mark_root_timer_irq() ipipe_mark_root_timer_irq()
-#else /* !ipipe_timer_irq_p */
-#define rthal_timer_irq_p()          1
-#define rthal_mark_root_timer_irq() do { } while(0)
-#endif /* ipipe_timer_irq_p */
 
 #ifdef __cplusplus
 }

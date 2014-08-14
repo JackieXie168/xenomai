@@ -8,5 +8,4 @@ dist_txtdoc_DATA = \
 	rtai-skin.txt \
 	uITRON-skin.txt \
 	vrtx-skin.txt \
-	vxworks-skin.txt \
-	ChangeLog.pre-git
+	vxworks-skin.txt

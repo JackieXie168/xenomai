@@ -22,7 +22,6 @@
 #ifndef _XENO_MUTEX_H
 #define _XENO_MUTEX_H
 
-#include <nucleus/synch.h>
 #include <native/types.h>
 
 struct rt_task;
@@ -41,7 +40,10 @@ typedef struct rt_mutex_placeholder {
 	xnhandle_t opaque;
 } RT_MUTEX_PLACEHOLDER;
 
-#if defined(__KERNEL__) || defined(__XENO_SIM__)
+#if (defined(__KERNEL__) || defined(__XENO_SIM__)) && !defined(DOXYGEN_CPP)
+
+#include <nucleus/synch.h>
+#include <native/ppd.h>
 
 #define XENO_MUTEX_MAGIC 0x55550505
 
@@ -53,15 +55,19 @@ typedef struct __rt_mutex {
 
 	xnhandle_t handle;	/* !< Handle in registry -- zero if unregistered. */
 
-	struct rt_task *owner;	/* !< Current mutex owner. */
-
 	int lockcnt;		/* !< Lock nesting level (> 0 means "locked"). */
 	
 	char name[XNOBJECT_NAME_LEN]; /* !< Symbolic name. */
 
-#if defined(__KERNEL__) && defined(CONFIG_XENO_OPT_PERVASIVE)
+#ifdef CONFIG_XENO_OPT_PERVASIVE
 	pid_t cpid;		/* !< Creator's pid. */
-#endif /* __KERNEL__ && CONFIG_XENO_OPT_PERVASIVE */
+#endif /* CONFIG_XENO_OPT_PERVASIVE */
+
+	xnholder_t rlink;	/* !< Link in resource queue. */
+
+#define rlink2mutex(ln)		container_of(ln, RT_MUTEX, rlink)
+
+    xnqueue_t *rqueue;		/* !< Backpointer to resource queue. */
 
 } RT_MUTEX;
 
@@ -69,9 +75,24 @@ typedef struct __rt_mutex {
 extern "C" {
 #endif
 
+#ifdef CONFIG_XENO_OPT_NATIVE_MUTEX
+
 int __native_mutex_pkg_init(void);
 
 void __native_mutex_pkg_cleanup(void);
+
+static inline void __native_mutex_flush_rq(xnqueue_t *rq)
+{
+	xeno_flush_rq(RT_MUTEX, rq, mutex);
+}
+
+#else /* !CONFIG_XENO_OPT_NATIVE_MUTEX */
+
+#define __native_mutex_pkg_init()		({ 0; })
+#define __native_mutex_pkg_cleanup()		do { } while(0)
+#define __native_mutex_flush_rq(rq)		do { } while(0)
+
+#endif /* !CONFIG_XENO_OPT_NATIVE_MUTEX */
 
 #ifdef __cplusplus
 }

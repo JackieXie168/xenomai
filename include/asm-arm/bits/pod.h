@@ -23,35 +23,38 @@
 #ifndef _XENO_ASM_ARM_BITS_POD_H
 #define _XENO_ASM_ARM_BITS_POD_H
 
+unsigned xnarch_tsc_scale;
+unsigned xnarch_tsc_shift;
+
+long long xnarch_tsc_to_ns(long long ts)
+{
+	return xnarch_llmulshft(ts, xnarch_tsc_scale, xnarch_tsc_shift);
+}
+#define XNARCH_TSC_TO_NS
+
 #include <asm-generic/xenomai/bits/pod.h>
 
 void xnpod_welcome_thread(struct xnthread *, int);
 
 void xnpod_delete_thread(struct xnthread *);
 
-static inline int xnarch_start_timer(unsigned long ns,
-				     void (*tickhandler) (void))
-{
-	return rthal_timer_request(tickhandler, ns);
-}
+#define xnarch_start_timer(tick_handler, cpu)	\
+	({ int __tickval = rthal_timer_request(tick_handler, cpu) ?: \
+			(1000000000UL/HZ); __tickval; })
 
-static inline void xnarch_stop_timer(void)
-{
-	rthal_timer_release();
-}
+#define xnarch_stop_timer(cpu)	rthal_timer_release(cpu)
 
 static inline void xnarch_leave_root(xnarchtcb_t * rootcb)
 {
 	/* Remember the preempted Linux task pointer. */
 	rootcb->user_task = rootcb->active_task = current;
 	rootcb->mm = rootcb->active_mm = rthal_get_active_mm();
-	rootcb->tip = current->thread_info;
+	rootcb->tip = task_thread_info(current);
 #ifdef CONFIG_XENO_HW_FPU
 	rootcb->user_fpu_owner = rthal_get_fpu_owner(rootcb->user_task);
 	/* So that xnarch_save_fpu() will operate on the right FPU area. */
 	rootcb->fpup = (rootcb->user_fpu_owner
-			? (rthal_fpenv_t *) & rootcb->user_fpu_owner->
-			thread_info->used_cp[0]
+			? (rthal_fpenv_t *) & task_thread_info(rootcb->user_fpu_owner)->used_cp[0]
 			: NULL);
 #endif /* CONFIG_XENO_HW_FPU */
 }
@@ -186,9 +189,9 @@ static inline void xnarch_save_fpu(xnarchtcb_t * tcb)
 	if (tcb->fpup) {
 		rthal_save_fpu(tcb->fpup);
 
-		if (tcb->user_fpu_owner && tcb->user_fpu_owner->thread_info) {
-			tcb->user_fpu_owner->thread_info->used_cp[1] = 0;
-			tcb->user_fpu_owner->thread_info->used_cp[2] = 0;
+		if (tcb->user_fpu_owner && task_thread_info(tcb->user_fpu_owner)) {
+			task_thread_info(tcb->user_fpu_owner)->used_cp[1] = 0;
+			task_thread_info(tcb->user_fpu_owner)->used_cp[2] = 0;
 		}
 	}
 #endif /* CONFIG_XENO_HW_FPU */
@@ -201,9 +204,9 @@ static inline void xnarch_restore_fpu(xnarchtcb_t * tcb)
 	if (tcb->fpup) {
 		rthal_restore_fpu(tcb->fpup);
 
-		if (tcb->user_fpu_owner && tcb->user_fpu_owner->thread_info) {
-			tcb->user_fpu_owner->thread_info->used_cp[1] = 1;
-			tcb->user_fpu_owner->thread_info->used_cp[2] = 1;
+		if (tcb->user_fpu_owner && task_thread_info(tcb->user_fpu_owner)) {
+			task_thread_info(tcb->user_fpu_owner)->used_cp[1] = 1;
+			task_thread_info(tcb->user_fpu_owner)->used_cp[2] = 1;
 		}
 	}
 

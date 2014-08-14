@@ -38,6 +38,13 @@
 
 #include <asm/xenomai/system.h>
 #include <nucleus/compiler.h>
+#include <nucleus/assert.h>
+
+#if BITS_PER_LONG == 32
+#define __natural_word_type int
+#else  /* defaults to long otherwise */
+#define __natural_word_type long
+#endif
 
 typedef unsigned long xnsigmask_t;
 
@@ -61,6 +68,13 @@ typedef int (*xniack_t)(unsigned irq);
 
 #define XN_INFINITE   (0)
 #define XN_NONBLOCK   ((xnticks_t)-1)
+
+/* Timer modes */
+typedef enum xntmode {
+	XN_RELATIVE,
+	XN_ABSOLUTE,
+	XN_REALTIME
+} xntmode_t;
 
 #define XN_APERIODIC_TICK  0
 #define XN_NO_TICK         ((xnticks_t)-1)

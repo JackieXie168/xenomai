@@ -21,7 +21,7 @@
 #include "vrtx/task.h"
 #include "vrtx/heap.h"
 
-vrtxidmap_t *vrtx_heap_idmap;
+xnmap_t *vrtx_heap_idmap;
 
 static xnqueue_t vrtx_heap_q;
 
@@ -77,18 +77,18 @@ static void heap_destroy_internal(vrtxheap_t *heap)
 
 	xnlock_get_irqsave(&nklock, s);
 	removeq(&vrtx_heap_q, &heap->link);
-	vrtx_put_id(vrtx_heap_idmap, heap->hid);
+	xnmap_remove(vrtx_heap_idmap, heap->hid);
 	vrtx_mark_deleted(heap);
 #ifdef CONFIG_XENO_OPT_REGISTRY
 	xnregistry_remove(heap->handle);
 #endif /* CONFIG_XENO_OPT_REGISTRY */
 	xnlock_clear_irqon(&nklock);
 
-#if defined(__KERNEL__) && defined(CONFIG_XENO_OPT_PERVASIVE)
+#ifdef CONFIG_XENO_OPT_PERVASIVE
 	if (xnheap_mapped_p(&heap->sysheap))
 		xnheap_destroy_mapped(&heap->sysheap);
 	else
-#endif /* __KERNEL__ && CONFIG_XENO_OPT_PERVASIVE */
+#endif /* CONFIG_XENO_OPT_PERVASIVE */
 		xnheap_destroy(&heap->sysheap, NULL, NULL);
 	xnfree(heap);
 
@@ -105,7 +105,7 @@ int vrtxheap_init(u_long heap0size)
 	if (heap0size < 2048)
 		heap0size = 2048;
 
-	vrtx_heap_idmap = vrtx_alloc_idmap(VRTX_MAX_HEAPS, 0);
+	vrtx_heap_idmap = xnmap_create(VRTX_MAX_HEAPS, 0, 0);
 
 	if (!vrtx_heap_idmap)
 		return -ENOMEM;
@@ -113,14 +113,14 @@ int vrtxheap_init(u_long heap0size)
 	heap0addr = (char *)xnmalloc(heap0size);
 
 	if (!heap0addr) {
-		vrtx_free_idmap(vrtx_heap_idmap);
+		xnmap_delete(vrtx_heap_idmap);
 		return -ENOMEM;
 	}
 
 	hid = sc_hcreate(heap0addr, heap0size, 7, &err); /* Must be #0 */
 
 	if (err) {
-		vrtx_free_idmap(vrtx_heap_idmap);
+		xnmap_delete(vrtx_heap_idmap);
 
 		if (err == ER_IIP)
 			return -EINVAL;
@@ -138,7 +138,7 @@ void vrtxheap_cleanup(void)
 	while ((holder = getheadq(&vrtx_heap_q)) != NULL)
 		heap_destroy_internal(link2vrtxheap(holder));
 
-	vrtx_free_idmap(vrtx_heap_idmap);
+	xnmap_delete(vrtx_heap_idmap);
 }
 
 int sc_hcreate(char *heapaddr, u_long heapsize, unsigned log2psize, int *errp)
@@ -205,7 +205,7 @@ int sc_hcreate(char *heapaddr, u_long heapsize, unsigned log2psize, int *errp)
 	heap->allocated = 0;
 	heap->released = 0;
 
-	hid = vrtx_get_id(vrtx_heap_idmap, -1, heap);
+	hid = xnmap_enter(vrtx_heap_idmap, -1, heap);
 
 	if (hid < 0) {
 		xnheap_destroy(&heap->sysheap, NULL, NULL);
@@ -237,7 +237,7 @@ void sc_hdelete(int hid, int opt, int *errp)
 
 	xnlock_get_irqsave(&nklock, s);
 
-	heap = (vrtxheap_t *)vrtx_get_object(vrtx_heap_idmap, hid);
+	heap = xnmap_fetch(vrtx_heap_idmap, hid);
 
 	if (opt == 0) {		/* Delete heap only if no blocks are allocated */
 		if (heap->sysheap.ubytes > 0) {
@@ -266,7 +266,7 @@ char *sc_halloc(int hid, unsigned long bsize, int *errp)
 
 	xnlock_get_irqsave(&nklock, s);
 
-	heap = (vrtxheap_t *)vrtx_get_object(vrtx_heap_idmap, hid);
+	heap = xnmap_fetch(vrtx_heap_idmap, hid);
 
 	if (heap == NULL) {
 		blockp = NULL;
@@ -297,7 +297,7 @@ void sc_hfree(int hid, char *blockp, int *errp)
 
 	xnlock_get_irqsave(&nklock, s);
 
-	heap = (vrtxheap_t *)vrtx_get_object(vrtx_heap_idmap, hid);
+	heap = xnmap_fetch(vrtx_heap_idmap, hid);
 
 	if (heap == NULL) {
 		*errp = ER_ID;
@@ -325,7 +325,7 @@ void sc_hinquiry(int info[3], int hid, int *errp)
 
 	xnlock_get_irqsave(&nklock, s);
 
-	heap = (vrtxheap_t *)vrtx_get_object(vrtx_heap_idmap, hid);
+	heap = xnmap_fetch(vrtx_heap_idmap, hid);
 
 	if (heap == NULL) {
 		*errp = ER_ID;

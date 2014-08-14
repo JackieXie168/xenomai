@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2001,2002,2003,2004,2005 Philippe Gerum <rpm@xenomai.org>.
+ * Copyright (C) 2001-2007 Philippe Gerum <rpm@xenomai.org>.
  *
  * Xenomai is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published
@@ -16,15 +16,15 @@
  * Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
  * 02111-1307, USA.
  *
- * Core pod definitions. The core pod supports all APIs providing a
- * system call interface to user-space applications. Core APIs, namely
- * POSIX, native and RTDM, only use a sub-range of the available
- * priority levels of the core pod, in order to have them exhibit a
- * 1:1 mapping with Linux's SCHED_FIFO ascending priority
- * scale. Non-core APIs (e.g. VxWorks, VRTX) may also rely on the core
- * pod, provided they normalize the priority levels of their threads
- * when calling the nucleus, in order to match the priority scale
- * enforced by the former.
+ * Core pod definitions. The core pod supports all APIs. Core APIs,
+ * namely POSIX, native and RTDM, only use a sub-range of the
+ * available priority levels of the core pod, in order to have them
+ * exhibit a 1:1 mapping with Linux's SCHED_FIFO ascending priority
+ * scale [1..99]. Non-core APIs which exhibit inverted priority scales
+ * (e.g. VxWorks, VRTX), should normalize the priority values
+ * internally when calling the priority-sensitive services of the
+ * nucleus, so that they fit in the available range provided by the
+ * latter.
  */
 
 #ifndef _XENO_NUCLEUS_CORE_H
@@ -33,7 +33,7 @@
 /* Visible priority range supported by the core pod. */
 #define XNCORE_MIN_PRIO     0
 #define XNCORE_MAX_PRIO     257
-/* Base priority of the root thread for the core pod. */
+/* Idle priority of the root thread scheduled within the core pod. */
 #define XNCORE_IDLE_PRIO    -1
 
 /* Total number of priority levels (including the hidden root one) */
@@ -46,24 +46,8 @@
 /* Priority of IRQ servers in user-space. */
 #define XNCORE_IRQ_PRIO     XNCORE_MAX_PRIO
 
-#ifdef __KERNEL__
-
-#ifdef __cplusplus
-extern "C" {
-#endif /* __cplusplus */
-
-int xncore_mount(void);
-
-int xncore_umount(void);
-
-int xncore_attach(void);
-
-void xncore_detach(int xtype);
-
-#ifdef __cplusplus
-};
-#endif /* __cplusplus */
-
-#endif /* __KERNEL__ */
+#define XNCORE_PAGE_SIZE		512 /* A reasonable value for the xnheap page size */
+#define XNCORE_PAGE_MASK  		(~(XNCORE_PAGE_SIZE-1))
+#define XNCORE_PAGE_ALIGN(addr)	(((addr)+XNCORE_PAGE_SIZE-1)&XNCORE_PAGE_MASK)
 
 #endif /* !_XENO_NUCLEUS_CORE_H */

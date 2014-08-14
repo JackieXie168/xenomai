@@ -22,7 +22,6 @@
 #ifndef _XENO_COND_H
 #define _XENO_COND_H
 
-#include <nucleus/synch.h>
 #include <native/mutex.h>
 
 typedef struct rt_cond_info {
@@ -34,10 +33,15 @@ typedef struct rt_cond_info {
 } RT_COND_INFO;
 
 typedef struct rt_cond_placeholder {
+
     xnhandle_t opaque;
+
 } RT_COND_PLACEHOLDER;
 
-#if defined(__KERNEL__) || defined(__XENO_SIM__)
+#if (defined(__KERNEL__) || defined(__XENO_SIM__)) && !defined(DOXYGEN_CPP)
+
+#include <nucleus/synch.h>
+#include <native/ppd.h>
 
 #define XENO_COND_MAGIC 0x55550606
 
@@ -51,9 +55,15 @@ typedef struct rt_cond {
 
     char name[XNOBJECT_NAME_LEN]; /* !< Symbolic name. */
 
-#if defined(__KERNEL__) && defined(CONFIG_XENO_OPT_PERVASIVE)
+#ifdef CONFIG_XENO_OPT_PERVASIVE
     pid_t cpid;			/* !< Creator's pid. */
-#endif /* __KERNEL__ && CONFIG_XENO_OPT_PERVASIVE */
+#endif /* CONFIG_XENO_OPT_PERVASIVE */
+
+    xnholder_t rlink;		/* !< Link in resource queue. */
+
+#define rlink2cond(ln)		container_of(ln, RT_COND, rlink)
+
+    xnqueue_t *rqueue;		/* !< Backpointer to resource queue. */
 
 } RT_COND;
 
@@ -61,9 +71,24 @@ typedef struct rt_cond {
 extern "C" {
 #endif
 
+#ifdef CONFIG_XENO_OPT_NATIVE_COND
+
 int __native_cond_pkg_init(void);
 
 void __native_cond_pkg_cleanup(void);
+
+static inline void __native_cond_flush_rq(xnqueue_t *rq)
+{
+	xeno_flush_rq(RT_COND, rq, cond);
+}
+
+#else /* !CONFIG_XENO_OPT_NATIVE_COND */
+
+#define __native_cond_pkg_init()		({ 0; })
+#define __native_cond_pkg_cleanup()		do { } while(0)
+#define __native_cond_flush_rq(rq)		do { } while(0)
+
+#endif /* !CONFIG_XENO_OPT_NATIVE_COND */
 
 #ifdef __cplusplus
 }

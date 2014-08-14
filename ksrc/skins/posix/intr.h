@@ -35,7 +35,7 @@ struct pse51_interrupt {
 
 #define link2intr(ln) container_of(ln, struct pse51_interrupt, link)
 
-#if defined(__KERNEL__) && defined(CONFIG_XENO_OPT_PERVASIVE)
+#ifdef CONFIG_XENO_OPT_PERVASIVE
 
     int mode;		/* !< Interrupt control mode. */
 
@@ -43,7 +43,8 @@ struct pse51_interrupt {
 
     xnsynch_t synch_base; /* !< Base synchronization object. */
 
-#endif /* __KERNEL__ && CONFIG_XENO_OPT_PERVASIVE */
+#endif /* CONFIG_XENO_OPT_PERVASIVE */
+    pse51_kqueues_t *owningq;
 };
 
 #ifdef __cplusplus

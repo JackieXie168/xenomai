@@ -144,3 +144,53 @@ ___________________________________________________________________
 
 	o Deprecate rt_pipe_flush() since the optimization of the data
 	streaming mode made it useless.
+___________________________________________________________________
+
+2.3 -> 2.4-rc1
+
+	o rt_timer_inquire() cannot return TM_UNSET anymore, since
+	the master time base is always valid when a skin is active.
+
+	o rt_pipe_flush() has been reinstated, allowing to flush the
+	kernel endpoint i/o queues of a message pipe.
+
+___________________________________________________________________
+
+
+2.4-rc5 -> 2.4-rc6
+
+	o Allow rt_task_inquire() to only probe for the existence of a
+	task, by passing a NULL info pointer.
+
+	o rt_pipe_receive() and rt_pipe_read() now return 0 whenever
+	the peer closes the connection while reading from the pipe. It
+	should have been this way for POSIX conformance reasons, so
+	this is more a bugfix than an arbitrary API change actually.
+	Applications calling rt_pipe_receive() may want to check the
+	value of the message pointer returned to them, and branch
+	according to the following rules:
+	  - (nbytes == 0 && msg == NULL): pipe closed by peer while
+            reading
+	  - (nbytes < 0): error
+	  - (nbytes >= 0 && msg != NULL): valid message, possibly
+            zero-sized.
+	In the particular case of rt_pipe_read(), there is no mean
+	to distinguish a "closed by peer" situation from a zero-sized
+	message being received. One should use rt_pipe_receive()
+	instead to be able to make such distinction.
+
+	o rt_misc_get/put_io_region() have been deprecated, and should
+	be replaced by rt_io_get/put_region() calls. The new services
+	hold the start address and length of the region as 64bit
+	values, in order to cope with architectures where I/O memory
+	lives beyond the 4GB limit. Moreover, those services now allow
+	to request MMIO memory, in addition to I/O port
+	ranges. Finally, I/O region descriptors have been introduced
+	in order to provide auto-cleanup support of held regions.
+
+2.4-rc6 -> 2.4-rc7
+
+	* rt_heap_inquire() now reports the requested heap size
+          (info->heapsize), the overall actual/usable amount of memory
+          (info->usablemem), the current amount of memory used
+          (info->usedmem).

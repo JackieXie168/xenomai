@@ -935,7 +935,7 @@ int xnheap_check_block(xnheap_t *heap, void *block)
 	return err;
 }
 
-#if defined(__KERNEL__) && defined(CONFIG_XENO_OPT_PERVASIVE)
+#ifdef CONFIG_XENO_OPT_PERVASIVE
 
 #include <asm/io.h>
 #include <linux/miscdevice.h>
@@ -945,7 +945,7 @@ int xnheap_check_block(xnheap_t *heap, void *block)
 
 static DECLARE_DEVCLASS(xnheap_class);
 
-static DECLARE_XNQUEUE(kheapq);	/* Shared heap queue. */
+static DEFINE_XNQUEUE(kheapq);	/* Shared heap queue. */
 
 static void xnheap_vmclose(struct vm_area_struct *vma)
 {
@@ -1078,7 +1078,9 @@ static int xnheap_mmap(struct file *file, struct vm_area_struct *vma)
 		return -ENXIO;	/* Doesn't match the heap size. */
 
 	if (countq(&heap->extents) > 1)
-		return -ENXIO;	/* Cannot map multi-extent heaps. */
+		/* Cannot map multi-extent heaps, we need the memory
+		   area we map from to be contiguous. */
+		return -ENXIO;
 
 	vma->vm_ops = &xnheap_vmops;
 	vma->vm_private_data = file->private_data;
@@ -1268,7 +1270,7 @@ int xnheap_destroy_mapped(xnheap_t *heap)
 EXPORT_SYMBOL(xnheap_init_mapped);
 EXPORT_SYMBOL(xnheap_destroy_mapped);
 
-#endif /* __KERNEL__ && CONFIG_XENO_OPT_PERVASIVE */
+#endif /* CONFIG_XENO_OPT_PERVASIVE */
 
 /*@}*/
 

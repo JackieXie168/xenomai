@@ -26,9 +26,9 @@
 #include <vrtx/pt.h>
 #include <vrtx/syscall.h>
 
-extern vrtxidmap_t *vrtx_heap_idmap;
+extern xnmap_t *vrtx_heap_idmap;
 
-extern vrtxidmap_t *vrtx_pt_idmap;
+extern xnmap_t *vrtx_pt_idmap;
 
 /*
  * By convention, error codes are passed back through the syscall
@@ -941,7 +941,7 @@ static int __sc_hcreate(struct task_struct *curr, struct pt_regs *regs)
 
 	xnlock_get_irqsave(&nklock, s);
 
-	heap = (vrtxheap_t *)vrtx_get_object(vrtx_heap_idmap, hid);
+	heap = xnmap_fetch(vrtx_heap_idmap, hid);
 
 	if (heap) {		/* Paranoid. */
 		heap->mm = curr->mm;
@@ -974,7 +974,7 @@ static int __sc_hbind(struct task_struct *curr, struct pt_regs *regs)
 
 	xnlock_get_irqsave(&nklock, s);
 
-	heap = (vrtxheap_t *)vrtx_get_object(vrtx_heap_idmap, hid);
+	heap = xnmap_fetch(vrtx_heap_idmap, hid);
 
 	if (heap && heap->mm == curr->mm)
 		heap->mapbase = mapbase;
@@ -1022,7 +1022,7 @@ static int __sc_halloc(struct task_struct *curr, struct pt_regs *regs)
 
 	xnlock_get_irqsave(&nklock, s);
 
-	heap = (vrtxheap_t *)vrtx_get_object(vrtx_heap_idmap, hid);
+	heap = xnmap_fetch(vrtx_heap_idmap, hid);
 
 	if (!heap || heap->mm != curr->mm) {
 		/* Allocation requests must be issued from the same
@@ -1065,7 +1065,7 @@ static int __sc_hfree(struct task_struct *curr, struct pt_regs *regs)
 
 	xnlock_get_irqsave(&nklock, s);
 
-	heap = (vrtxheap_t *)vrtx_get_object(vrtx_heap_idmap, hid);
+	heap = xnmap_fetch(vrtx_heap_idmap, hid);
 
 	if (!heap || heap->mm != curr->mm) {
 		/* Deallocation requests must be issued from the same
@@ -1160,7 +1160,7 @@ static int __sc_pcreate(struct task_struct *curr, struct pt_regs *regs)
 
 	xnlock_get_irqsave(&nklock, s);
 
-	pt = (vrtxpt_t *)vrtx_get_object(vrtx_pt_idmap, pid);
+	pt = xnmap_fetch(vrtx_pt_idmap, pid);
 
 	if (pt) {		/* Paranoid. */
 		pt->mm = curr->mm;
@@ -1204,7 +1204,7 @@ static int __sc_pbind(struct task_struct *curr, struct pt_regs *regs)
 
 	xnlock_get_irqsave(&nklock, s);
 
-	pt = (vrtxpt_t *)vrtx_get_object(vrtx_pt_idmap, pid);
+	pt = xnmap_fetch(vrtx_pt_idmap, pid);
 
 	if (pt && pt->mm == curr->mm)
 		pt->mapbase = mapbase;
@@ -1250,7 +1250,7 @@ static int __sc_gblock(struct task_struct *curr, struct pt_regs *regs)
 
 	xnlock_get_irqsave(&nklock, s);
 
-	pt = (vrtxpt_t *)vrtx_get_object(vrtx_pt_idmap, pid);
+	pt = xnmap_fetch(vrtx_pt_idmap, pid);
 
 	if (!pt || pt->mm != curr->mm) {
 		/* Allocation requests must be issued from the same
@@ -1293,7 +1293,7 @@ static int __sc_rblock(struct task_struct *curr, struct pt_regs *regs)
 
 	xnlock_get_irqsave(&nklock, s);
 
-	pt = (vrtxpt_t *)vrtx_get_object(vrtx_pt_idmap, pid);
+	pt = xnmap_fetch(vrtx_pt_idmap, pid);
 
 	if (!pt || pt->mm != curr->mm) {
 		/* Deallocation requests must be issued from the same
@@ -1402,6 +1402,18 @@ static xnsysent_t __systab[] = {
 	[__vrtx_pinquiry] = {&__sc_pinquiry, __xn_exec_any},
 };
 
+extern xntbase_t *vrtx_tbase;
+
+static struct xnskin_props __props = {
+	.name = "vrtx",
+	.magic = VRTX_SKIN_MAGIC,
+	.nrcalls = sizeof(__systab) / sizeof(__systab[0]),
+	.systab = __systab,
+	.eventcb = NULL,
+	.timebasep = &vrtx_tbase,
+	.module = THIS_MODULE
+};
+
 static void __shadow_delete_hook(xnthread_t *thread)
 {
 	if (xnthread_get_magic(thread) == VRTX_SKIN_MAGIC &&
@@ -1411,11 +1423,8 @@ static void __shadow_delete_hook(xnthread_t *thread)
 
 int vrtxsys_init(void)
 {
-	__muxid =
-	    xnshadow_register_interface("vrtx",
-					VRTX_SKIN_MAGIC,
-					sizeof(__systab) / sizeof(__systab[0]),
-					__systab, NULL, THIS_MODULE);
+	__muxid = xnshadow_register_interface(&__props);
+
 	if (__muxid < 0)
 		return -ENOSYS;
 

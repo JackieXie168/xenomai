@@ -39,8 +39,11 @@
  *
  *@{*/
 
+/** @example cond_var.c */
+
 #include <nucleus/pod.h>
 #include <nucleus/registry.h>
+#include <nucleus/heap.h>
 #include <native/task.h>
 #include <native/mutex.h>
 #include <native/cond.h>
@@ -152,6 +155,7 @@ static xnpnode_t __cond_pnode = {
 int rt_cond_create(RT_COND *cond, const char *name)
 {
 	int err = 0;
+	spl_t s;
 
 	if (xnpod_asynch_p())
 		return -EPERM;
@@ -160,10 +164,15 @@ int rt_cond_create(RT_COND *cond, const char *name)
 	cond->handle = 0;	/* i.e. (still) unregistered cond. */
 	cond->magic = XENO_COND_MAGIC;
 	xnobject_copy_name(cond->name, name);
+	inith(&cond->rlink);
+	cond->rqueue = &xeno_get_rholder()->condq;
+	xnlock_get_irqsave(&nklock, s);
+	appendq(cond->rqueue, &cond->rlink);
+	xnlock_put_irqrestore(&nklock, s);
 
-#if defined(__KERNEL__) && defined(CONFIG_XENO_OPT_PERVASIVE)
+#ifdef CONFIG_XENO_OPT_PERVASIVE
 	cond->cpid = 0;
-#endif /* __KERNEL__ && CONFIG_XENO_OPT_PERVASIVE */
+#endif /* CONFIG_XENO_OPT_PERVASIVE */
 
 #ifdef CONFIG_XENO_OPT_REGISTRY
 	/* <!> Since xnregister_enter() may reschedule, only register
@@ -242,6 +251,8 @@ int rt_cond_delete(RT_COND *cond)
 		err = xeno_handle_error(cond, XENO_COND_MAGIC, RT_COND);
 		goto unlock_and_exit;
 	}
+
+	removeq(cond->rqueue, &cond->rlink);
 
 	rc = xnsynch_destroy(&cond->synch_base);
 
@@ -405,9 +416,6 @@ int rt_cond_broadcast(RT_COND *cond)
  * descriptor, including if the deletion occurred while the caller was
  * sleeping on the variable.
  *
- * - -ETIMEDOUT is returned if @a timeout expired before the condition
- * variable has been signaled.
- *
  * - -EINTR is returned if rt_task_unblock() has been called for the
  * waiting task before the condition variable has been signaled.
  *
@@ -423,25 +431,19 @@ int rt_cond_broadcast(RT_COND *cond)
  * Rescheduling: always unless the request is immediately satisfied or
  * @a timeout specifies a non-blocking operation.
  *
- * @note This service is sensitive to the current operation mode of
- * the system timer, as defined by the CONFIG_XENO_OPT_TIMING_PERIOD
- * parameter. In periodic mode, clock ticks are interpreted as
- * periodic jiffies. In oneshot mode, clock ticks are interpreted as
- * nanoseconds.
+ * @note The @a timeout value will be interpreted as jiffies if the
+ * native skin is bound to a periodic time base (see
+ * CONFIG_XENO_OPT_NATIVE_PERIOD), or nanoseconds otherwise.
  */
 
 int rt_cond_wait(RT_COND *cond, RT_MUTEX *mutex, RTIME timeout)
 {
-	int err = 0, kicked = 0;
+	int err, kicked = 0;
 	xnthread_t *thread;
-	int lockcnt;
 	spl_t s;
 
 	if (timeout == TM_NONBLOCK)
 		return -EWOULDBLOCK;
-
-	if (xnpod_unblockable_p())
-		return -EPERM;
 
 	xnlock_get_irqsave(&nklock, s);
 
@@ -452,35 +454,14 @@ int rt_cond_wait(RT_COND *cond, RT_MUTEX *mutex, RTIME timeout)
 		goto unlock_and_exit;
 	}
 
-	mutex = xeno_h2obj_validate(mutex, XENO_MUTEX_MAGIC, RT_MUTEX);
+	err = rt_mutex_release(mutex);
 
-	if (!mutex) {
-		err = xeno_handle_error(mutex, XENO_MUTEX_MAGIC, RT_MUTEX);
+	if (err)
 		goto unlock_and_exit;
-	}
 
 	thread = xnpod_current_thread();
 
-	if (thread != xnsynch_owner(&mutex->synch_base)) {
-		err = -EPERM;
-		goto unlock_and_exit;
-	}
-
-	/*
-	 * We can't use rt_mutex_release since that might reschedule
-	 * before enter xnsynch_sleep_on, hence most of the code is
-	 * duplicated here.
-	 */
-	lockcnt = mutex->lockcnt; /* Leave even if mutex is nested */
-
-	mutex->lockcnt = 0;
-
-	if (xnsynch_wakeup_one_sleeper(&mutex->synch_base)) {
-		mutex->lockcnt = 1;
-		/* Scheduling deferred */
-	}
-
-	xnsynch_sleep_on(&cond->synch_base, timeout);
+	xnsynch_sleep_on(&cond->synch_base, timeout, XN_RELATIVE);
 
 	if (xnthread_test_info(thread, XNRMID))
 		err = -EIDRM;	/* Condvar deleted while pending. */
@@ -492,8 +473,6 @@ int rt_cond_wait(RT_COND *cond, RT_MUTEX *mutex, RTIME timeout)
 	}
 
 	rt_mutex_acquire(mutex, TM_INFINITE);
-
-	mutex->lockcnt = lockcnt; /* Adjust lockcnt */
 
 	if (kicked)
 		xnthread_set_info(thread, XNKICKED);
@@ -613,11 +592,9 @@ int rt_cond_inquire(RT_COND *cond, RT_COND_INFO *info)
  * Rescheduling: always unless the request is immediately satisfied or
  * @a timeout specifies a non-blocking operation.
  *
- * @note This service is sensitive to the current operation mode of
- * the system timer, as defined by the CONFIG_XENO_OPT_TIMING_PERIOD
- * parameter. In periodic mode, clock ticks are interpreted as
- * periodic jiffies. In oneshot mode, clock ticks are interpreted as
- * nanoseconds.
+ * @note The @a timeout value will be interpreted as jiffies if the
+ * native skin is bound to a periodic time base (see
+ * CONFIG_XENO_OPT_NATIVE_PERIOD), or nanoseconds otherwise.
  */
 
 /**
@@ -648,6 +625,7 @@ int __native_cond_pkg_init(void)
 
 void __native_cond_pkg_cleanup(void)
 {
+	__native_cond_flush_rq(&__native_global_rholder.condq);
 }
 
 /*@}*/

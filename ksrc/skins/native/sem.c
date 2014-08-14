@@ -40,8 +40,11 @@
  *
  *@{*/
 
+/** @example semaphore.c */
+
 #include <nucleus/pod.h>
 #include <nucleus/registry.h>
+#include <nucleus/heap.h>
 #include <native/task.h>
 #include <native/sem.h>
 
@@ -170,6 +173,7 @@ static xnpnode_t __sem_pnode = {
 int rt_sem_create(RT_SEM *sem, const char *name, unsigned long icount, int mode)
 {
 	int err = 0;
+	spl_t s;
 
 	if (xnpod_asynch_p())
 		return -EPERM;
@@ -183,10 +187,15 @@ int rt_sem_create(RT_SEM *sem, const char *name, unsigned long icount, int mode)
 	sem->handle = 0;	/* i.e. (still) unregistered semaphore. */
 	sem->magic = XENO_SEM_MAGIC;
 	xnobject_copy_name(sem->name, name);
+	inith(&sem->rlink);
+	sem->rqueue = &xeno_get_rholder()->semq;
+	xnlock_get_irqsave(&nklock, s);
+	appendq(sem->rqueue, &sem->rlink);
+	xnlock_put_irqrestore(&nklock, s);
 
-#if defined(__KERNEL__) && defined(CONFIG_XENO_OPT_PERVASIVE)
+#ifdef CONFIG_XENO_OPT_PERVASIVE
 	sem->cpid = 0;
-#endif /* __KERNEL__ && CONFIG_XENO_OPT_PERVASIVE */
+#endif /* CONFIG_XENO_OPT_PERVASIVE */
 
 #ifdef CONFIG_XENO_OPT_REGISTRY
 	/* <!> Since xnregister_enter() may reschedule, only register
@@ -263,6 +272,8 @@ int rt_sem_delete(RT_SEM *sem)
 		goto unlock_and_exit;
 	}
 
+	removeq(sem->rqueue, &sem->rlink);
+
 	rc = xnsynch_destroy(&sem->synch_base);
 
 #ifdef CONFIG_XENO_OPT_REGISTRY
@@ -337,11 +348,9 @@ int rt_sem_delete(RT_SEM *sem)
  * Rescheduling: always unless the request is immediately satisfied or
  * @a timeout specifies a non-blocking operation.
  *
- * @note This service is sensitive to the current operation mode of
- * the system timer, as defined by the CONFIG_XENO_OPT_TIMING_PERIOD
- * parameter. In periodic mode, clock ticks are interpreted as
- * periodic jiffies. In oneshot mode, clock ticks are interpreted as
- * nanoseconds.
+ * @note The @a timeout value will be interpreted as jiffies if the
+ * native skin is bound to a periodic time base (see
+ * CONFIG_XENO_OPT_NATIVE_PERIOD), or nanoseconds otherwise.
  */
 
 int rt_sem_p(RT_SEM *sem, RTIME timeout)
@@ -375,15 +384,15 @@ int rt_sem_p(RT_SEM *sem, RTIME timeout)
 	if (sem->count > 0)
 		--sem->count;
 	else {
-		RT_TASK *task = xeno_current_task();
+		xnthread_t *thread = xnpod_current_thread();
 
-		xnsynch_sleep_on(&sem->synch_base, timeout);
+		xnsynch_sleep_on(&sem->synch_base, timeout, XN_RELATIVE);
 
-		if (xnthread_test_info(&task->thread_base, XNRMID))
+		if (xnthread_test_info(thread, XNRMID))
 			err = -EIDRM;	/* Semaphore deleted while pending. */
-		else if (xnthread_test_info(&task->thread_base, XNTIMEO))
+		else if (xnthread_test_info(thread, XNTIMEO))
 			err = -ETIMEDOUT;	/* Timeout. */
-		else if (xnthread_test_info(&task->thread_base, XNBREAK))
+		else if (xnthread_test_info(thread, XNBREAK))
 			err = -EINTR;	/* Unblocked. */
 	}
 
@@ -606,11 +615,9 @@ int rt_sem_inquire(RT_SEM *sem, RT_SEM_INFO *info)
  * Rescheduling: always unless the request is immediately satisfied or
  * @a timeout specifies a non-blocking operation.
  *
- * @note This service is sensitive to the current operation mode of
- * the system timer, as defined by the CONFIG_XENO_OPT_TIMING_PERIOD
- * parameter. In periodic mode, clock ticks are interpreted as
- * periodic jiffies. In oneshot mode, clock ticks are interpreted as
- * nanoseconds.
+ * @note The @a timeout value will be interpreted as jiffies if the
+ * native skin is bound to a periodic time base (see
+ * CONFIG_XENO_OPT_NATIVE_PERIOD), or nanoseconds otherwise.
  */
 
 /**
@@ -639,6 +646,7 @@ int __native_sem_pkg_init(void)
 
 void __native_sem_pkg_cleanup(void)
 {
+	__native_sem_flush_rq(&__native_global_rholder.semq);
 }
 
 /*@}*/

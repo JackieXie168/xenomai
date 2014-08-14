@@ -38,14 +38,36 @@
  *
  *@{*/
 
+/** @example user_task.c */
+/** @example kernel_task.c */
+/** @example bound_task.c */
+/** @example sigxcpu.c */
+/** @example trivial-periodic.c */
+
 #include <nucleus/pod.h>
 #include <nucleus/heap.h>
 #include <nucleus/registry.h>
 #include <native/task.h>
+#include <native/timer.h>
 
-static DECLARE_XNQUEUE(__xeno_task_q);
+static DEFINE_XNQUEUE(__xeno_task_q);
 
 static u_long __xeno_task_stamp;
+
+static int __task_get_denormalized_prio(xnthread_t *thread)
+{
+	return xnthread_current_priority(thread);
+}
+
+static unsigned __task_get_magic(void)
+{
+	return XENO_SKIN_MAGIC;
+}
+
+static xnthrops_t __xeno_task_ops = {
+	.get_denormalized_prio = &__task_get_denormalized_prio,
+	.get_magic = &__task_get_magic,
+};
 
 static void __task_delete_hook(xnthread_t *thread)
 {
@@ -106,7 +128,7 @@ int __native_task_safewait(RT_TASK *task)
 	cstamp = task->cstamp;
 
 	do {
-		xnsynch_sleep_on(&task->safesynch, TM_INFINITE);
+		xnsynch_sleep_on(&task->safesynch, XN_INFINITE, XN_RELATIVE);
 
 		if (xnthread_test_info
 		    (&xeno_current_task()->thread_base, XNBREAK))
@@ -180,7 +202,7 @@ void __native_task_pkg_cleanup(void)
  * platform. This flag is forced for user-space tasks.
  *
  * - T_SUSP causes the task to start in suspended mode. In such a
- * case, the thread will have to be explicitely resumed using the
+ * case, the thread will have to be explicitly resumed using the
  * rt_task_resume() service for its execution to actually begin.
  *
  * - T_CPU(cpuid) makes the new task affine to CPU # @b cpuid. CPU
@@ -242,12 +264,10 @@ int rt_task_create(RT_TASK *task,
 			xnobject_copy_name(task->rname, name);
 	}
 
-	if (xnpod_init_thread(&task->thread_base, name, prio, bflags, stksize)
-	    != 0)
+	if (xnpod_init_thread(&task->thread_base, __native_tbase,
+			      name, prio, bflags, stksize, &__xeno_task_ops) != 0)
 		/* Assume this is the only possible failure. */
 		return -ENOMEM;
-
-	xnthread_set_magic(&task->thread_base, XENO_SKIN_MAGIC);
 
 	inith(&task->link);
 	task->suspend_depth = (bflags & XNSUSP) ? 1 : 0;
@@ -262,6 +282,9 @@ int rt_task_create(RT_TASK *task,
 	     cpumask != 0 && cpu < 8; cpu++, cpumask >>= 1)
 		if (cpumask & 1)
 			xnarch_cpu_set(cpu, task->affinity);
+
+	if (xnarch_cpus_empty(task->affinity))
+		task->affinity = XNPOD_ALL_CPUS;
 
 #ifdef CONFIG_XENO_OPT_NATIVE_MPS
 	xnsynch_init(&task->mrecv, XNSYNCH_FIFO);
@@ -387,16 +410,10 @@ int rt_task_start(RT_TASK *task, void (*entry) (void *cookie), void *cookie)
  * A nesting count is maintained so that rt_task_suspend() and
  * rt_task_resume() must be used in pairs.
  *
- * Receiving a Linux signal causes the suspended task to resume
- * immediately.
- *
  * @param task The descriptor address of the affected task. If @a task
  * is NULL, the current task is suspended.
  *
  * @return 0 is returned upon success. Otherwise:
- *
- * - -EINTR is returned if a Linux signal has been received by the
- * suspended task.
  *
  * - -EINVAL is returned if @a task is not a task descriptor.
  *
@@ -446,12 +463,9 @@ int rt_task_suspend(RT_TASK *task)
 		goto unlock_and_exit;
 	}
 
-	if (task->suspend_depth++ == 0) {
-		xnpod_suspend_thread(&task->thread_base, XNSUSP, XN_INFINITE,
-				     NULL);
-		if (xnthread_test_info(&task->thread_base, XNBREAK))
-			err = -EINTR;
-	}
+	if (task->suspend_depth++ == 0)
+		xnpod_suspend_thread(&task->thread_base, XNSUSP,
+				     XN_INFINITE, XN_RELATIVE, NULL);
 
       unlock_and_exit:
 
@@ -698,11 +712,9 @@ int rt_task_yield(void)
  * Rescheduling: always if the operation affects the current task and
  * @a idate has not elapsed yet.
  *
- * @note This service is sensitive to the current operation mode of
- * the system timer, as defined by the CONFIG_XENO_OPT_TIMING_PERIOD
- * parameter. In periodic mode, clock ticks are interpreted as
- * periodic jiffies. In oneshot mode, clock ticks are interpreted as
- * nanoseconds.
+ * @note The @a idate and @a period values will be interpreted as
+ * jiffies if the native skin is bound to a periodic time base (see
+ * CONFIG_XENO_OPT_NATIVE_PERIOD), or nanoseconds otherwise.
  */
 
 int rt_task_set_periodic(RT_TASK *task, RTIME idate, RTIME period)
@@ -901,32 +913,32 @@ int rt_task_set_priority(RT_TASK *task, int prio)
  *
  * Rescheduling: always unless a null delay is given.
  *
- * @note This service is sensitive to the current operation mode of
- * the system timer, as defined by the CONFIG_XENO_OPT_TIMING_PERIOD
- * parameter. In periodic mode, clock ticks are interpreted as
- * periodic jiffies. In oneshot mode, clock ticks are interpreted as
- * nanoseconds.
+ * @note The @a delay value will be interpreted as jiffies if the
+ * native skin is bound to a periodic time base (see
+ * CONFIG_XENO_OPT_NATIVE_PERIOD), or nanoseconds otherwise.
  */
 
 int rt_task_sleep(RTIME delay)
 {
+	xnthread_t *self;
+
 	if (xnpod_unblockable_p())
 		return -EPERM;
 
 	if (delay == 0)
 		return 0;
 
-	if (!testbits(nkpod->status, XNTIMED))
+	self = xnpod_current_thread();
+
+	if (!xnthread_timed_p(self))
 		return -EWOULDBLOCK;
 
 	/* Calling the suspension service on behalf of the current task
 	   implicitely calls the rescheduling procedure. */
 
-	xnpod_suspend_thread(&xeno_current_task()->thread_base,
-			     XNDELAY, delay, NULL);
+	xnpod_suspend_thread(self, XNDELAY, delay, XN_RELATIVE, NULL);
 
-	return xnthread_test_info(&xeno_current_task()->thread_base,
-				   XNBREAK) ? -EINTR : 0;
+	return xnthread_test_info(self, XNBREAK) ? -EINTR : 0;
 }
 
 /**
@@ -962,23 +974,23 @@ int rt_task_sleep(RTIME delay)
  *
  * Rescheduling: always unless a date in the past is given.
  *
- * @note This service is sensitive to the current operation mode of
- * the system timer, as defined by the CONFIG_XENO_OPT_TIMING_PERIOD
- * parameter. In periodic mode, clock ticks are interpreted as
- * periodic jiffies. In oneshot mode, clock ticks are interpreted as
- * nanoseconds.
+ * @note The @a date value will be interpreted as jiffies if the
+ * native skin is bound to a periodic time base (see
+ * CONFIG_XENO_OPT_NATIVE_PERIOD), or nanoseconds otherwise.
  */
 
 int rt_task_sleep_until(RTIME date)
 {
+	xnthread_t *self;
 	int err = 0;
-	SRTIME delay;
 	spl_t s;
 
 	if (xnpod_unblockable_p())
 		return -EPERM;
 
-	if (!testbits(nkpod->status, XNTIMED))
+	self = xnpod_current_thread();
+
+	if (!xnthread_timed_p(self))
 		return -EWOULDBLOCK;
 
 	xnlock_get_irqsave(&nklock, s);
@@ -986,14 +998,10 @@ int rt_task_sleep_until(RTIME date)
 	/* Calling the suspension service on behalf of the current task
 	   implicitely calls the rescheduling procedure. */
 
-	delay = date - xnpod_get_time();
+	if (date > xntbase_get_time(__native_tbase)) {
+		xnpod_suspend_thread(self, XNDELAY, date, XN_REALTIME, NULL);
 
-	if (delay > 0) {
-		xnpod_suspend_thread(&xeno_current_task()->thread_base,
-				     XNDELAY, delay, NULL);
-
-		if (xnthread_test_info
-		    (&xeno_current_task()->thread_base, XNBREAK))
+		if (xnthread_test_info(self, XNBREAK))
 			err = -EINTR;
 	} else
 		err = -ETIMEDOUT;
@@ -1069,10 +1077,12 @@ int rt_task_unblock(RT_TASK *task)
  * is NULL, the current task is inquired.
  *
  * @param info The address of a structure the task information will be
- * written to.
+ * written to. Passing NULL is valid, in which case the system is only
+ * probed for existence of the specified task.
 
- * @return 0 is returned and status information is written to the
- * structure pointed at by @a info upon success. Otherwise:
+ * @return 0 is returned if the task exists, and status information is
+ * written to the structure pointed at by @a info if
+ * non-NULL. Otherwise:
  *
  * - -EINVAL is returned if @a task is not a task descriptor.
  *
@@ -1097,6 +1107,7 @@ int rt_task_unblock(RT_TASK *task)
 
 int rt_task_inquire(RT_TASK *task, RT_TASK_INFO *info)
 {
+	xnticks_t raw_exectime;
 	int err = 0;
 	spl_t s;
 
@@ -1116,11 +1127,22 @@ int rt_task_inquire(RT_TASK *task, RT_TASK_INFO *info)
 		goto unlock_and_exit;
 	}
 
+	if (unlikely(info == NULL))
+		goto unlock_and_exit;
+
 	strcpy(info->name, xnthread_name(&task->thread_base));
 	info->bprio = xnthread_base_priority(&task->thread_base);
 	info->cprio = xnthread_current_priority(&task->thread_base);
 	info->status = xnthread_state_flags(&task->thread_base);
 	info->relpoint = xntimer_get_date(&task->thread_base.ptimer);
+	raw_exectime = xnthread_get_exectime(&task->thread_base);
+	if (task->thread_base.sched->runthread == &task->thread_base)
+		raw_exectime += xnstat_exectime_now() -
+			xnthread_get_lastswitch(&task->thread_base);
+	info->exectime = xnarch_tsc_to_ns(raw_exectime);
+	info->modeswitches = xnstat_counter_get(&task->thread_base.stat.ssw);
+	info->ctxswitches = xnstat_counter_get(&task->thread_base.stat.csw);
+	info->pagefaults = xnstat_counter_get(&task->thread_base.stat.pf);
 
       unlock_and_exit:
 
@@ -1528,6 +1550,10 @@ RT_TASK *rt_task_self(void)
  * - -EINVAL is returned if @a task is not a task descriptor, or if @a
  * quantum is zero.
  *
+ * - -ENODEV is returned if the native skin is not bound to a periodic
+ * time base (see CONFIG_XENO_OPT_NATIVE_PERIOD), in which case
+ * round-robin scheduling is not available.
+ *
  * - -EPERM is returned if @a task is NULL but not called from a task
  * context.
  *
@@ -1544,17 +1570,17 @@ RT_TASK *rt_task_self(void)
  *
  * Rescheduling: never.
  *
- * @note This service is sensitive to the current operation mode of
- * the system timer, as defined by the CONFIG_XENO_OPT_TIMING_PERIOD
- * parameter. In periodic mode, clock ticks are interpreted as
- * periodic jiffies. In oneshot mode, clock ticks are interpreted as
- * nanoseconds.
+ * @note The @a quantum value is always interpreted as a count of
+ * jiffies.
  */
 
 int rt_task_slice(RT_TASK *task, RTIME quantum)
 {
 	int err = 0;
 	spl_t s;
+
+	if (!xntbase_periodic_p(__native_tbase))
+		return -ENODEV;
 
 	if (!quantum)
 		return -EINVAL;
@@ -1681,11 +1707,9 @@ int rt_task_slice(RT_TASK *task, RTIME quantum)
  *
  * Rescheduling: Always.
  *
- * @note This service is sensitive to the current operation mode of
- * the system timer, as defined by the CONFIG_XENO_OPT_TIMING_PERIOD
- * parameter. In periodic mode, clock ticks are interpreted as
- * periodic jiffies. In oneshot mode, clock ticks are interpreted as
- * nanoseconds.
+ * @note The @a timeout value will be interpreted as jiffies if the
+ * native skin is bound to a periodic time base (see
+ * CONFIG_XENO_OPT_NATIVE_PERIOD), or nanoseconds otherwise.
  *
  * @note When called from a user-space task, this service may need to
  * allocate some temporary buffer space from the system heap to hold
@@ -1755,7 +1779,7 @@ ssize_t rt_task_send(RT_TASK *task,
 	   client in the case required by the priority inheritance
 	   protocol (i.e. prio(client) > prio(server)). */
 
-	xnsynch_sleep_on(&task->msendq, timeout);
+	xnsynch_sleep_on(&task->msendq, timeout, XN_RELATIVE);
 
 	/* At this point, the server task might have exited right
 	 * after having replied to us, so do not make optimistic
@@ -1869,11 +1893,9 @@ ssize_t rt_task_send(RT_TASK *task,
  *
  * Rescheduling: Always.
  *
- * @note This service is sensitive to the current operation mode of
- * the system timer, as defined by the CONFIG_XENO_OPT_TIMING_PERIOD
- * parameter. In periodic mode, clock ticks are interpreted as
- * periodic jiffies. In oneshot mode, clock ticks are interpreted as
- * nanoseconds.
+ * @note The @a timeout value will be interpreted as jiffies if the
+ * native skin is bound to a periodic time base (see
+ * CONFIG_XENO_OPT_NATIVE_PERIOD), or nanoseconds otherwise.
  *
  * @note When called from a user-space task, this service may need to
  * allocate some temporary buffer space from the system heap to hold
@@ -1919,7 +1941,7 @@ int rt_task_receive(RT_TASK_MCB *mcb_r, RTIME timeout)
 	/* Wait on our receive slot for some client to enqueue itself in
 	   our send queue. */
 
-	xnsynch_sleep_on(&server->mrecv, timeout);
+	xnsynch_sleep_on(&server->mrecv, timeout, XN_RELATIVE);
 
 	/* XNRMID cannot happen, since well, the current task would be the
 	   deleted object, so... */
@@ -2139,7 +2161,7 @@ int rt_task_reply(int flowid, RT_TASK_MCB *mcb_s)
  * platform. This flag is forced for user-space tasks.
  *
  * - T_SUSP causes the task to start in suspended mode. In such a
- * case, the thread will have to be explicitely resumed using the
+ * case, the thread will have to be explicitly resumed using the
  * rt_task_resume() service for its execution to actually begin.
  *
  * - T_CPU(cpuid) makes the new task affine to CPU # @b cpuid. CPU
@@ -2300,11 +2322,9 @@ int rt_task_reply(int flowid, RT_TASK_MCB *mcb_s)
  * Rescheduling: always unless the request is immediately satisfied or
  * @a timeout specifies a non-blocking operation.
  *
- * @note This service is sensitive to the current operation mode of
- * the system timer, as defined by the CONFIG_XENO_OPT_TIMING_PERIOD
- * parameter. In periodic mode, clock ticks are interpreted as
- * periodic jiffies. In oneshot mode, clock ticks are interpreted as
- * nanoseconds.
+ * @note The @a timeout value will be interpreted as jiffies if the
+ * native skin is bound to a periodic time base (see
+ * CONFIG_XENO_OPT_NATIVE_PERIOD), or nanoseconds otherwise.
  */
 
 /**

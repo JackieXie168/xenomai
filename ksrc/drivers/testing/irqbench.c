@@ -174,7 +174,7 @@ static inline void do_rt_irqbench_domain_entry(void)
 {
 }
 
-RTHAL_DECLARE_DOMAIN(rt_irqbench_domain_entry);
+static RTHAL_DECLARE_DOMAIN(rt_irqbench_domain_entry);
 
 static int rt_irqbench_stop(struct rt_irqbench_context *ctx)
 {
@@ -237,20 +237,19 @@ static int rt_irqbench_close(struct rtdm_dev_context *context,
 }
 
 static int rt_irqbench_ioctl_nrt(struct rtdm_dev_context *context,
-				 rtdm_user_info_t *user_info, int request,
-				 void *arg)
+				 rtdm_user_info_t *user_info,
+				 unsigned int request, void __user *arg)
 {
 	struct rt_irqbench_context *ctx;
 	struct rttst_irqbench_config config_buf;
 	struct rttst_irqbench_config *config;
-	struct rttst_irqbench_stats *usr_stats;
 	int err = 0;
 
 	ctx = (struct rt_irqbench_context *)context->dev_private;
 
 	switch (request) {
 	case RTTST_RTIOC_IRQBENCH_START:
-		config = arg;
+		config = (void *)arg;
 		if (user_info) {
 			if (rtdm_safe_copy_from_user
 			    (user_info, &config_buf, arg,
@@ -314,7 +313,6 @@ static int rt_irqbench_ioctl_nrt(struct rtdm_dev_context *context,
 					     config->port_irq,
 					     rt_irqbench_task_irq, 0,
 					     "irqbench", ctx);
-			rtdm_irq_enable(&ctx->irq_handle);
 			break;
 
 		case RTTST_IRQBENCH_KERNEL_TASK:
@@ -325,7 +323,6 @@ static int rt_irqbench_ioctl_nrt(struct rtdm_dev_context *context,
 					     "irqbench", ctx);
 			if (err)
 				break;
-			rtdm_irq_enable(&ctx->irq_handle);
 
 			err = rtdm_task_init(&ctx->irq_task, "irqbench",
 					     rt_irqbench_task, ctx,
@@ -340,7 +337,6 @@ static int rt_irqbench_ioctl_nrt(struct rtdm_dev_context *context,
 					     config->port_irq,
 					     rt_irqbench_direct_irq, 0,
 					     "irqbench", ctx);
-			rtdm_irq_enable(&ctx->irq_handle);
 			break;
 
 		case RTTST_IRQBENCH_HARD_IRQ:
@@ -410,16 +406,13 @@ static int rt_irqbench_ioctl_nrt(struct rtdm_dev_context *context,
 		break;
 
 	case RTTST_RTIOC_IRQBENCH_GET_STATS:
-		usr_stats = arg;
-
 		if (user_info)
 			err =
-			    rtdm_safe_copy_to_user(user_info, usr_stats,
-						   &ctx->stats,
+			    rtdm_safe_copy_to_user(user_info, arg, &ctx->stats,
 						   sizeof(struct
 							  rttst_irqbench_stats));
 		else
-			*usr_stats = ctx->stats;
+			*(struct rttst_irqbench_stats *)arg = ctx->stats;
 		break;
 
 	case RTTST_RTIOC_IRQBENCH_WAIT_IRQ:
@@ -438,8 +431,8 @@ static int rt_irqbench_ioctl_nrt(struct rtdm_dev_context *context,
 }
 
 static int rt_irqbench_ioctl_rt(struct rtdm_dev_context *context,
-				rtdm_user_info_t *user_info, int request,
-				void *arg)
+				rtdm_user_info_t *user_info,
+				unsigned int request, void __user *arg)
 {
 	struct rt_irqbench_context *ctx;
 	int err = 0;
@@ -486,6 +479,7 @@ static struct rtdm_device device = {
 
 	.device_class      = RTDM_CLASS_TESTING,
 	.device_sub_class  = RTDM_SUBCLASS_IRQBENCH,
+	.profile_version   = RTTST_PROFILE_VER,
 	.driver_name       = "xeno_irqbench",
 	.driver_version    = RTDM_DRIVER_VER(0, 1, 1),
 	.peripheral_name   = "IRQ Latency Benchmark",
@@ -502,8 +496,6 @@ static const struct pnp_device_id irqbench_pnp_tbl[] = {
 	{ }
 };
 
-MODULE_DEVICE_TABLE(pnp, irqbench_pnp_tbl);
-
 static int irqbench_pnp_probe(struct pnp_dev *dev,
 			      const struct pnp_device_id *id)
 {
@@ -519,7 +511,7 @@ static struct pnp_driver irqbench_pnp_driver = {
 static int pnp_registered;
 #endif /* Linux >= 2.6.0 */
 
-int __init __irqbench_init(void)
+static int __init __irqbench_init(void)
 {
 	int err;
 
@@ -539,7 +531,7 @@ int __init __irqbench_init(void)
 	return err;
 }
 
-void __exit __irqbench_exit(void)
+static void __exit __irqbench_exit(void)
 {
 	rtdm_dev_unregister(&device, 1000);
 

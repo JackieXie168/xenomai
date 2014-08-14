@@ -115,7 +115,7 @@ static void rtcan_get_timeout_name(nanosecs_rel_t timeout,
     if (timeout == RTDM_TIMEOUT_INFINITE) 
 	strncpy(name, "infinite", max_len);
     else
-	sprintf(name, "%lld", timeout);
+        sprintf(name, "%lld", (long long)timeout);
 }
 
 static int rtcan_read_proc_devices(char *buf, char **start, off_t offset,
@@ -200,7 +200,7 @@ static int rtcan_read_proc_sockets(char *buf, char **start, off_t offset,
 			      context->fd, name, sock->flistlen,
 			      sock->err_mask, rx_timeout, tx_timeout,
 			      sock->rx_buf_full,
-			      rtcan_tx_loopback_enabled(sock)))
+			      rtcan_loopback_enabled(sock)))
 	    break;
     }
 
@@ -262,11 +262,11 @@ static int rtcan_read_proc_filter(char *buf, char **start, off_t offset,
     rtdm_lockctx_t lock_ctx;
     RTCAN_PROC_PRINT_VARS(80);
 
-    /*  fd __CAN_ID__ _CAN_Mask_ MatchCount
-     *   3 0x12345678 0x12345678 1234567890
+    /*  fd __CAN_ID__ _CAN_Mask_ Inv MatchCount
+     *   3 0x12345678 0x12345678  no 1234567890
      */
-    
-    if (!RTCAN_PROC_PRINT("fd __CAN_ID__ _CAN_Mask_ MatchCount\n"))
+
+    if (!RTCAN_PROC_PRINT("fd __CAN_ID__ _CAN_Mask_ Inv MatchCount\n"))
         goto done;
 
     rtdm_lock_get_irqsave(&rtcan_recv_list_lock, lock_ctx);
@@ -275,10 +275,13 @@ static int rtcan_read_proc_filter(char *buf, char **start, off_t offset,
     while (recv_listener != NULL) {
 	context = rtcan_socket_context(recv_listener->sock);
 
-	if (!RTCAN_PROC_PRINT("%2d 0x%08x 0x%08x %10d\n",
-			      context->fd, 
+	if (!RTCAN_PROC_PRINT("%2d 0x%08x 0x%08x %s %10d\n",
+			      context->fd,
 			      recv_listener->can_filter.can_id,
-			      recv_listener->can_filter.can_mask,
+			      recv_listener->can_filter.can_mask &
+			      ~CAN_INV_FILTER,
+			      (recv_listener->can_filter.can_mask &
+			       CAN_INV_FILTER) ? "yes" : " no",
 			      recv_listener->match_count))
 	    break;
 	recv_listener = recv_listener->next;

@@ -72,7 +72,7 @@
 #define XENOMAI_FEAT_DEP  ( __xn_feat_generic_mask              | \
                             __xn_feat_arm_atomic_xchg_mask      | \
                             __xn_feat_arm_atomic_atomic_mask    | \
-			    __xn_feat_arm_eabi_mask             | \
+                            __xn_feat_arm_eabi_mask             | \
 			    __xn_feat_arm_tsc_mask)
 
 #define XENOMAI_FEAT_MAN  0

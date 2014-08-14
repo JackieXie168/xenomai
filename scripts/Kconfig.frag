@@ -17,7 +17,7 @@ comment "(menu Processor type and features)"
 	depends on !X86_LOCAL_APIC && X86 && HPET_TIMER
 
 config XENOMAI
- 	depends on ((X86_TSC || !X86 || !INPUT_PCSPKR) && (!HPET_TIMER || !X86 || X86_LOCAL_APIC))
+	depends on ((X86_TSC || !X86 || !INPUT_PCSPKR) && (!HPET_TIMER || !X86 || X86_LOCAL_APIC))
 	bool "Xenomai"
 	default y
         select IPIPE

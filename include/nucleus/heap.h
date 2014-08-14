@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2001,2002,2003 Philippe Gerum <rpm@xenomai.org>.
+ * @note Copyright (C) 2001,2002,2003 Philippe Gerum <rpm@xenomai.org>.
  *
  * Xenomai is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published
@@ -15,6 +15,8 @@
  * along with Xenomai; if not, write to the Free Software
  * Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
  * 02111-1307, USA.
+ *
+ * \ingroup heap
  */
 
 #ifndef _XENO_NUCLEUS_HEAP_H
@@ -88,9 +90,7 @@ typedef struct xnheap {
 
 	xnqueue_t extents;
 
-#ifdef CONFIG_SMP
-	xnlock_t lock;
-#endif /* CONFIG_SMP */
+        DECLARE_XNLOCK(lock);
 
 	struct xnbucket {
 		caddr_t freelist;
@@ -130,12 +130,12 @@ static inline size_t xnheap_overhead(size_t hsize, size_t psize)
 #define xnmalloc(size)     xnheap_alloc(&kheap,size)
 #define xnfree(ptr)        xnheap_free(&kheap,ptr)
 #define xnfreesync()       xnheap_finalize_free(&kheap)
-#define xnfreesafe(thread,ptr,ln) \
-do { \
-    if (xnpod_current_p(thread))	     \
-	xnheap_schedule_free(&kheap,ptr,ln); \
-    else \
-	xnheap_free(&kheap,ptr); \
+#define xnfreesafe(thread,ptr,ln)		\
+    do {					\
+    if (xnpod_current_p(thread))		\
+	xnheap_schedule_free(&kheap,ptr,ln);	\
+    else					\
+	xnheap_free(&kheap,ptr);		\
 } while(0)
 
 static inline size_t xnheap_rounded_size(size_t hsize, size_t psize)

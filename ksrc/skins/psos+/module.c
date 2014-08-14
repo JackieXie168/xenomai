@@ -32,6 +32,14 @@ MODULE_DESCRIPTION("pSOS+(R) virtual machine");
 MODULE_AUTHOR("rpm@xenomai.org");
 MODULE_LICENSE("GPL");
 
+static u_long tick_arg = CONFIG_XENO_OPT_PSOS_PERIOD;
+module_param_named(tick_arg, tick_arg, ulong, 0444);
+MODULE_PARM_DESC(tick_arg, "Fixed clock tick value (us)");
+
+static u_long sync_time;
+module_param_named(sync_time, sync_time, ulong, 0444);
+MODULE_PARM_DESC(sync_time, "Set non-zero to synchronize on master time base");
+
 static u_long rn0_size_arg = 32 * 1024;	/* Default size of region #0 */
 module_param_named(rn0_size, rn0_size_arg, ulong, 0444);
 MODULE_PARM_DESC(rn0_size, "Size of pSOS+ region #0 (in bytes)");
@@ -40,9 +48,9 @@ static u_long time_slice_arg = 10;	/* Default (round-robin) time slice */
 module_param_named(time_slice, time_slice_arg, ulong, 0444);
 MODULE_PARM_DESC(time_slice, "Default time slice (in ticks)");
 
-#if !defined(__KERNEL__) || !defined(CONFIG_XENO_OPT_PERVASIVE)
-static xnpod_t __psos_pod;
-#endif /* !__KERNEL__ && CONFIG_XENO_OPT_PERVASIVE) */
+xntbase_t *psos_tbase;
+
+psos_rholder_t __psos_global_rholder;
 
 #ifdef CONFIG_XENO_EXPORT_REGISTRY
 xnptree_t __psos_ptree = {
@@ -62,35 +70,29 @@ int SKIN_INIT(psos)
 {
 	int err;
 
-#if CONFIG_XENO_OPT_TIMING_PERIOD == 0
-	nktickdef = 1000000;	/* Defaults to 1ms. */
-#endif
+	initq(&__psos_global_rholder.smq);
+	initq(&__psos_global_rholder.qq);
+	initq(&__psos_global_rholder.ptq);
+	initq(&__psos_global_rholder.rnq);
 
-#if defined(__KERNEL__) && defined(CONFIG_XENO_OPT_PERVASIVE)
-	/* The pSOS skin is stacked over the core pod. */
-	err = xncore_attach();
-#else /* !(__KERNEL__ && CONFIG_XENO_OPT_PERVASIVE) */
-	/* The pSOS skin is standalone. */
-	err = xnpod_init(&__psos_pod, 1, 255, XNREUSE);
-#endif /* __KERNEL__ && CONFIG_XENO_OPT_PERVASIVE */
+	err = xnpod_init();
 
 	if (err != 0)
 		return err;
 
-	if (!testbits(nkpod->status, XNTMPER)) {
-		xnlogerr
-		    ("incompatible timer mode (aperiodic found, need periodic).\n");
-		err = -EBUSY;	/* Cannot work in aperiodic timing mode. */
-	}
-	else
-		err = psosrn_init(module_param_value(rn0_size_arg));
+	err = xntbase_alloc("psos", tick_arg * 1000, sync_time ? 0 : XNTBISO,
+			    &psos_tbase);
+
+	if (err != 0)
+		goto fail;
+
+	xntbase_start(psos_tbase);
+
+	err = psosrn_init(module_param_value(rn0_size_arg));
 
 	if (err != 0) {
-#if defined(__KERNEL__) && defined(CONFIG_XENO_OPT_PERVASIVE)
-		xncore_detach(err);
-#else /* !(__KERNEL__ && CONFIG_XENO_OPT_PERVASIVE) */
+	fail:
 		xnpod_shutdown(err);
-#endif /* __KERNEL__ && CONFIG_XENO_OPT_PERVASIVE */
 		xnlogerr("pSOS skin init failed, code %d.\n", err);
 		return err;
 	}
@@ -101,9 +103,9 @@ int SKIN_INIT(psos)
 	psosasr_init();
 	psostm_init();
 	psostask_init(module_param_value(time_slice_arg));
-#if defined(__KERNEL__) && defined(CONFIG_XENO_OPT_PERVASIVE)
+#ifdef CONFIG_XENO_OPT_PERVASIVE
 	psos_syscall_init();
-#endif /* __KERNEL__ && CONFIG_XENO_OPT_PERVASIVE */
+#endif /* CONFIG_XENO_OPT_PERVASIVE */
 
 	xnprintf("starting pSOS+ services.\n");
 
@@ -121,16 +123,17 @@ void SKIN_EXIT(psos)
 	psosqueue_cleanup();
 	psossem_cleanup();
 	psosrn_cleanup();
-#if defined(__KERNEL__) && defined(CONFIG_XENO_OPT_PERVASIVE)
+#ifdef CONFIG_XENO_OPT_PERVASIVE
 	psos_syscall_cleanup();
-	xncore_detach(XNPOD_NORMAL_EXIT);
-#else /* !(__KERNEL__ && CONFIG_XENO_OPT_PERVASIVE) */
+#endif /* CONFIG_XENO_OPT_PERVASIVE */
+	xntbase_free(psos_tbase);
 	xnpod_shutdown(XNPOD_NORMAL_EXIT);
-#endif /* __KERNEL__ && CONFIG_XENO_OPT_PERVASIVE */
 }
 
 module_init(__psos_skin_init);
 module_exit(__psos_skin_exit);
+
+EXPORT_SYMBOL(psos_tbase);
 
 EXPORT_SYMBOL(as_catch);
 EXPORT_SYMBOL(as_send);

@@ -48,6 +48,7 @@ typedef struct pse51_sem {
 	int value;
 	unsigned pshared;
 	unsigned is_named;
+	pse51_kqueues_t *owningq;
 } pse51_sem_t;
 
 typedef struct pse51_named_sem {
@@ -61,7 +62,7 @@ typedef struct pse51_named_sem {
 	union __xeno_sem descriptor;
 } nsem_t;
 
-#if defined(__KERNEL__) && defined(CONFIG_XENO_OPT_PERVASIVE)
+#ifdef CONFIG_XENO_OPT_PERVASIVE
 typedef struct pse51_uptr {
 	struct mm_struct *mm;
 	unsigned refcnt;
@@ -72,15 +73,18 @@ typedef struct pse51_uptr {
 #define link2uptr(laddr) \
     ((pse51_uptr_t *)((char *)(laddr) - offsetof(pse51_uptr_t, link)))
 } pse51_uptr_t;
-#endif /* __KERNEL__ && CONFIG_XENO_OPT_PERVASIVE */
+#endif /* CONFIG_XENO_OPT_PERVASIVE */
 
-/* Called with nklock locked, irqs off. */
 static void sem_destroy_inner(pse51_sem_t * sem, pse51_kqueues_t *q)
 {
+	spl_t s;
+
+	xnlock_get_irqsave(&nklock, s);
 	removeq(&q->semq, &sem->link);
 	if (xnsynch_destroy(&sem->synchbase) == XNSYNCH_RESCHED)
 		xnpod_schedule();
-
+	xnlock_put_irqrestore(&nklock, s);
+	
 	if (sem->is_named)
 		xnfree(sem2named_sem(sem));
 	else
@@ -99,6 +103,7 @@ static int pse51_sem_init_inner(pse51_sem_t * sem, int pshared, unsigned value)
 	sem->value = value;
 	sem->pshared = pshared;
 	sem->is_named = 0;
+	sem->owningq = pse51_kqueues(pshared);
 
 	return 0;
 }
@@ -139,6 +144,12 @@ int sem_init(sem_t * sm, int pshared, unsigned value)
 	int err;
 	spl_t s;
 
+	sem = (pse51_sem_t *) xnmalloc(sizeof(pse51_sem_t));
+	if (!sem) {
+		err = ENOSPC;
+		goto error;
+	}
+
 	xnlock_get_irqsave(&nklock, s);
 
 	semq = &pse51_kqueues(pshared)->semq;
@@ -152,21 +163,13 @@ int sem_init(sem_t * sm, int pshared, unsigned value)
 		     holder = nextq(semq, holder))
 			if (holder == &shadow->sem->link) {
 				err = EBUSY;
-				goto error;
+				goto err_lock_put;
 			}
 	}
 
-	sem = (pse51_sem_t *) xnmalloc(sizeof(pse51_sem_t));
-	if (!sem) {
-		err = ENOSPC;
-		goto error;
-	}
-
 	err = pse51_sem_init_inner(sem, pshared, value);
-	if (err) {
-		xnfree(sem);
-		goto error;
-	}
+	if (err)
+		goto err_lock_put;
 
 	shadow->magic = PSE51_SEM_MAGIC;
 	shadow->sem = sem;
@@ -174,8 +177,10 @@ int sem_init(sem_t * sm, int pshared, unsigned value)
 
 	return 0;
 
-      error:
+  err_lock_put:
 	xnlock_put_irqrestore(&nklock, s);
+	xnfree(sem);
+  error:
 	thread_set_errno(err);
 
 	return -1;
@@ -195,7 +200,9 @@ int sem_init(sem_t * sm, int pshared, unsigned value)
  *
  * @retval 0 on success,
  * @retval -1 with @a errno set if:
- * - EINVAL, the semaphore @a sm is invalid or a named semaphore.
+ * - EINVAL, the semaphore @a sm is invalid or a named semaphore;
+ * - EPERM, the semaphore @a sm is not process-shared and does not belong to the
+ *   current process.
  *
  * @see
  * <a href="http://www.opengroup.org/onlinepubs/000095399/functions/sem_destroy.html">
@@ -208,17 +215,21 @@ int sem_destroy(sem_t * sm)
 	spl_t s;
 
 	xnlock_get_irqsave(&nklock, s);
-
 	if (shadow->magic != PSE51_SEM_MAGIC) {
 		thread_set_errno(EINVAL);
 		goto error;
 	}
 
-	sem_destroy_inner(shadow->sem, pse51_kqueues(shadow->sem->pshared));
-	pse51_mark_deleted(shadow);
+	if (pse51_kqueues(shadow->sem->pshared) != shadow->sem->owningq) {
+		thread_set_errno(EPERM);
+		goto error;
+	}
 
+	pse51_mark_deleted(shadow);
 	xnlock_put_irqrestore(&nklock, s);
 
+	sem_destroy_inner(shadow->sem, pse51_kqueues(shadow->sem->pshared));
+	
 	return 0;
 
       error:
@@ -273,70 +284,77 @@ int sem_destroy(sem_t * sm)
  */
 sem_t *sem_open(const char *name, int oflags, ...)
 {
-	nsem_t *named_sem;
 	pse51_node_t *node;
+	nsem_t *named_sem;
+	unsigned value;
+	mode_t mode;
+	va_list ap;
 	spl_t s;
 	int err;
 
 	xnlock_get_irqsave(&nklock, s);
-
 	err = pse51_node_get(&node, name, PSE51_NAMED_SEM_MAGIC, oflags);
+	xnlock_put_irqrestore(&nklock, s);
 
 	if (err)
 		goto error;
 
-	if (!node) {
-		unsigned value;
-		mode_t mode;
-		va_list ap;
-
-		named_sem = (nsem_t *) xnmalloc(sizeof(*named_sem));
-
-		if (!named_sem) {
-			err = ENOSPC;
-			goto error;
-		}
-
-		va_start(ap, oflags);
-		mode = va_arg(ap, int);	/* unused */
-		value = va_arg(ap, unsigned);
-		va_end(ap);
-
-		err = pse51_sem_init_inner(&named_sem->sembase, 1, value);
-
-		if (err) {
-			xnfree(named_sem);
-			goto error;
-		}
-
-		err =
-		    pse51_node_add(&named_sem->nodebase, name,
-				   PSE51_NAMED_SEM_MAGIC);
-
-		if (err) {
-			xnfree(named_sem);
-			goto error;
-		}
-
-		named_sem->sembase.is_named = 1;
-		named_sem->descriptor.shadow_sem.sem = &named_sem->sembase;
-	} else
+	if (node) {
 		named_sem = node2sem(node);
+		goto got_sem;
+	}
+	
+	named_sem = (nsem_t *) xnmalloc(sizeof(*named_sem));
+	if (!named_sem) {
+		err = ENOSPC;
+		goto error;
+	}
+	named_sem->sembase.is_named = 1;
+	named_sem->descriptor.shadow_sem.sem = &named_sem->sembase;
 
+	va_start(ap, oflags);
+	mode = va_arg(ap, int);	/* unused */
+	value = va_arg(ap, unsigned);
+	va_end(ap);
+
+	xnlock_get_irqsave(&nklock, s);
+	err = pse51_sem_init_inner(&named_sem->sembase, 1, value);
+	if (err) {
+		xnlock_put_irqrestore(&nklock, s);
+		xnfree(named_sem);
+		goto error;
+	}
+
+	err = pse51_node_add(&named_sem->nodebase, name, PSE51_NAMED_SEM_MAGIC);
+	if (err && err != EEXIST)
+		goto err_put_lock;
+	
+	if (err == EEXIST) {
+		err = pse51_node_get(&node, name, PSE51_NAMED_SEM_MAGIC, oflags);
+		if (err)
+			goto err_put_lock;
+
+		xnlock_put_irqrestore(&nklock, s);
+		sem_destroy_inner(&named_sem->sembase,
+				  pse51_kqueues(named_sem->sembase.pshared));
+		named_sem = node2sem(node);
+		goto got_sem;
+	}
+	xnlock_put_irqrestore(&nklock, s);
+
+  got_sem:
 	/* Set the magic, needed both at creation and when re-opening a semaphore
 	   that was closed but not unlinked. */
 	named_sem->descriptor.shadow_sem.magic = PSE51_NAMED_SEM_MAGIC;
 
-	xnlock_put_irqrestore(&nklock, s);
-
 	return &named_sem->descriptor.native_sem;
 
-      error:
-
+  err_put_lock:
 	xnlock_put_irqrestore(&nklock, s);
-
+	sem_destroy_inner(&named_sem->sembase,
+			  pse51_kqueues(named_sem->sembase.pshared));
+  error:
 	thread_set_errno(err);
-
 	return SEM_FAILED;
 }
 
@@ -387,13 +405,16 @@ int sem_close(sem_t * sm)
 
 	if (pse51_node_removed_p(&named_sem->nodebase)) {
 		/* unlink was called, and this semaphore is no longer referenced. */
-		sem_destroy_inner(&named_sem->sembase, pse51_kqueues(1));
 		pse51_mark_deleted(shadow);
-	} else if (!pse51_node_ref_p(&named_sem->nodebase))
+		xnlock_put_irqrestore(&nklock, s);
+
+		sem_destroy_inner(&named_sem->sembase, pse51_kqueues(1));
+	} else if (!pse51_node_ref_p(&named_sem->nodebase)) {
 		/* this semaphore is no longer referenced, but not unlinked. */
 		pse51_mark_deleted(shadow);
-
-	xnlock_put_irqrestore(&nklock, s);
+		xnlock_put_irqrestore(&nklock, s);
+	} else
+		xnlock_put_irqrestore(&nklock, s);
 
 	return 0;
 
@@ -445,10 +466,12 @@ int sem_unlink(const char *name)
 
 	named_sem = node2sem(node);
 
-	if (pse51_node_removed_p(&named_sem->nodebase))
+	if (pse51_node_removed_p(&named_sem->nodebase)) {
+		xnlock_put_irqrestore(&nklock, s);
+		
 		sem_destroy_inner(&named_sem->sembase, pse51_kqueues(1));
-
-	xnlock_put_irqrestore(&nklock, s);
+	} else
+		xnlock_put_irqrestore(&nklock, s);
 
 	return 0;
 
@@ -470,6 +493,11 @@ static inline int sem_trywait_internal(struct __shadow_sem *shadow)
 
 	sem = shadow->sem;
 
+#if XENO_DEBUG(POSIX)
+	if (sem->owningq != pse51_kqueues(sem->pshared))
+		return EPERM;
+#endif /* XENO_DEBUG(POSIX) */
+
 	if (sem->value == 0)
 		return EAGAIN;
 
@@ -490,6 +518,8 @@ static inline int sem_trywait_internal(struct __shadow_sem *shadow)
  * @retval 0 on success;
  * @retval -1 with @a errno set if:
  * - EINVAL, the specified semaphore is invalid or uninitialized;
+ * - EPERM, the semaphore @a sm is not process-shared and does not belong to the
+ *   current process;
  * - EAGAIN, the specified semaphore is currently locked.
  *
  * * @see
@@ -518,7 +548,7 @@ int sem_trywait(sem_t * sm)
 }
 
 static inline int sem_timedwait_internal(struct __shadow_sem *shadow,
-					 xnticks_t to)
+					 int timed, xnticks_t to)
 {
 	pse51_sem_t *sem = shadow->sem;
 	xnthread_t *cur;
@@ -532,12 +562,12 @@ static inline int sem_timedwait_internal(struct __shadow_sem *shadow,
 	if ((err = sem_trywait_internal(shadow)) != EAGAIN)
 		return err;
 
-	if ((err = clock_adjust_timeout(&to, CLOCK_REALTIME)))
-		return err;
-
 	thread_cancellation_point(cur);
 
-	xnsynch_sleep_on(&sem->synchbase, to);
+	if (timed)
+		xnsynch_sleep_on(&sem->synchbase, to, XN_REALTIME);
+	else
+		xnsynch_sleep_on(&sem->synchbase, XN_INFINITE, XN_RELATIVE);
 
 	/* Handle cancellation requests. */
 	thread_cancellation_point(cur);
@@ -573,6 +603,8 @@ static inline int sem_timedwait_internal(struct __shadow_sem *shadow,
  * @retval -1 with @a errno set if:
  * - EPERM, the caller context is invalid;
  * - EINVAL, the semaphore is invalid or uninitialized;
+ * - EPERM, the semaphore @a sm is not process-shared and does not belong to the
+ *   current process;
  * - EINTR, the caller was interrupted by a signal while blocked in this
  *   service.
  *
@@ -592,7 +624,7 @@ int sem_wait(sem_t * sm)
 	int err;
 
 	xnlock_get_irqsave(&nklock, s);
-	err = sem_timedwait_internal(shadow, XN_INFINITE);
+	err = sem_timedwait_internal(shadow, 0, XN_INFINITE);
 	xnlock_put_irqrestore(&nklock, s);
 
 	if (err) {
@@ -619,6 +651,8 @@ int sem_wait(sem_t * sm)
  * - EPERM, the caller context is invalid;
  * - EINVAL, the semaphore is invalid or uninitialized;
  * - EINVAL, the specified timeout is invalid;
+ * - EPERM, the semaphore @a sm is not process-shared and does not belong to the
+ *   current process;
  * - EINTR, the caller was interrupted by a signal while blocked in this
  *   service;
  * - ETIMEDOUT, the semaphore could not be locked and the specified timeout
@@ -639,10 +673,16 @@ int sem_timedwait(sem_t * sm, const struct timespec *abs_timeout)
 	spl_t s;
 	int err;
 
+	if (abs_timeout->tv_nsec > ONE_BILLION) {
+		err = EINVAL;
+		goto error;
+	}
+
 	xnlock_get_irqsave(&nklock, s);
-	err = sem_timedwait_internal(shadow, ts2ticks_ceil(abs_timeout) + 1);
+	err = sem_timedwait_internal(shadow, 1, ts2ticks_ceil(abs_timeout) + 1);
 	xnlock_put_irqrestore(&nklock, s);
 
+  error:
 	if (err) {
 		thread_set_errno(err);
 		return -1;
@@ -664,6 +704,8 @@ int sem_timedwait(sem_t * sm, const struct timespec *abs_timeout)
  * @retval 0 on success;
  * @retval -1 with errno set if:
  * - EINVAL, the specified semaphore is invalid or uninitialized;
+ * - EPERM, the semaphore @a sm is not process-shared and does not belong to the
+ *   current process;
  * - EAGAIN, the semaphore count is @a SEM_VALUE_MAX.
  *
  * @see
@@ -686,6 +728,13 @@ int sem_post(sem_t * sm)
 	}
 
 	sem = shadow->sem;
+
+#if XENO_DEBUG(POSIX)
+	if (sem->owningq != pse51_kqueues(sem->pshared)) {
+		thread_set_errno(EPERM);
+		goto error;
+	}
+#endif /* XENO_DEBUG(POSIX) */
 
 	if (sem->value == SEM_VALUE_MAX) {
 		thread_set_errno(EAGAIN);
@@ -722,7 +771,9 @@ int sem_post(sem_t * sm)
  *
  * @retval 0 on success;
  * @retval -1 with @a errno set if:
- * - EINVAL, the semaphore is invalid or uninitialized.
+ * - EINVAL, the semaphore is invalid or uninitialized;
+ * - EPERM, the semaphore @a sm is not process-shared and does not belong to the
+ *   current process.
  *
  * @see
  * <a href="http://www.opengroup.org/onlinepubs/000095399/functions/sem_getvalue.html">
@@ -746,6 +797,12 @@ int sem_getvalue(sem_t * sm, int *value)
 
 	sem = shadow->sem;
 
+	if (sem->owningq != pse51_kqueues(sem->pshared)) {
+		xnlock_put_irqrestore(&nklock, s);
+		thread_set_errno(EPERM);
+		return -1;
+	}
+
 	*value = sem->value;
 
 	xnlock_put_irqrestore(&nklock, s);
@@ -753,7 +810,7 @@ int sem_getvalue(sem_t * sm, int *value)
 	return 0;
 }
 
-#if defined(__KERNEL__) && defined(CONFIG_XENO_OPT_PERVASIVE)
+#ifdef CONFIG_XENO_OPT_PERVASIVE
 static void usem_cleanup(pse51_assoc_t *assoc)
 {
 	struct pse51_sem *sem = (struct pse51_sem *) pse51_assoc_key(assoc);
@@ -771,7 +828,7 @@ void pse51_sem_usems_cleanup(pse51_queues_t *q)
 {
 	pse51_assocq_destroy(&q->usems, &usem_cleanup);
 }
-#endif /* __KERNEL__ && CONFIG_XENO_OPT_PERVASIVE */
+#endif /* CONFIG_XENO_OPT_PERVASIVE */
 
 void pse51_semq_cleanup(pse51_kqueues_t *q)
 {
@@ -796,7 +853,9 @@ void pse51_semq_cleanup(pse51_kqueues_t *q)
 			pse51_node_remove(&node,
 					  sem2named_sem(sem)->nodebase.name,
 					  PSE51_NAMED_SEM_MAGIC);
+		xnlock_put_irqrestore(&nklock, s);
 		sem_destroy_inner(sem, q);
+		xnlock_get_irqsave(&nklock, s);
 	}
 
 	xnlock_put_irqrestore(&nklock, s);

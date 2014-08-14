@@ -113,8 +113,8 @@
 #define __native_pipe_write         87
 #define __native_pipe_stream        88
 #define __native_unimp_89           89
-#define __native_misc_get_io_region 90
-#define __native_misc_put_io_region 91
+#define __native_io_get_region      90
+#define __native_io_put_region      91
 #define __native_timer_ns2tsc       92
 #define __native_timer_tsc2ns       93
 #define __native_queue_write        94
@@ -135,9 +135,18 @@ struct rt_arg_bulk {
 extern "C" {
 #endif
 
+#ifdef CONFIG_XENO_OPT_PERVASIVE
+
 int __native_syscall_init(void);
 
 void __native_syscall_cleanup(void);
+
+#else /* !CONFIG_XENO_OPT_PERVASIVE */
+
+#define __native_syscall_init()	({ 0; })
+#define __native_syscall_cleanup()	do { } while(0)
+
+#endif /* !CONFIG_XENO_OPT_PERVASIVE */
 
 #ifdef __cplusplus
 }

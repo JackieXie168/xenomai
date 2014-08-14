@@ -27,12 +27,13 @@
  *
  *@{*/
 
+/** @example user_irq.c */
+
 #include <nucleus/pod.h>
 #include <nucleus/registry.h>
+#include <nucleus/heap.h>
 #include <native/task.h>
 #include <native/intr.h>
-
-static DECLARE_XNQUEUE(__xeno_intr_q);
 
 int __native_intr_pkg_init(void)
 {
@@ -41,10 +42,7 @@ int __native_intr_pkg_init(void)
 
 void __native_intr_pkg_cleanup(void)
 {
-	xnholder_t *holder;
-
-	while ((holder = getheadq(&__xeno_intr_q)) != NULL)
-		rt_intr_delete(link2intr(holder));
+	__native_intr_flush_rq(&__native_global_rholder.intrq);
 }
 
 static unsigned long __intr_get_hits(RT_INTR *intr)
@@ -262,17 +260,18 @@ int rt_intr_create(RT_INTR *intr,
 		xnobject_create_name(intr->name, sizeof(intr->name), isr);
 
 	xnintr_init(&intr->intr_base, intr->name, irq, isr, iack, mode);
-#if defined(__KERNEL__) && defined(CONFIG_XENO_OPT_PERVASIVE)
+#ifdef CONFIG_XENO_OPT_PERVASIVE
 	xnsynch_init(&intr->synch_base, XNSYNCH_PRIO);
 	intr->pending = 0;
 	intr->cpid = 0;
 	intr->mode = 0;
-#endif /* __KERNEL__ && CONFIG_XENO_OPT_PERVASIVE */
+#endif /* CONFIG_XENO_OPT_PERVASIVE */
 	intr->magic = XENO_INTR_MAGIC;
 	intr->handle = 0;	/* i.e. (still) unregistered interrupt. */
-	inith(&intr->link);
+	inith(&intr->rlink);
+	intr->rqueue = &xeno_get_rholder()->intrq;
 	xnlock_get_irqsave(&nklock, s);
-	appendq(&__xeno_intr_q, &intr->link);
+	appendq(intr->rqueue, &intr->rlink);
 	xnlock_put_irqrestore(&nklock, s);
 
 	err = xnintr_attach(&intr->intr_base, intr);
@@ -358,10 +357,11 @@ int rt_intr_delete(RT_INTR *intr)
 		return err;
 	}
 
-	removeq(&__xeno_intr_q, &intr->link);
-#if defined(__KERNEL__) && defined(CONFIG_XENO_OPT_PERVASIVE)
+	removeq(intr->rqueue, &intr->rlink);
+
+#ifdef CONFIG_XENO_OPT_PERVASIVE
 	rc = xnsynch_destroy(&intr->synch_base);
-#endif /* __KERNEL__ && CONFIG_XENO_OPT_PERVASIVE */
+#endif /* CONFIG_XENO_OPT_PERVASIVE */
 
 #ifdef CONFIG_XENO_OPT_REGISTRY
 	if (intr->handle)
@@ -665,11 +665,9 @@ int rt_intr_inquire(RT_INTR *intr, RT_INTR_INFO *info)
  * Rescheduling: always, unless an interrupt is already pending on
  * entry.
  *
- * @note This service is sensitive to the current operation mode of
- * the system timer, as defined by the CONFIG_XENO_OPT_TIMING_PERIOD
- * parameter. In periodic mode, clock ticks are interpreted as
- * periodic jiffies. In oneshot mode, clock ticks are interpreted as
- * nanoseconds.
+ * @note The @a timeout value will be interpreted as jiffies if the
+ * native skin is bound to a periodic time base (see
+ * CONFIG_XENO_OPT_NATIVE_PERIOD), or nanoseconds otherwise.
  */
 
 /**
@@ -725,11 +723,9 @@ int rt_intr_inquire(RT_INTR *intr, RT_INTR_INFO *info)
  * Rescheduling: always unless the request is immediately satisfied or
  * @a timeout specifies a non-blocking operation.
  *
- * @note This service is sensitive to the current operation mode of
- * the system timer, as defined by the CONFIG_XENO_OPT_TIMING_PERIOD
- * parameter. In periodic mode, clock ticks are interpreted as
- * periodic jiffies. In oneshot mode, clock ticks are interpreted as
- * nanoseconds.
+ * @note The @a timeout value will be interpreted as jiffies if the
+ * native skin is bound to a periodic time base (see
+ * CONFIG_XENO_OPT_NATIVE_PERIOD), or nanoseconds otherwise.
  */
 
 /**

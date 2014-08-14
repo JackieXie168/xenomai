@@ -61,7 +61,8 @@ static void *rt_task_trampoline(void *cookie)
 	long err;
 
 	if (iargs->prio > 0) {
-		/* Ok, this looks like weird, but we need this. */
+		/* Apply sched params here as some libpthread implementions
+		   fail doing this via pthread_create. */
 		param.sched_priority = sched_get_priority_max(SCHED_FIFO);
 		pthread_setschedparam(pthread_self(), SCHED_FIFO, &param);
 	}
@@ -193,8 +194,7 @@ int rt_task_delete(RT_TASK *task)
 		err = pthread_cancel((pthread_t)task->opaque2);
 		if (err)
 			return -err;
-	} else if (!task)
-		pthread_exit(NULL);
+	}
 
 	err = XENOMAI_SKINCALL1(__native_muxid, __native_task_delete, task);
 	if (err == -ESRCH)

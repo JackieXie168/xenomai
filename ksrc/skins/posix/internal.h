@@ -72,7 +72,7 @@ typedef struct {
 	xnqueue_t timerq;
 } pse51_kqueues_t;
 
-#if defined(__KERNEL__) && defined(CONFIG_XENO_OPT_PERVASIVE)
+#ifdef CONFIG_XENO_OPT_PERVASIVE
 typedef struct {
 	pse51_kqueues_t kqueues;
 	pse51_assocq_t uqds;
@@ -88,11 +88,13 @@ typedef struct {
 } pse51_queues_t;
 
 extern int pse51_muxid;
-#endif /* __KERNEL__ && CONFIG_XENO_OPT_PERVASIVE */
+#endif /* CONFIG_XENO_OPT_PERVASIVE */
+
+extern xntbase_t *pse51_tbase;
 
 extern pse51_kqueues_t pse51_global_kqueues;
 
-#if defined(__KERNEL__) && defined(CONFIG_XENO_OPT_PERVASIVE)
+#ifdef CONFIG_XENO_OPT_PERVASIVE
 static inline pse51_queues_t *pse51_queues(void)
 {
 	xnshadow_ppd_t *ppd;
@@ -109,25 +111,25 @@ static inline pse51_queues_t *pse51_queues(void)
 
 	return ppd2queues(ppd);
 }
-#endif /* __KERNEL__ && CONFIG_XENO_OPT_PERVASIVE */
+#endif /* CONFIG_XENO_OPT_PERVASIVE */
 
 static inline pse51_kqueues_t *pse51_kqueues(int pshared)
 {
-#if defined(__KERNEL__) && defined(CONFIG_XENO_OPT_PERVASIVE)
+#ifdef CONFIG_XENO_OPT_PERVASIVE
 	xnshadow_ppd_t *ppd;
 
 	if (pshared || !(ppd = xnshadow_ppd_get(pse51_muxid)))
 		return &pse51_global_kqueues;
 
 	return &ppd2queues(ppd)->kqueues;
-#else /* !__KERNEL__ || !CONFIG_XENO_OPT_PERVASIVE */
+#else /* !CONFIG_XENO_OPT_PERVASIVE */
 	return &pse51_global_kqueues;
-#endif /* !__KERNEL__ || !CONFIG_XENO_OPT_PERVASIVE */
+#endif /* !CONFIG_XENO_OPT_PERVASIVE */
 }
 
 static inline void ticks2ts(struct timespec *ts, xnticks_t ticks)
 {
-    ts->tv_sec = xnarch_uldivrem(xnpod_ticks2ns(ticks),
+    ts->tv_sec = xnarch_uldivrem(xntbase_ticks2ns(pse51_tbase, ticks),
                                  ONE_BILLION,
                                  &ts->tv_nsec);
 }
@@ -137,7 +139,7 @@ static inline xnticks_t ts2ticks_floor(const struct timespec *ts)
     xntime_t nsecs = ts->tv_nsec;
     if(ts->tv_sec)
         nsecs += (xntime_t) ts->tv_sec * ONE_BILLION;
-    return xnpod_ns2ticks(nsecs);
+    return xntbase_ns2ticks(pse51_tbase, nsecs);
 }
 
 static inline xnticks_t ts2ticks_ceil(const struct timespec *ts)
@@ -147,32 +149,34 @@ static inline xnticks_t ts2ticks_ceil(const struct timespec *ts)
     xnticks_t ticks;
     if(ts->tv_sec)
         nsecs += (xntime_t) ts->tv_sec * ONE_BILLION;
-    ticks = xnarch_ulldiv(nsecs, xnpod_get_tickval(), &rem);
+    ticks = xnarch_ulldiv(nsecs, xntbase_get_tickval(pse51_tbase), &rem);
     return rem ? ticks+1 : ticks;
 }
 
 static inline xnticks_t clock_get_ticks(clockid_t clock_id)
 {
     if(clock_id == CLOCK_REALTIME)
-        return xnpod_get_time();
+        return xntbase_get_time(pse51_tbase);
     else
-        return xnpod_ns2ticks(xnpod_get_cpu_time());
+        return xntbase_ns2ticks(pse51_tbase, xnpod_get_cpu_time());
 }
 
-/* Convert an absolute timeout for clock clock_id to a relative timeout. */
-static inline int clock_adjust_timeout(xnticks_t *timeoutp, clockid_t clock_id)
+static inline int clock_flag(int flag, clockid_t clock_id)
 {
-    xnsticks_t delay;
+	switch(flag & TIMER_ABSTIME) {
+	case 0:
+		return XN_RELATIVE;
 
-    if(*timeoutp == XN_INFINITE)
-        return 0;
+	case TIMER_ABSTIME:
+		switch(clock_id) {
+		case CLOCK_MONOTONIC:
+			return XN_ABSOLUTE;
 
-    delay = *timeoutp - clock_get_ticks(clock_id);
-    if(delay <= 0)
-        return ETIMEDOUT;
-
-    *timeoutp = delay;
-    return 0;
+		case CLOCK_REALTIME:
+			return XN_REALTIME;
+		}
+	}
+	return -EINVAL;
 }
 
 #endif /* !_POSIX_INTERNAL_H */

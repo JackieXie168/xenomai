@@ -109,6 +109,42 @@ static inline unsigned long long __rthal_generic_ulldiv (unsigned long long ull,
 #define rthal_uldivrem(ull,ul,rp) ((unsigned) rthal_ulldiv((ull),(ul),(rp)))
 #endif /* !rthal_uldivrem */
 
+#ifndef rthal_divmod64
+static inline unsigned long long
+__rthal_generic_divmod64(unsigned long long a,
+			 unsigned long long b,
+			 unsigned long long *rem)
+{
+	unsigned long long q;
+#if defined(__KERNEL__) && BITS_PER_LONG < 64
+	if (b <= 0xffffffffULL) {
+		unsigned long r;
+		q = rthal_ulldiv(a, b, &r);
+		if (rem)
+			*rem = r;
+	} else {
+		extern unsigned long long
+			__rthal_generic_full_divmod64(unsigned long long a,
+						      unsigned long long b,
+						      unsigned long long *rem);
+		if (a < b) {
+			if (rem)
+				*rem = a;
+			return 0;
+		}
+
+		return __rthal_generic_full_divmod64(a, b, rem);
+	}
+#else /* BITS_PER_LONG >= 64 */
+	q = a / b;
+	if (rem)
+		*rem = a % b;
+#endif /* BITS_PER_LONG < 64 */
+	return q;
+}
+#define rthal_divmod64(a,b,rp) __rthal_generic_divmod64((a),(b),(rp))
+#endif /* !rthal_divmod64 */
+
 #ifndef rthal_imuldiv
 static inline __attribute__((__const__)) int __rthal_generic_imuldiv (int i,
 								  int mult,
@@ -167,6 +203,65 @@ __rthal_generic_llimd (long long op, unsigned m, unsigned d)
 #define rthal_llimd(ll,m,d) __rthal_generic_llimd((ll),(m),(d))
 #endif /* !rthal_llimd */
 
+#ifndef __rthal_u96shift
+#define __rthal_u96shift(h, m, l, s) ({		\
+	unsigned _l = (l);			\
+	unsigned _m = (m);			\
+	unsigned _s = (s);			\
+	_l >>= _s;				\
+	_l |= (_m << (32 - _s));		\
+	_m >>= _s;				\
+	_m |= ((h) << (32 - _s));		\
+        __rthal_u64fromu32(_m, _l);		\
+})
+#endif /* !__rthal_u96shift */
+
+static inline long long rthal_llmi(int i, int j)
+{
+	/* Signed fast 32x32->64 multiplication */
+	return (long long) i * j;
+}
+
+#ifndef rthal_llmulshft
+/* Fast scaled-math-based replacement for long long multiply-divide */
+static inline long long
+__rthal_generic_llmulshft(const long long op,
+			  const unsigned m,
+			  const unsigned s)
+{
+	unsigned oph, opl, tlh, tll, thh, thl;
+	unsigned long long th, tl;
+
+	__rthal_u64tou32(op, oph, opl);
+	tl = rthal_ullmul(opl, m);
+	__rthal_u64tou32(tl, tlh, tll);
+	th = rthal_llmi(oph, m);
+	th += tlh;
+	__rthal_u64tou32(th, thh, thl);
+
+	return __rthal_u96shift(thh, thl, tll, s);
+}
+#define rthal_llmulshft(ll, m, s) __rthal_generic_llmulshft((ll), (m), (s))
+#endif /* !rthal_llmulshft */
+
+static inline void xnarch_init_llmulshft(const unsigned m_in,
+					 const unsigned d_in,
+					 unsigned *m_out,
+					 unsigned *s_out)
+{
+	unsigned long long mult;
+
+	*s_out = 31;
+	while (1) {
+		mult = ((unsigned long long)m_in) << *s_out;
+		do_div(mult, d_in);
+		if (mult <= 0x7FFFFFFF)
+			break;
+		(*s_out)--;
+	}
+	*m_out = (unsigned)mult;
+}
+
 #define xnarch_ullmod(ull,uld,rem)   ({ xnarch_ulldiv(ull,uld,rem); (*rem); })
 #define xnarch_uldiv(ull, d)         rthal_uldivrem(ull, d, NULL)
 #define xnarch_ulmod(ull, d)         ({ u_long _rem;                    \
@@ -175,8 +270,13 @@ __rthal_generic_llimd (long long op, unsigned m, unsigned d)
 #define xnarch_ullmul                rthal_ullmul
 #define xnarch_uldivrem              rthal_uldivrem
 #define xnarch_ulldiv                rthal_ulldiv
+#define xnarch_divmod64              rthal_divmod64
+#define xnarch_div64(a,b)            rthal_divmod64((a),(b),NULL)
+#define xnarch_mod64(a,b)            ({ unsigned long long _rem; \
+			                rthal_divmod64((a),(b),&_rem); _rem; })
 #define xnarch_imuldiv               rthal_imuldiv
 #define xnarch_llimd                 rthal_llimd
+#define xnarch_llmulshft             rthal_llmulshft
 #define xnarch_get_cpu_tsc           rthal_rdtsc
 
 /*@}*/

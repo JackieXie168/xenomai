@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2001,2002,2003 Philippe Gerum <rpm@xenomai.org>.
+ * @note Copyright (C) 2001,2002,2003 Philippe Gerum <rpm@xenomai.org>.
  *
  * Xenomai is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published
@@ -15,6 +15,8 @@
  * along with Xenomai; if not, write to the Free Software
  * Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
  * 02111-1307, USA.
+ *
+ * \ingroup intr
  */
 
 #ifndef _XENO_NUCLEUS_INTR_H
@@ -43,9 +45,9 @@
 
 typedef struct xnintr {
 
-#if defined(CONFIG_XENO_OPT_SHIRQ_LEVEL) || defined(CONFIG_XENO_OPT_SHIRQ_EDGE)
+#ifdef CONFIG_XENO_OPT_SHIRQ
     struct xnintr *next; /* !< Next object in the IRQ-sharing chain. */
-#endif /* CONFIG_XENO_OPT_SHIRQ_LEVEL || CONFIG_XENO_OPT_SHIRQ_EDGE */
+#endif /* CONFIG_XENO_OPT_SHIRQ */
 
     unsigned unhandled;	/* !< Number of consequent unhandled interrupts */
 
@@ -63,7 +65,7 @@ typedef struct xnintr {
 
     struct {
 	xnstat_counter_t hits;	  /* !< Number of handled receipts since attachment. */
-	xnstat_runtime_t account; /* !< Runtime accounting entity */
+	xnstat_exectime_t account; /* !< Runtime accounting entity */
     } stat[XNARCH_NR_CPUS];
 
 } xnintr_t;
@@ -108,7 +110,7 @@ xnarch_cpumask_t xnintr_affinity(xnintr_t *intr,
                                  xnarch_cpumask_t cpumask);
 
 int xnintr_query(int irq, int *cpu, xnintr_t **prev, int revision, char *name,
-		 unsigned long *hits, xnticks_t *runtime,
+		 unsigned long *hits, xnticks_t *exectime,
 		 xnticks_t *account_period);
 
 #ifdef __cplusplus

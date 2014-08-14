@@ -22,7 +22,6 @@
 #ifndef _XENO_INTR_H
 #define _XENO_INTR_H
 
-#include <nucleus/synch.h>
 #include <nucleus/intr.h>
 #include <native/types.h>
 
@@ -47,7 +46,10 @@ typedef struct rt_intr_placeholder {
     xnhandle_t opaque;
 } RT_INTR_PLACEHOLDER;
 
-#if defined(__KERNEL__) || defined(__XENO_SIM__)
+#if (defined(__KERNEL__) || defined(__XENO_SIM__)) && !defined(DOXYGEN_CPP)
+
+#include <nucleus/synch.h>
+#include <native/ppd.h>
 
 #define XENO_INTR_MAGIC 0x55550a0a
 
@@ -64,31 +66,31 @@ typedef struct rt_intr_placeholder {
 
 typedef struct rt_intr {
 
-    unsigned magic;   /* !< Magic code - must be first */
+    unsigned magic;		/* !< Magic code - must be first */
 
-    xnholder_t link;	/* !< Link in global interrupt queue. */
+    xnintr_t intr_base;		/* !< Base interrupt object. */
 
-#define link2intr(ln)		container_of(ln, RT_INTR, link)
+    void *private_data;		/* !< Private user-defined data. */
 
-    xnintr_t intr_base;   /* !< Base interrupt object. */
-
-    void *private_data;	/* !< Private user-defined data. */
-
-    xnhandle_t handle;	/* !< Handle in registry -- zero if unregistered. */
+    xnhandle_t handle;		/* !< Handle in registry -- zero if unregistered. */
 
     char name[XNOBJECT_NAME_LEN]; /* !< Symbolic name. */
 
-#if defined(__KERNEL__) && defined(CONFIG_XENO_OPT_PERVASIVE)
+#ifdef CONFIG_XENO_OPT_PERVASIVE
+    int mode;			/* !< Interrupt control mode. */
 
-    int mode;		/* !< Interrupt control mode. */
+    int pending;		/* !< Pending hits to process. */
 
-    int pending;	/* !< Pending hits to process. */
+    xnsynch_t synch_base;	/* !< Base synchronization object. */
 
-    xnsynch_t synch_base; /* !< Base synchronization object. */
+    pid_t cpid;			/* !< Creator's pid. */
+#endif /* CONFIG_XENO_OPT_PERVASIVE */
 
-    pid_t cpid;		/* !< Creator's pid. */
+    xnholder_t rlink;		/* !< Link in resource queue. */
 
-#endif /* __KERNEL__ && CONFIG_XENO_OPT_PERVASIVE */
+#define rlink2intr(ln)		container_of(ln, RT_INTR, rlink)
+
+    xnqueue_t *rqueue;		/* !< Backpointer to resource queue. */
 
 } RT_INTR;
 
@@ -101,9 +103,24 @@ typedef struct rt_intr {
 extern "C" {
 #endif
 
+#ifdef CONFIG_XENO_OPT_NATIVE_INTR
+
 int __native_intr_pkg_init(void);
 
 void __native_intr_pkg_cleanup(void);
+
+static inline void __native_intr_flush_rq(xnqueue_t *rq)
+{
+	xeno_flush_rq(RT_INTR, rq, intr);
+}
+
+#else /* !CONFIG_XENO_OPT_NATIVE_INTR */
+
+#define __native_intr_pkg_init()		({ 0; })
+#define __native_intr_pkg_cleanup()		do { } while(0)
+#define __native_intr_flush_rq(rq)		do { } while(0)
+
+#endif /* !CONFIG_XENO_OPT_NATIVE_INTR */
 
 int rt_intr_create(RT_INTR *intr,
 		   const char *name,

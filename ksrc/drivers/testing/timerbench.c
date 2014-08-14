@@ -26,29 +26,29 @@
 #include <rtdm/rtdm_driver.h>
 
 struct rt_tmbench_context {
-    int                             mode;
-    unsigned long                   period;
-    int                             freeze_max;
-    int                             warmup_loops;
-    int                             samples_per_sec;
-    long                            *histogram_min;
-    long                            *histogram_max;
-    long                            *histogram_avg;
-    int                             histogram_size;
-    int                             bucketsize;
+	int mode;
+	unsigned long period;
+	int freeze_max;
+	int warmup_loops;
+	int samples_per_sec;
+	long *histogram_min;
+	long *histogram_max;
+	long *histogram_avg;
+	int histogram_size;
+	int bucketsize;
 
-    rtdm_task_t                     timer_task;
+	rtdm_task_t timer_task;
 
-    xntimer_t                       timer;
-    int                             warmup;
-    uint64_t                        start_time;
-    uint64_t                        date;
-    struct rttst_bench_res          curr;
+	rtdm_timer_t timer;
+	int warmup;
+	uint64_t start_time;
+	uint64_t date;
+	struct rttst_bench_res curr;
 
-    rtdm_event_t                    result_event;
-    struct rttst_interm_bench_res   result;
+	rtdm_event_t result_event;
+	struct rttst_interm_bench_res result;
 
-    struct semaphore                nrt_mutex;
+	struct semaphore nrt_mutex;
 };
 
 static unsigned int start_index;
@@ -59,463 +59,468 @@ MODULE_PARM_DESC(start_index, "First device instance number to be used");
 MODULE_LICENSE("GPL");
 MODULE_AUTHOR("jan.kiszka@web.de");
 
-
 static inline void add_histogram(struct rt_tmbench_context *ctx,
-                                 long *histogram, long addval)
+				 long *histogram, long addval)
 {
-    /* bucketsize steps */
-    long inabs = (addval >= 0 ? addval : -addval) / ctx->bucketsize;
-    histogram[inabs < ctx->histogram_size ? inabs : ctx->histogram_size-1]++;
+	/* bucketsize steps */
+	long inabs = (addval >= 0 ? addval : -addval) / ctx->bucketsize;
+	histogram[inabs < ctx->histogram_size ?
+		  inabs : ctx->histogram_size - 1]++;
 }
 
 static inline long long slldiv(long long s, unsigned d)
 {
-    return s >= 0 ? xnarch_ulldiv(s,d,NULL) : -xnarch_ulldiv(-s,d,NULL);
+	return s >= 0 ? xnarch_ulldiv(s, d, NULL) : -xnarch_ulldiv(-s, d, NULL);
 }
 
-void eval_inner_loop(struct rt_tmbench_context *ctx, long dt)
+static void eval_inner_loop(struct rt_tmbench_context *ctx, long dt)
 {
-    if (ctx->date <= ctx->start_time)
-        ctx->curr.overruns++;
-
-    if (dt > ctx->curr.max)
-        ctx->curr.max = dt;
-    if (dt < ctx->curr.min)
-        ctx->curr.min = dt;
-    ctx->curr.avg += dt;
+	if (dt > ctx->curr.max)
+		ctx->curr.max = dt;
+	if (dt < ctx->curr.min)
+		ctx->curr.min = dt;
+	ctx->curr.avg += dt;
 
 #ifdef CONFIG_IPIPE_TRACE
-    if (ctx->freeze_max && (dt > ctx->result.overall.max) && !ctx->warmup) {
-        ipipe_trace_frozen_reset();
-        ipipe_trace_freeze(dt);
-        ctx->result.overall.max = dt;
-    }
+	if (ctx->freeze_max && (dt > ctx->result.overall.max) && !ctx->warmup) {
+		ipipe_trace_frozen_reset();
+		ipipe_trace_freeze(dt);
+		ctx->result.overall.max = dt;
+	}
 #endif /* CONFIG_IPIPE_TRACE */
 
-    ctx->date += ctx->period;
+	ctx->date += ctx->period;
 
-    if (!ctx->warmup && ctx->histogram_size)
-        add_histogram(ctx, ctx->histogram_avg, dt);
+	if (!ctx->warmup && ctx->histogram_size)
+		add_histogram(ctx, ctx->histogram_avg, dt);
+
+	/* Evaluate overruns and adjust next release date.
+	   Beware of signedness! */
+	while (dt > 0 && (unsigned long)dt > ctx->period) {
+		ctx->curr.overruns++;
+		ctx->date += ctx->period;
+		dt -= ctx->period;
+	}
 }
 
-
-void eval_outer_loop(struct rt_tmbench_context *ctx)
+static void eval_outer_loop(struct rt_tmbench_context *ctx)
 {
-    if (!ctx->warmup) {
-        if (ctx->histogram_size) {
-            add_histogram(ctx, ctx->histogram_max, ctx->curr.max);
-            add_histogram(ctx, ctx->histogram_min, ctx->curr.min);
-        }
+	if (!ctx->warmup) {
+		if (ctx->histogram_size) {
+			add_histogram(ctx, ctx->histogram_max, ctx->curr.max);
+			add_histogram(ctx, ctx->histogram_min, ctx->curr.min);
+		}
 
-        ctx->result.last.min = ctx->curr.min;
-        if (ctx->curr.min < ctx->result.overall.min)
-            ctx->result.overall.min = ctx->curr.min;
+		ctx->result.last.min = ctx->curr.min;
+		if (ctx->curr.min < ctx->result.overall.min)
+			ctx->result.overall.min = ctx->curr.min;
 
-        ctx->result.last.max = ctx->curr.max;
-        if (ctx->curr.max > ctx->result.overall.max)
-            ctx->result.overall.max = ctx->curr.max;
+		ctx->result.last.max = ctx->curr.max;
+		if (ctx->curr.max > ctx->result.overall.max)
+			ctx->result.overall.max = ctx->curr.max;
 
-        ctx->result.last.avg = slldiv(ctx->curr.avg, ctx->samples_per_sec);
-        ctx->result.overall.avg      += ctx->result.last.avg;
-        ctx->result.overall.overruns += ctx->curr.overruns;
-        rtdm_event_pulse(&ctx->result_event);
-    }
+		ctx->result.last.avg =
+		    slldiv(ctx->curr.avg, ctx->samples_per_sec);
+		ctx->result.overall.avg += ctx->result.last.avg;
+		ctx->result.overall.overruns += ctx->curr.overruns;
+		rtdm_event_pulse(&ctx->result_event);
+	}
 
-    if (ctx->warmup &&
-        (ctx->result.overall.test_loops == ctx->warmup_loops)) {
-        ctx->result.overall.test_loops = 0;
-        ctx->warmup = 0;
-    }
+	if (ctx->warmup &&
+	    (ctx->result.overall.test_loops == ctx->warmup_loops)) {
+		ctx->result.overall.test_loops = 0;
+		ctx->warmup = 0;
+	}
 
-    ctx->curr.min        = 10000000;
-    ctx->curr.max        = -10000000;
-    ctx->curr.avg        = 0;
-    ctx->curr.overruns   = 0;
+	ctx->curr.min = 10000000;
+	ctx->curr.max = -10000000;
+	ctx->curr.avg = 0;
+	ctx->curr.overruns = 0;
 
-    ctx->result.overall.test_loops++;
+	ctx->result.overall.test_loops++;
 }
 
-
-void timer_task_proc(void *arg)
+static void timer_task_proc(void *arg)
 {
-    struct rt_tmbench_context   *ctx = (struct rt_tmbench_context *)arg;
-    int                         count;
+	struct rt_tmbench_context *ctx = arg;
+	int count;
 
+	/* first event: one millisecond from now. */
+	ctx->date = rtdm_clock_read_monotonic() + 1000000;
 
-    /* start time: one millisecond from now. */
-    ctx->date = rtdm_clock_read() + 1000000;
+	while (1) {
+		int err;
 
-    while (1) {
-        int err;
+		for (count = 0; count < ctx->samples_per_sec; count++) {
+			RTDM_EXECUTE_ATOMICALLY(
+				ctx->start_time = rtdm_clock_read_monotonic();
+				err =
+				    rtdm_task_sleep_abs(ctx->date,
+							RTDM_TIMERMODE_ABSOLUTE);
+			);
 
+			if (err)
+				return;
 
-        for (count = 0; count < ctx->samples_per_sec; count++) {
-            RTDM_EXECUTE_ATOMICALLY(
-                ctx->start_time = rtdm_clock_read();
-                err = rtdm_task_sleep_until(ctx->date);
-            );
-
-            if (err)
-                return;
-
-            eval_inner_loop(ctx, (long)(rtdm_clock_read() - ctx->date));
-        }
-        eval_outer_loop(ctx);
-    }
+			eval_inner_loop(ctx,
+					(long)(rtdm_clock_read_monotonic() -
+					       ctx->date));
+		}
+		eval_outer_loop(ctx);
+	}
 }
 
-
-void timer_proc(xntimer_t *timer)
+static void timer_proc(rtdm_timer_t *timer)
 {
-    struct rt_tmbench_context   *ctx =
-        container_of(timer, struct rt_tmbench_context, timer);
+	struct rt_tmbench_context *ctx =
+	    container_of(timer, struct rt_tmbench_context, timer);
+	int err;
 
+	do {
+		eval_inner_loop(ctx, (long)(rtdm_clock_read_monotonic() -
+					    ctx->date));
 
-    eval_inner_loop(ctx, (long)(rtdm_clock_read() - ctx->date));
+		ctx->start_time = rtdm_clock_read_monotonic();
+		err = rtdm_timer_start_in_handler(&ctx->timer, ctx->date, 0,
+						  RTDM_TIMERMODE_ABSOLUTE);
 
-    ctx->start_time = rtdm_clock_read();
-    /* FIXME: convert to RTDM timers */
-    xntimer_start(&ctx->timer, xnpod_ns2ticks(ctx->date-ctx->start_time),
-                  XN_INFINITE);
-
-    if (++ctx->curr.test_loops < ctx->samples_per_sec)
-        return;
-
-    ctx->curr.test_loops = 0;
-    eval_outer_loop(ctx);
+		if (++ctx->curr.test_loops >= ctx->samples_per_sec) {
+			ctx->curr.test_loops = 0;
+			eval_outer_loop(ctx);
+		}
+	} while (err);
 }
 
-
-int rt_tmbench_open(struct rtdm_dev_context *context,
-                    rtdm_user_info_t *user_info, int oflags)
+static int rt_tmbench_open(struct rtdm_dev_context *context,
+			   rtdm_user_info_t *user_info, int oflags)
 {
-    struct rt_tmbench_context   *ctx;
+	struct rt_tmbench_context *ctx;
 
+	ctx = (struct rt_tmbench_context *)context->dev_private;
 
-    ctx = (struct rt_tmbench_context *)context->dev_private;
+	ctx->mode = -1;
+	init_MUTEX(&ctx->nrt_mutex);
 
-    ctx->mode = -1;
-    init_MUTEX(&ctx->nrt_mutex);
-
-    return 0;
+	return 0;
 }
 
-
-int rt_tmbench_close(struct rtdm_dev_context *context,
-                     rtdm_user_info_t *user_info)
+static int rt_tmbench_close(struct rtdm_dev_context *context,
+			    rtdm_user_info_t *user_info)
 {
-    struct rt_tmbench_context   *ctx;
+	struct rt_tmbench_context *ctx;
 
+	ctx = (struct rt_tmbench_context *)context->dev_private;
 
-    ctx = (struct rt_tmbench_context *)context->dev_private;
+	down(&ctx->nrt_mutex);
 
-    down(&ctx->nrt_mutex);
+	if (ctx->mode >= 0) {
+		if (ctx->mode == RTTST_TMBENCH_TASK)
+			rtdm_task_destroy(&ctx->timer_task);
+		else
+			rtdm_timer_destroy(&ctx->timer);
 
-    if (ctx->mode >= 0) {
-        if (ctx->mode == RTTST_TMBENCH_TASK)
-            rtdm_task_destroy(&ctx->timer_task);
-        else
-            /* FIXME: convert to RTDM timers */
-            xntimer_destroy(&ctx->timer);
+		rtdm_event_destroy(&ctx->result_event);
 
-        rtdm_event_destroy(&ctx->result_event);
+		if (ctx->histogram_size)
+			kfree(ctx->histogram_min);
 
-        if (ctx->histogram_size)
-            kfree(ctx->histogram_min);
+		ctx->mode = -1;
+		ctx->histogram_size = 0;
+	}
 
-        ctx->mode           = -1;
-        ctx->histogram_size = 0;
-    }
+	up(&ctx->nrt_mutex);
 
-    up(&ctx->nrt_mutex);
-
-    return 0;
+	return 0;
 }
 
-
-int rt_tmbench_ioctl_nrt(struct rtdm_dev_context *context,
-                         rtdm_user_info_t *user_info, int request, void *arg)
+static int rt_tmbench_start(struct rtdm_dev_context *context,
+			    struct rt_tmbench_context *ctx,
+			    rtdm_user_info_t *user_info,
+			    struct rttst_tmbench_config __user *user_config)
 {
-    struct rt_tmbench_context   *ctx;
-    int                         err = 0;
+	int err = 0;
 
+	struct rttst_tmbench_config config_buf;
+	struct rttst_tmbench_config *config =
+		(struct rttst_tmbench_config *)user_config;
 
-    ctx = (struct rt_tmbench_context *)context->dev_private;
+	if (user_info) {
+		if (rtdm_safe_copy_from_user
+		    (user_info, &config_buf,user_config,
+		     sizeof(struct rttst_tmbench_config)) < 0)
+			return -EFAULT;
 
-    switch (request) {
-        case RTTST_RTIOC_TMBENCH_START: {
-            struct rttst_tmbench_config config_buf;
-            struct rttst_tmbench_config *config;
+		config = &config_buf;
+	}
 
+	down(&ctx->nrt_mutex);
 
-            config = (struct rttst_tmbench_config *)arg;
-            if (user_info) {
-                if (rtdm_safe_copy_from_user(user_info, &config_buf, arg,
-                                    sizeof(struct rttst_tmbench_config)) < 0)
-                    return -EFAULT;
+	ctx->period = config->period;
+	ctx->warmup_loops = config->warmup_loops;
+	ctx->samples_per_sec = 1000000000 / ctx->period;
+	ctx->histogram_size = config->histogram_size;
+	ctx->freeze_max = config->freeze_max;
 
-                config = &config_buf;
-            }
+	if (ctx->histogram_size > 0) {
+		ctx->histogram_min =
+		    kmalloc(3 * ctx->histogram_size * sizeof(long),
+			    GFP_KERNEL);
+		ctx->histogram_max =
+		    ctx->histogram_min + config->histogram_size;
+		ctx->histogram_avg =
+		    ctx->histogram_max + config->histogram_size;
 
-            down(&ctx->nrt_mutex);
+		if (!ctx->histogram_min) {
+			up(&ctx->nrt_mutex);
+			return -ENOMEM;
+		}
 
-            ctx->period          = config->period;
-            ctx->warmup_loops    = config->warmup_loops;
-            ctx->samples_per_sec = 1000000000 / ctx->period;
-            ctx->histogram_size  = config->histogram_size;
-            ctx->freeze_max      = config->freeze_max;
+		memset(ctx->histogram_min, 0,
+		       3 * ctx->histogram_size * sizeof(long));
+		ctx->bucketsize = config->histogram_bucketsize;
+	}
 
-            if (ctx->histogram_size > 0) {
-                ctx->histogram_min =
-                    kmalloc(3 * ctx->histogram_size * sizeof(long),
-                            GFP_KERNEL);
-                ctx->histogram_max =
-                    ctx->histogram_min + config->histogram_size;
-                ctx->histogram_avg =
-                    ctx->histogram_max + config->histogram_size;
+	ctx->result.overall.min = 10000000;
+	ctx->result.overall.max = -10000000;
+	ctx->result.overall.avg = 0;
+	ctx->result.overall.test_loops = 1;
+	ctx->result.overall.overruns = 0;
 
-                if (!ctx->histogram_min) {
-                    up(&ctx->nrt_mutex);
-                    return -ENOMEM;
-                }
+	ctx->warmup = 1;
 
-                memset(ctx->histogram_min, 0,
-                       3 * ctx->histogram_size * sizeof(long));
-                ctx->bucketsize = config->histogram_bucketsize;
-            }
+	ctx->curr.min = 10000000;
+	ctx->curr.max = -10000000;
+	ctx->curr.avg = 0;
+	ctx->curr.overruns = 0;
 
-            ctx->result.overall.min        = 10000000;
-            ctx->result.overall.max        = -10000000;
-            ctx->result.overall.avg        = 0;
-            ctx->result.overall.test_loops = 1;
-            ctx->result.overall.overruns   = 0;
+	rtdm_event_init(&ctx->result_event, 0);
 
-            ctx->warmup = 1;
+	if (config->mode == RTTST_TMBENCH_TASK) {
+		if (!test_bit(RTDM_CLOSING, &context->context_flags)) {
+			ctx->mode = RTTST_TMBENCH_TASK;
+			err = rtdm_task_init(&ctx->timer_task, "timerbench",
+					     timer_task_proc, ctx,
+					     config->priority, 0);
+		}
+	} else {
+		rtdm_timer_init(&ctx->timer, timer_proc,
+				context->device->device_name);
 
-            ctx->curr.min        = 10000000;
-            ctx->curr.max        = -10000000;
-            ctx->curr.avg        = 0;
-            ctx->curr.overruns   = 0;
+		ctx->curr.test_loops = 0;
 
-            rtdm_event_init(&ctx->result_event, 0);
+		if (!test_bit(RTDM_CLOSING, &context->context_flags)) {
+			ctx->mode = RTTST_TMBENCH_HANDLER;
 
-            if (config->mode == RTTST_TMBENCH_TASK) {
-                if (!test_bit(RTDM_CLOSING, &context->context_flags)) {
-                    ctx->mode = RTTST_TMBENCH_TASK;
-                    err = rtdm_task_init(&ctx->timer_task, "timerbench",
-                                         timer_task_proc, ctx,
-                                         config->priority, 0);
-                }
-            } else {
-                /* FIXME: convert to RTDM timers */
-                xntimer_init(&ctx->timer, timer_proc);
+			RTDM_EXECUTE_ATOMICALLY(
+				ctx->start_time = rtdm_clock_read_monotonic();
 
-                ctx->curr.test_loops = 0;
+				/* first event: one millisecond from now. */
+				ctx->date = ctx->start_time + 1000000;
 
-                if (!test_bit(RTDM_CLOSING, &context->context_flags)) {
-                    ctx->mode = RTTST_TMBENCH_HANDLER;
-                    RTDM_EXECUTE_ATOMICALLY(
-                        /* start time: one millisecond from now. */
-                        ctx->start_time = rtdm_clock_read() + 1000000;
-                        ctx->date       = ctx->start_time + ctx->period;
+				err =
+				    rtdm_timer_start(&ctx->timer, ctx->date, 0,
+						     RTDM_TIMERMODE_ABSOLUTE);
+			);
+		}
+	}
 
-                        /* FIXME: convert to RTDM timers */
-                        xntimer_start(&ctx->timer,
-                                xnpod_ns2ticks(ctx->date-rtdm_clock_read()),
-                                XN_INFINITE);
-                    );
-                }
-            }
+	up(&ctx->nrt_mutex);
 
-            up(&ctx->nrt_mutex);
-
-            break;
-        }
-
-        case RTTST_RTIOC_TMBENCH_STOP: {
-            struct rttst_overall_bench_res *usr_res;
-
-
-            usr_res = (struct rttst_overall_bench_res *)arg;
-
-            down(&ctx->nrt_mutex);
-
-            if (ctx->mode < 0) {
-                up(&ctx->nrt_mutex);
-                return -EINVAL;
-            }
-
-            if (ctx->mode == RTTST_TMBENCH_TASK)
-                rtdm_task_destroy(&ctx->timer_task);
-            else
-                /* FIXME: convert to RTDM timers */
-                xntimer_destroy(&ctx->timer);
-
-            rtdm_event_destroy(&ctx->result_event);
-
-            ctx->mode = -1;
-
-            ctx->result.overall.avg =
-                slldiv(ctx->result.overall.avg,
-                       ((ctx->result.overall.test_loops) > 1 ?
-                       ctx->result.overall.test_loops : 2) - 1);
-
-            if (user_info)
-                err = rtdm_safe_copy_to_user(user_info, &usr_res->result,
-                                             &ctx->result.overall,
-                                             sizeof(struct rttst_bench_res));
-                /* Do not break on error here - we may have to free a
-                   histogram buffer first. */
-            else
-                memcpy(&usr_res->result, &ctx->result.overall,
-                       sizeof(struct rttst_bench_res));
-
-            if (ctx->histogram_size > 0) {
-                int size = ctx->histogram_size * sizeof(long);
-
-                if (user_info) {
-                    if ((rtdm_safe_copy_to_user(user_info,
-                                                usr_res->histogram_min,
-                                                ctx->histogram_min,
-                                                size) < 0) ||
-                        (rtdm_safe_copy_to_user(user_info,
-                                                usr_res->histogram_max,
-                                                ctx->histogram_max,
-                                                size) < 0) ||
-                        (rtdm_safe_copy_to_user(user_info,
-                                                usr_res->histogram_avg,
-                                                ctx->histogram_avg,
-                                                size) < 0))
-                        err = -EFAULT;
-                } else {
-                    memcpy(usr_res->histogram_min, ctx->histogram_min, size);
-                    memcpy(usr_res->histogram_max, ctx->histogram_max, size);
-                    memcpy(usr_res->histogram_avg, ctx->histogram_avg, size);
-                }
-
-                kfree(ctx->histogram_min);
-            }
-
-            up(&ctx->nrt_mutex);
-
-            break;
-        }
-
-        case RTTST_RTIOC_INTERM_BENCH_RES:
-            err = -ENOSYS;
-            break;
-
-        default:
-            err = -ENOTTY;
-    }
-
-    return err;
+	return err;
 }
 
-
-int rt_tmbench_ioctl_rt(struct rtdm_dev_context *context,
-                        rtdm_user_info_t *user_info, int request, void *arg)
+static int rt_tmbench_stop(struct rt_tmbench_context *ctx,
+			   rtdm_user_info_t *user_info,
+			   struct rttst_overall_bench_res __user *user_res)
 {
-    struct rt_tmbench_context   *ctx;
-    int                         err = 0;
+	int err = 0;
 
+	down(&ctx->nrt_mutex);
 
-    ctx = (struct rt_tmbench_context *)context->dev_private;
+	if (ctx->mode < 0) {
+		up(&ctx->nrt_mutex);
+		return -EINVAL;
+	}
 
-    switch (request) {
-        case RTTST_RTIOC_INTERM_BENCH_RES: {
-            struct rttst_interm_bench_res *usr_res;
+	if (ctx->mode == RTTST_TMBENCH_TASK)
+		rtdm_task_destroy(&ctx->timer_task);
+	else
+		rtdm_timer_destroy(&ctx->timer);
 
+	rtdm_event_destroy(&ctx->result_event);
 
-            usr_res = (struct rttst_interm_bench_res *)arg;
+	ctx->mode = -1;
 
-            err = rtdm_event_wait(&ctx->result_event);
-            if (err)
-                return err;
+	ctx->result.overall.avg =
+	    slldiv(ctx->result.overall.avg,
+		   ((ctx->result.overall.test_loops) > 1 ?
+		    ctx->result.overall.test_loops : 2) - 1);
 
-            if (user_info)
-                err = rtdm_safe_copy_to_user(user_info, usr_res, &ctx->result,
-                                       sizeof(struct rttst_interm_bench_res));
-            else
-                memcpy(usr_res, &ctx->result,
-                       sizeof(struct rttst_interm_bench_res));
+	if (user_info)
+		err = rtdm_safe_copy_to_user(user_info, &user_res->result,
+					     &ctx->result.overall,
+					     sizeof(struct rttst_bench_res));
+		/* Do not break on error here - we may have to free a
+		   histogram buffer first. */
+	else {
+		struct rttst_overall_bench_res *res =
+			(struct rttst_overall_bench_res *)user_res;
 
-            break;
-        }
+		memcpy(&res->result, &ctx->result.overall,
+		       sizeof(struct rttst_bench_res));
+	}
 
-        case RTTST_RTIOC_TMBENCH_START:
-        case RTTST_RTIOC_TMBENCH_STOP:
-            err = -ENOSYS;
-            break;
+	if (ctx->histogram_size > 0) {
+		int size = ctx->histogram_size * sizeof(long);
 
-        default:
-            err = -ENOTTY;
-    }
+		if (user_info) {
+			struct rttst_overall_bench_res res_buf;
 
-    return err;
+			if (rtdm_safe_copy_from_user(user_info,
+						     &res_buf, user_res,
+						     sizeof(res_buf)) < 0 ||
+			    rtdm_safe_copy_to_user(user_info,
+				    (void __user *)res_buf.histogram_min,
+				    ctx->histogram_min, size) < 0 ||
+			    rtdm_safe_copy_to_user(user_info,
+				    (void __user *)res_buf.histogram_max,
+				    ctx->histogram_max, size) < 0 ||
+			    rtdm_safe_copy_to_user(user_info,
+				    (void __user *)res_buf.histogram_avg,
+				    ctx->histogram_avg, size) < 0)
+				err = -EFAULT;
+		} else {
+			struct rttst_overall_bench_res *res =
+				(struct rttst_overall_bench_res *)user_res;
+
+			memcpy(res->histogram_min, ctx->histogram_min, size);
+			memcpy(res->histogram_max, ctx->histogram_max, size);
+			memcpy(res->histogram_avg, ctx->histogram_avg, size);
+		}
+
+		kfree(ctx->histogram_min);
+	}
+
+	up(&ctx->nrt_mutex);
+
+	return err;
 }
 
+static int rt_tmbench_ioctl_nrt(struct rtdm_dev_context *context,
+				rtdm_user_info_t *user_info,
+				unsigned int request, void __user *arg)
+{
+	struct rt_tmbench_context *ctx;
+	int err = 0;
+
+	ctx = (struct rt_tmbench_context *)context->dev_private;
+
+	switch (request) {
+	case RTTST_RTIOC_TMBENCH_START:
+		err = rt_tmbench_start(context, ctx, user_info, arg);
+		break;
+
+	case RTTST_RTIOC_TMBENCH_STOP:
+		err = rt_tmbench_stop(ctx, user_info, arg);
+		break;
+
+	case RTTST_RTIOC_INTERM_BENCH_RES:
+		err = -ENOSYS;
+		break;
+
+	default:
+		err = -ENOTTY;
+	}
+
+	return err;
+}
+
+static int rt_tmbench_ioctl_rt(struct rtdm_dev_context *context,
+			       rtdm_user_info_t *user_info,
+			       unsigned int request, void __user *arg)
+{
+	struct rt_tmbench_context *ctx;
+	int err = 0;
+
+	ctx = (struct rt_tmbench_context *)context->dev_private;
+
+	switch (request) {
+	case RTTST_RTIOC_INTERM_BENCH_RES:
+		err = rtdm_event_wait(&ctx->result_event);
+		if (err)
+			return err;
+
+		if (user_info) {
+			struct rttst_interm_bench_res __user *user_res = arg;
+
+			err = rtdm_safe_copy_to_user(user_info, user_res,
+						     &ctx->result,
+						     sizeof(*user_res));
+		} else {
+			struct rttst_interm_bench_res *res = (void *)arg;
+
+			memcpy(res, &ctx->result, sizeof(*res));
+		}
+
+		break;
+
+	case RTTST_RTIOC_TMBENCH_START:
+	case RTTST_RTIOC_TMBENCH_STOP:
+		err = -ENOSYS;
+		break;
+
+	default:
+		err = -ENOTTY;
+	}
+
+	return err;
+}
 
 static struct rtdm_device device = {
-    struct_version:     RTDM_DEVICE_STRUCT_VER,
+	.struct_version		= RTDM_DEVICE_STRUCT_VER,
 
-    device_flags:       RTDM_NAMED_DEVICE,
-    context_size:       sizeof(struct rt_tmbench_context),
-    device_name:        "",
+	.device_flags		= RTDM_NAMED_DEVICE,
+	.context_size		= sizeof(struct rt_tmbench_context),
+	.device_name		= "",
 
-    open_rt:            NULL,
-    open_nrt:           rt_tmbench_open,
+	.open_nrt		= rt_tmbench_open,
 
-    ops: {
-        close_rt:       NULL,
-        close_nrt:      rt_tmbench_close,
+	.ops = {
+		.close_nrt	= rt_tmbench_close,
 
-        ioctl_rt:       rt_tmbench_ioctl_rt,
-        ioctl_nrt:      rt_tmbench_ioctl_nrt,
+		.ioctl_rt	= rt_tmbench_ioctl_rt,
+		.ioctl_nrt	= rt_tmbench_ioctl_nrt,
+	},
 
-        read_rt:        NULL,
-        read_nrt:       NULL,
-
-        write_rt:       NULL,
-        write_nrt:      NULL,
-
-        recvmsg_rt:     NULL,
-        recvmsg_nrt:    NULL,
-
-        sendmsg_rt:     NULL,
-        sendmsg_nrt:    NULL,
-    },
-
-    device_class:       RTDM_CLASS_TESTING,
-    device_sub_class:   RTDM_SUBCLASS_TIMERBENCH,
-    driver_name:        "xeno_timerbench",
-    driver_version:     RTDM_DRIVER_VER(0, 2, 1),
-    peripheral_name:    "Timer Latency Benchmark",
-    provider_name:      "Jan Kiszka",
-    proc_name:          device.device_name,
+	.device_class		= RTDM_CLASS_TESTING,
+	.device_sub_class	= RTDM_SUBCLASS_TIMERBENCH,
+	.profile_version	= RTTST_PROFILE_VER,
+	.driver_name		= "xeno_timerbench",
+	.driver_version		= RTDM_DRIVER_VER(0, 2, 1),
+	.peripheral_name	= "Timer Latency Benchmark",
+	.provider_name		= "Jan Kiszka",
+	.proc_name		= device.device_name,
 };
 
-int __init __timerbench_init(void)
+static int __init __timerbench_init(void)
 {
-    int err;
+	int err;
 
-    do {
-        snprintf(device.device_name, RTDM_MAX_DEVNAME_LEN, "rttest%d",
-                 start_index);
-        err = rtdm_dev_register(&device);
+	do {
+		snprintf(device.device_name, RTDM_MAX_DEVNAME_LEN, "rttest%d",
+			 start_index);
+		err = rtdm_dev_register(&device);
 
-        start_index++;
-    } while (err == -EEXIST);
+		start_index++;
+	} while (err == -EEXIST);
 
-    return err;
+	return err;
 }
 
-
-void __timerbench_exit(void)
+static void __timerbench_exit(void)
 {
-    rtdm_dev_unregister(&device, 1000);
+	rtdm_dev_unregister(&device, 1000);
 }
-
 
 module_init(__timerbench_init);
 module_exit(__timerbench_exit);

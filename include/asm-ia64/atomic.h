@@ -70,6 +70,7 @@ static inline void atomic_clear_mask(unsigned mask, unsigned long *addr)
 #else /* !__KERNEL__ */
 
 #include <sys/types.h>
+#include <stdint.h>
 
 #define fls(x) generic_fls(x)
 
@@ -120,9 +121,11 @@ static inline int atomic_sub_return (int i, atomic_counter_t *v)
 	return new;
 }
 
-#define xnarch_memory_barrier()  __asm__ __volatile__("": : :"memory")
+#define xnarch_memory_barrier()  	asm volatile ("mf" ::: "memory")
 
-#define cpu_relax() asm volatile ("hint @pause" ::: "memory")
+#define cpu_relax()			asm volatile ("hint @pause" ::: "memory")
+#define xnarch_read_memory_barrier()	xnarch_memory_barrier()
+#define xnarch_write_memory_barrier()	xnarch_memory_barrier()
 
 #endif /* __KERNEL__ */
 

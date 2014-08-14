@@ -1,15 +1,17 @@
-<area shape="rect" href="$pod_8h.html" title="Real&#45;time pod interface header." alt="" coords="135,80,236,107">
-<area shape="rect" href="$include_2nucleus_2registry_8h.html" title="This file is part of the Xenomai project." alt="" coords="541,229,664,256">
-<area shape="rect" href="$task_8h.html" title="This file is part of the Xenomai project." alt="" coords="320,80,416,107">
-<area shape="rect" href="$include_2native_2sem_8h.html" title="This file is part of the Xenomai project." alt="" coords="451,80,547,107">
-<area shape="rect" href="$include_2nucleus_2thread_8h-source.html" title="nucleus/thread.h" alt="" coords="127,155,244,181">
-<area shape="rect" href="$include_2nucleus_2intr_8h-source.html" title="nucleus/intr.h" alt="" coords="5,304,104,331">
-<area shape="rect" href="$include_2nucleus_2timer_8h-source.html" title="nucleus/timer.h" alt="" coords="132,229,241,256">
-<area shape="rect" href="$nucleus_2queue_8h-source.html" title="nucleus/queue.h" alt="" coords="129,304,244,331">
-<area shape="rect" href="$nucleus_2types_8h-source.html" title="nucleus/types.h" alt="" coords="189,453,301,480">
-<area shape="rect" href="$include_2nucleus_2core_8h-source.html" title="nucleus/core.h" alt="" coords="283,379,389,405">
-<area shape="rect" href="$assert_8h-source.html" title="nucleus/assert.h" alt="" coords="91,379,208,405">
-<area shape="rect" href="$compiler_8h-source.html" title="nucleus/compiler.h" alt="" coords="483,528,611,555">
-<area shape="rect" href="$synch_8h-source.html" title="nucleus/synch.h" alt="" coords="441,155,556,181">
-<area shape="rect" href="$include_2native_2timer_8h.html" title="This file is part of the Xenomai project." alt="" coords="319,155,417,181">
-<area shape="rect" href="$native_2types_8h.html" title="This file is part of the Xenomai project." alt="" coords="375,229,479,256">
+<area shape="rect" href="$pod_8h.html" title="This file is part of the Xenomai project." alt="" coords="137,84,247,111">
+<area shape="rect" href="$include_2nucleus_2registry_8h.html" title="This file is part of the Xenomai project." alt="" coords="271,84,404,111">
+<area shape="rect" href="$nucleus_2heap_8h&#45;source.html" title="This file is part of the Xenomai project." alt="" coords="708,239,825,265">
+<area shape="rect" href="$task_8h.html" title="This file is part of the Xenomai project." alt="" coords="556,84,660,111">
+<area shape="rect" href="$include_2native_2sem_8h.html" title="This file is part of the Xenomai project." alt="" coords="428,84,532,111">
+<area shape="rect" href="$include_2nucleus_2thread_8h&#45;source.html" title="Real&#45;time pod interface header." alt="" coords="172,161,300,188">
+<area shape="rect" href="$include_2nucleus_2intr_8h&#45;source.html" title="Real&#45;time pod interface header." alt="" coords="5,239,109,265">
+<area shape="rect" href="$include_2nucleus_2timer_8h.html" title="nucleus/timer.h" alt="" coords="184,239,301,265">
+<area shape="rect" href="$stat_8h&#45;source.html" title="Copyright (C) 2001,2002,2003 Philippe Gerum &lt;rpm@xenomai.org&gt;." alt="" coords="47,316,156,343">
+<area shape="rect" href="$timebase_8h.html" title="Copyright (C) 2001,2002,2003 Philippe Gerum &lt;rpm@xenomai.org&gt;." alt="" coords="180,316,324,343">
+<area shape="rect" href="$nucleus_2queue_8h&#45;source.html" title="Copyright (C) 2006,2007 Philippe Gerum &lt;rpm@xenomai.org&gt;." alt="" coords="508,393,633,420">
+<area shape="rect" href="$nucleus_2types_8h&#45;source.html" title="nucleus/types.h" alt="" coords="337,471,457,497">
+<area shape="rect" href="$assert_8h&#45;source.html" title="nucleus/assert.h" alt="" coords="508,548,633,575">
+<area shape="rect" href="$core_8h&#45;source.html" title="nucleus/core.h" alt="" coords="611,471,723,497">
+<area shape="rect" href="$compiler_8h&#45;source.html" title="nucleus/compiler.h" alt="" coords="23,548,161,575">
+<area shape="rect" href="$synch_8h&#45;source.html" title="This file is part of the Xenomai project." alt="" coords="375,161,497,188">
+<area shape="rect" href="$native_2types_8h.html" title="This file is part of the Xenomai project." alt="" coords="521,161,633,188">

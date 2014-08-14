@@ -20,22 +20,31 @@
 #ifndef _XENO_ASM_BLACKFIN_BITS_POD_H
 #define _XENO_ASM_BLACKFIN_BITS_POD_H
 
+unsigned xnarch_tsc_scale;
+unsigned xnarch_tsc_shift;
+
+long long xnarch_tsc_to_ns(long long ts)
+{
+	return xnarch_llmulshft(ts, xnarch_tsc_scale, xnarch_tsc_shift);
+}
+#define XNARCH_TSC_TO_NS
+
 #include <asm-generic/xenomai/bits/pod.h>
 
 void xnpod_welcome_thread(struct xnthread *, int);
 
 void xnpod_delete_thread(struct xnthread *);
 
-static inline int xnarch_start_timer(unsigned long ns,
-				     void (*tickhandler) (void))
-{
-	return rthal_timer_request(tickhandler, ns);
-}
+/*
+ * The I-pipe frees the Blackfin core timer for us, therefore we don't
+ * need any host tick relay service since the regular Linux time
+ * source is still ticking in parallel at the normal pace through
+ * TIMER0.
+ */
+#define xnarch_start_timer(tick_handler, cpu)	\
+	({ int __tickval = rthal_timer_request(tick_handler, cpu); __tickval; })
 
-static inline void xnarch_stop_timer(void)
-{
-	rthal_timer_release();
-}
+#define xnarch_stop_timer(cpu)	rthal_timer_release(cpu)
 
 static inline void xnarch_leave_root(xnarchtcb_t * rootcb)
 {

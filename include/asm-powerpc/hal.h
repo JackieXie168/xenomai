@@ -31,6 +31,9 @@
 
 #include <asm-generic/xenomai/hal.h>	/* Read the generic bits. */
 
+#define RTHAL_TIMER_DEVICE	"decrementer"
+#define RTHAL_CLOCK_DEVICE	"timebase"
+
 typedef unsigned long long rthal_time_t;
 
 static inline __attribute_const__ unsigned long ffnz(unsigned long ul)
@@ -85,9 +88,9 @@ static inline void rthal_timer_program_shot(unsigned long delay)
 #define RTHAL_SWITCH_FRAME_SIZE  (STACK_FRAME_OVERHEAD + sizeof(struct pt_regs))
 
 #ifdef CONFIG_PPC64
-asmlinkage struct task_struct *rthal_thread_switch(struct thread_struct *prev,
-						   struct thread_struct *next,
-						   int kernel_thread);
+asmlinkage struct task_struct *rthal_thread_switch(struct thread_struct *prev_t,
+						   struct thread_struct *next_t,
+						   int kthreadp);
 #else /* !CONFIG_PPC64 */
 asmlinkage struct task_struct *rthal_thread_switch(struct thread_struct *prev,
 						   struct thread_struct *next);
@@ -97,11 +100,26 @@ asmlinkage void rthal_thread_trampoline(void);
 
 #ifdef CONFIG_XENO_HW_FPU
 
-void rthal_init_fpu(struct thread_struct *ts);
+typedef struct rthal_fpenv {
 
-void rthal_save_fpu(struct thread_struct *ts);
+	/* This layout must follow exactely the definition of the FPU
+	   backup area in a PPC thread struct available from
+	   <asm-ppc/processor.h>. Specifically, fpr[] an fpscr words must
+	   be contiguous in memory (see arch/powerpc/hal/fpu.S). */
 
-void rthal_restore_fpu(struct thread_struct *ts);
+	double fpr[32];
+#ifndef CONFIG_PPC64
+	unsigned long fpscr_pad;	/* <= Hi-word of the FPR used to */
+#endif
+	unsigned long fpscr;	/* retrieve the FPSCR. */
+
+} rthal_fpenv_t;
+
+void rthal_init_fpu(rthal_fpenv_t * fpuenv);
+
+void rthal_save_fpu(rthal_fpenv_t * fpuenv);
+
+void rthal_restore_fpu(rthal_fpenv_t * fpuenv);
 
 #ifndef CONFIG_SMP
 #define rthal_get_fpu_owner(cur) last_task_used_math
@@ -162,13 +180,16 @@ static const char *const rthal_fault_labels[] = {
 	[4] = "Machine check exception",
 	[5] = "Unknown",
 	[6] = "Instruction breakpoint",
-	[7] = "Single-step exception",
-	[8] = "Non-recoverable exception",
-	[9] = "AltiVec assist",
-	[10] = "System reset exception",
-	[11] = "Kernel FP unavailable",
-	[12] = "Performance monitor",
-	[13] = NULL
+	[7] = "",
+	[8] = "Single-step exception",
+	[9] = "Non-recoverable exception",
+	[10] = "",
+	[11] = "",
+	[12] = "",
+	[13] = "AltiVec assist",
+	[14] = "",
+	[15] = "Kernel FP unavailable",
+	[16] = NULL
 #else /* !CONFIG_PPC64 */
 	[0] = "Data or instruction access",
 	[1] = "Alignment",

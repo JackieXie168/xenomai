@@ -46,7 +46,6 @@
 #include <nucleus/module.h>
 #include <nucleus/shadow.h>
 #include <nucleus/core.h>
-#include <nucleus/ltt.h>
 #include <nucleus/jhash.h>
 #include <nucleus/ppd.h>
 #include <nucleus/trace.h>
@@ -70,7 +69,7 @@ int nkthrptd;
 
 int nkerrptd;
 
-struct xnskentry muxtable[XENOMAI_MUX_NR];
+struct xnskin_slot muxtable[XENOMAI_MUX_NR];
 
 static struct __gatekeeper {
 
@@ -79,9 +78,7 @@ static struct __gatekeeper {
 	struct linux_semaphore sync;
 	xnthread_t *thread;
 	struct xnrpi {
-#ifdef CONFIG_SMP
-		xnlock_t lock;
-#endif /* CONFIG_SMP */
+		DECLARE_XNLOCK(lock);
 		xnsched_queue_t threadq;
 	} rpislot;
 
@@ -99,6 +96,7 @@ static struct __lostagerq {
 #define LO_RENICE_REQ 2
 #define LO_SIGGRP_REQ 3
 #define LO_SIGTHR_REQ 4
+#define LO_UNMAP_REQ  5
 		int type;
 		struct task_struct *task;
 		int arg;
@@ -117,16 +115,70 @@ do { \
 
 static struct task_struct *switch_lock_owner[XNARCH_NR_CPUS];
 
-static xnqueue_t *ppd_hash;
-#define PPD_HASH_SIZE 13
-
 static int nucleus_muxid = -1;
 
-void xnpod_declare_iface_proc(struct xnskentry *iface);
+void xnpod_declare_iface_proc(struct xnskin_slot *iface);
 
 void xnpod_discard_iface_proc(const char *iface);
 
-#ifndef CONFIG_XENO_OPT_RPIDISABLE
+#ifdef CONFIG_XENO_OPT_PRIOCPL
+
+/*
+ * Priority inheritance by the root thread (RPI) of some real-time
+ * priority is used to bind the Linux and Xenomai schedulers with
+ * respect to a given real-time thread, which migrates from primary to
+ * secondary execution mode. In effect, this means upgrading the root
+ * thread priority to the one of the migrating thread, so that the
+ * Linux kernel - as a whole - inherits the priority of the thread
+ * that leaves the Xenomai domain for a while, typically to perform
+ * regular Linux system calls, process Linux-originated signals and so
+ * on. This is what makes a real-time shadow able to access the Linux
+ * services seamlessly, from the application POV.
+ *
+ * To do that, we have to track real-time threads as they move to/from
+ * the Linux domain (see xnshadow_relax/xnshadow_harden), so that we
+ * always have a clear picture of which priority the root thread needs
+ * to be given at any point in time, in order to preserve the priority
+ * scheme consistent across both schedulers. In practice, this means
+ * that a real-time thread with a current priority of, say 27,
+ * Xenomai-wise (i.e. xnthread_current_priority(thread)) would cause
+ * the root thread to inherit the same priority value, so that any
+ * Xenomai thread below (or at) this level would not preempt the Linux
+ * kernel while running on behalf of the migrated thread. This mapping
+ * only concerns Xenomai threads underlaid by Linux tasks in the
+ * SCHED_FIFO class, some of them may operate in the
+ * SCHED_OTHER/SCHED_NORMAL class and as such are excluded from the
+ * RPI management.
+ *
+ * When the Xenomai priority value does not fit in the [1..99]
+ * SCHED_FIFO bounds exhibited by the Linux kernel, then such value is
+ * constrained to those respective bounds, so beware: a real-time
+ * thread with a Xenomai priority of 240 migrating to the secondary
+ * mode would have the same priority in the Linux scheduler than
+ * another thread with a priority of 239, i.e. SCHED_FIFO(99)
+ * Linux-wise. In contrast, everything in the [1..99] range
+ * Xenomai-wise perfectly maps to a distinct SCHED_FIFO priority
+ * level. On a more general note, Xenomai's RPI management is NOT
+ * meant to make the Linux kernel deterministic; threads operating in
+ * relaxed mode would still potentially incur priority inversions and
+ * unbounded execution times of the kernel code. But, it is meant to
+ * maintain a consistent priority scheme for real-time threads across
+ * domain migrations, which under a number of circumstances, is much
+ * better than losing the Xenomai priority entirely.
+ *
+ * Implementation-wise, a list of all the currently relaxed Xenomai
+ * threads (rpi_push) is maintained for each CPU in the corresponding
+ * gatekeeper slot (i.e. struct gatekeeper::rpislot.threadq). Threads
+ * are removed from this queue (rpi_pop) as they 1) go back to primary
+ * mode, or 2) exit.  Each time a relaxed Xenomai thread is scheduled
+ * in by the Linux scheduler, the root thread inherits its priority
+ * (rpi_switch). Each time the gatekeeper processes a request to move
+ * a relaxed thread back to primary mode, the latter thread is popped
+ * from the RPI list, and the root thread inherits the Xenomai
+ * priority of the thread leading the RPI list after the removal. If
+ * no other thread is currently relaxed, the root thread is given back
+ * its base priority, i.e. the lowest available level.
+ */
 
 #define rpi_p(t)	((t)->rpi != NULL)
 
@@ -134,21 +186,23 @@ static inline void rpi_init_gk(struct __gatekeeper *gk)
 {
 	struct xnrpi *rpislot = &gk->rpislot;
 	xnlock_init(&rpislot->lock);
-	sched_initpq(&rpislot->threadq, xnqueue_down,
-		     XNCORE_MIN_PRIO, XNCORE_MAX_PRIO);
+	sched_initpq(&rpislot->threadq, XNCORE_MIN_PRIO, XNCORE_MAX_PRIO);
 }
 
 static inline void rpi_none(xnthread_t *thread)
 {
 	thread->rpi = NULL;
+	xnarch_memory_barrier();
 }
 
-static void rpi_push(xnthread_t *thread, int cpu)
+static void rpi_push(xnthread_t *thread)
 {
-	struct xnrpi *rpislot = &gatekeeper[cpu].rpislot;
+	struct xnrpi *rpislot;
 	xnthread_t *top;
 	int prio;
 	spl_t s;
+
+	rpislot = &gatekeeper[rthal_processor_id()].rpislot;
 
 	/* non-RT shadows and RT shadows which disabled RPI cause the
 	   root priority to be lowered to its base level. The purpose
@@ -173,16 +227,17 @@ static void rpi_push(xnthread_t *thread, int cpu)
 	} else
 		prio = XNCORE_IDLE_PRIO;
 
-	if (xnpod_root_priority(cpu) != prio)
-		xnpod_renice_root(cpu, prio);
+	if (xnpod_root_priority() != prio)
+		xnpod_renice_root(prio);
 }
 
 static void rpi_pop(xnthread_t *thread)
 {
-	int cpu = rthal_processor_id();
-	struct xnrpi *rpislot = &gatekeeper[cpu].rpislot;
+	struct xnrpi *rpislot;
 	int prio;
 	spl_t s;
+
+	rpislot = &gatekeeper[rthal_processor_id()].rpislot;
 
 	xnlock_get_irqsave(&rpislot->lock, s);
 
@@ -209,22 +264,20 @@ static void rpi_pop(xnthread_t *thread)
 
 	xnlock_put_irqrestore(&rpislot->lock, s);
 
-	if (xnpod_root_priority(cpu) != prio)
-		xnpod_renice_root(cpu, prio);
+	if (xnpod_root_priority() != prio)
+		xnpod_renice_root(prio);
 }
 
 static void rpi_update(xnthread_t *thread)
 {
-	int cpu = rthal_processor_id();
-	struct xnrpi *rpislot = &gatekeeper[cpu].rpislot;
+	struct xnrpi *rpislot;
 	spl_t s;
 
+	rpislot = &gatekeeper[rthal_processor_id()].rpislot;
 	xnlock_get_irqsave(&rpislot->lock, s);
-
 	sched_removepq(&rpislot->threadq, &thread->xlink);
 	rpi_none(thread);
-	rpi_push(thread, cpu);
-
+	rpi_push(thread);
 	xnlock_put_irqrestore(&rpislot->lock, s);
 }
 
@@ -302,7 +355,7 @@ static void rpi_clear_remote(xnthread_t *thread)
 static void rpi_migrate(xnthread_t *thread)
 {
 	rpi_clear_remote(thread);
-	rpi_push(thread, rthal_processor_id());
+	rpi_push(thread);
 }
 
 #else  /* !CONFIG_SMP */
@@ -312,7 +365,6 @@ static void rpi_migrate(xnthread_t *thread)
 
 static inline void rpi_switch(struct task_struct *next)
 {
-	int cpu = rthal_processor_id();
 	xnthread_t *threadin, *threadout;
 	struct xnrpi *rpislot;
 	int oldprio, newprio;
@@ -320,8 +372,8 @@ static inline void rpi_switch(struct task_struct *next)
 
 	threadout = xnshadow_thread(current);
 	threadin = xnshadow_thread(next);
-	rpislot = &gatekeeper[cpu].rpislot;
-	oldprio = xnpod_root_priority(cpu);
+	rpislot = &gatekeeper[rthal_processor_id()].rpislot;
+	oldprio = xnpod_root_priority();
 
 	if (threadout &&
 	    current->state != TASK_RUNNING &&
@@ -401,9 +453,9 @@ boost_root:
 	if (newprio == oldprio)
 		return;
 
-	xnpod_renice_root(cpu, newprio);
+	xnpod_renice_root(newprio);
 
-	if (xnpod_compare_prio(newprio, oldprio) < 0)
+	if (newprio < oldprio)
 		/* Subtle: by downgrading the root thread priority,
 		   some higher priority thread might well become
 		   eligible for execution instead of us. Since
@@ -415,9 +467,8 @@ boost_root:
 
 static inline void rpi_clear_local(xnthread_t *thread)
 {
-	int cpu = rthal_processor_id();
-	if (thread == NULL && xnpod_root_priority(cpu) != XNCORE_IDLE_PRIO)
-		xnpod_renice_root(cpu, XNCORE_IDLE_PRIO);
+	if (thread == NULL && xnpod_root_priority() != XNCORE_IDLE_PRIO)
+		xnpod_renice_root(XNCORE_IDLE_PRIO);
 }
 
 #ifdef CONFIG_SMP
@@ -429,16 +480,15 @@ void xnshadow_rpi_check(void)
 	 * otherwise, we would have to mask them while testing the
 	 * queue for emptiness _and_ demoting the boost level.
 	 */
-	int cpu = rthal_processor_id();
-	struct xnrpi *rpislot = &gatekeeper[cpu].rpislot;
+	struct xnrpi *rpislot = &gatekeeper[rthal_processor_id()].rpislot;
 	int norpi;
  
  	xnlock_get(&rpislot->lock);
  	norpi = sched_emptypq_p(&rpislot->threadq);
  	xnlock_put(&rpislot->lock);
 
-	if (norpi && xnpod_root_priority(cpu) != XNCORE_IDLE_PRIO)
-		xnpod_renice_root(cpu, XNCORE_IDLE_PRIO);
+	if (norpi && xnpod_root_priority() != XNCORE_IDLE_PRIO)
+		xnpod_renice_root(XNCORE_IDLE_PRIO);
 }
 
 #endif	/* CONFIG_SMP */
@@ -449,12 +499,180 @@ void xnshadow_rpi_check(void)
 #define rpi_init_gk(gk)		do { } while(0)
 #define rpi_clear_local(t)	do { } while(0)
 #define rpi_clear_remote(t)	do { } while(0)
-#define rpi_push(t, cpu)	do { } while(0)
+#define rpi_push(t)		do { } while(0)
 #define rpi_pop(t)		do { } while(0)
 #define rpi_update(t)		do { } while(0)
 #define rpi_switch(n)		do { } while(0)
 
 #endif /* !CONFIG_XENO_OPT_RPIDISABLE */
+
+#ifdef CONFIG_XENO_OPT_ISHIELD
+
+static rthal_pipeline_stage_t irq_shield;
+
+static cpumask_t shielded_cpus, unshielded_cpus;
+
+static unsigned long shield_sync;
+
+static void engage_irq_shield(void)
+{
+	unsigned long flags;
+	int cpu;
+
+	rthal_local_irq_save_hw(flags);
+
+	cpu = rthal_processor_id();
+
+	if (xnarch_cpu_test_and_set(cpu, shielded_cpus))
+		goto unmask_and_exit;
+
+	while (test_bit(0, &shield_sync))
+		/* We don't want to defer the actual shielding for too
+		 * long, so we spin IRQS off. */
+		cpu_relax();
+
+	xnarch_cpu_clear(cpu, unshielded_cpus);
+
+	xnarch_lock_xirqs(&irq_shield, cpu);
+
+      unmask_and_exit:
+
+	rthal_local_irq_restore_hw(flags);
+}
+
+static void disengage_irq_shield(void)
+{
+	unsigned long flags;
+	int cpu;
+
+	rthal_local_irq_save_hw(flags);
+
+	cpu = rthal_processor_id();
+
+	if (xnarch_cpu_test_and_set(cpu, unshielded_cpus))
+		goto unmask_and_exit;
+
+	/* Prevent other CPUs from engaging the shield while we
+	   attempt to disengage. */
+	set_bit(0, &shield_sync);
+
+	/* Ok, this one is now unshielded. */
+	xnarch_cpu_clear(cpu, shielded_cpus);
+
+	smp_mb__after_clear_bit();
+
+	/* We want the shield to be either engaged on all CPUs (i.e. if at
+	   least one CPU asked for shielding), or disengaged on all
+	   (i.e. if no CPU asked for shielding). */
+
+	if (!xnarch_cpus_empty(shielded_cpus))
+		goto clear_sync;
+
+	/* At this point we know that we are the last CPU to disengage the
+	   shield, so we just unlock the external IRQs for all CPUs, and
+	   trigger an IPI on everyone but self to make sure that the
+	   remote interrupt logs will be played. We also forcibly unstall
+	   the shield stage on the local CPU in order to flush it the same
+	   way. */
+
+	xnarch_unlock_xirqs(&irq_shield, cpu);
+
+#ifdef CONFIG_SMP
+	{
+		cpumask_t other_cpus = xnarch_cpu_online_map;
+		xnarch_cpu_clear(cpu, other_cpus);
+		rthal_send_ipi(RTHAL_SERVICE_IPI1, other_cpus);
+	}
+#endif /* CONFIG_SMP */
+
+	rthal_stage_irq_enable(&irq_shield);
+
+clear_sync:
+
+	clear_bit(0, &shield_sync);
+
+	smp_mb__after_clear_bit();
+
+unmask_and_exit:
+
+	rthal_local_irq_restore_hw(flags);
+}
+
+static void shield_handler(unsigned irq, void *cookie)
+{
+#ifdef CONFIG_SMP
+	if (irq != RTHAL_SERVICE_IPI1)
+#endif /* CONFIG_SMP */
+		rthal_propagate_irq(irq);
+}
+
+static inline void do_shield_domain_entry(void)
+{
+	xnarch_grab_xirqs(&shield_handler);
+}
+
+RTHAL_DECLARE_DOMAIN(shield_domain_entry);
+
+static inline int ishield_init(void)
+{
+	if (rthal_register_domain(&irq_shield,
+				  "IShield",
+				  0x53484c44,
+				  RTHAL_ROOT_PRIO + 50, &shield_domain_entry))
+		return -EBUSY;
+
+	shielded_cpus = CPU_MASK_NONE;
+	unshielded_cpus = xnarch_cpu_online_map;
+
+	return 0;
+}
+
+static inline void ishield_cleanup(void)
+{
+	rthal_unregister_domain(&irq_shield);
+}
+
+static inline void ishield_on(xnthread_t *thread)
+{
+	if (xnthread_test_state(thread, XNSHIELD))
+		engage_irq_shield();
+}
+
+static inline void ishield_off(void)
+{
+	disengage_irq_shield();
+}
+
+static inline void ishield_reset(xnthread_t *thread)
+{
+	if (xnthread_test_state(thread, XNSHIELD))
+		engage_irq_shield();
+	else
+		disengage_irq_shield();
+}
+
+void xnshadow_reset_shield(void)
+{
+	xnthread_t *thread = xnshadow_thread(current);
+
+	if (!thread)
+		return;
+
+	ishield_reset(thread);
+}
+
+#else /* !CONFIG_XENO_OPT_ISHIELD */
+
+#define ishield_init()		0
+#define ishield_cleanup()	do { } while(0)
+#define ishield_on(t)		do { } while(0)
+#define ishield_off()		do { } while(0)
+#define ishield_reset(t)	do { } while(0)
+
+#endif /* !CONFIG_XENO_OPT_ISHIELD */
+
+static xnqueue_t *ppd_hash;
+#define PPD_HASH_SIZE 13
 
 union xnshadow_ppd_hkey {
 	struct mm_struct *mm;
@@ -464,9 +682,8 @@ union xnshadow_ppd_hkey {
 /* ppd holder with the same mm collide and are stored contiguously in the same
    bucket, so that they can all be destroyed with only one hash lookup by
    ppd_remove_mm. */
-static unsigned
-ppd_lookup_inner(xnqueue_t **pq,
-			  xnshadow_ppd_t ** pholder, xnshadow_ppd_key_t * pkey)
+static unsigned ppd_lookup_inner(xnqueue_t **pq,
+				 xnshadow_ppd_t ** pholder, xnshadow_ppd_key_t * pkey)
 {
 	union xnshadow_ppd_hkey key = {.mm = pkey->mm };
 	unsigned bucket = jhash2(&key.val, sizeof(key) / sizeof(uint32_t), 0);
@@ -623,166 +840,55 @@ static inline void set_linux_task_priority(struct task_struct *p, int prio)
 static inline void lock_timers(void)
 {
 	xnarch_atomic_inc(&nkpod->timerlck);
-	setbits(nkpod->status, XNTLOCK);
+	setbits(nktbase.status, XNTBLCK);
 }
 
 static inline void unlock_timers(void)
 {
 	if (xnarch_atomic_dec_and_test(&nkpod->timerlck))
-		clrbits(nkpod->status, XNTLOCK);
+		clrbits(nktbase.status, XNTBLCK);
 }
 
-#ifdef CONFIG_XENO_OPT_ISHIELD
-
-static rthal_pipeline_stage_t irq_shield;
-
-static cpumask_t shielded_cpus, unshielded_cpus;
-
-static unsigned long shield_sync;
-
-static void engage_irq_shield(void)
+static void xnshadow_dereference_skin(unsigned magic)
 {
-	unsigned long flags;
-	int cpu;
+	unsigned muxid;
 
-	rthal_local_irq_save_hw(flags);
+	for (muxid = 0; muxid < XENOMAI_MUX_NR; muxid++) {
+		if (muxtable[muxid].props && muxtable[muxid].props->magic == magic) {
+			if (xnarch_atomic_dec_and_test(&muxtable[0].refcnt))
+				xnarch_atomic_dec(&muxtable[0].refcnt);
+			if (xnarch_atomic_dec_and_test(&muxtable[muxid].refcnt))
 
-	cpu = rthal_processor_id();
+				/* We were the last thread, decrement the counter,
+				   since it was incremented by the xn_sys_bind
+				   operation. */
+				xnarch_atomic_dec(&muxtable[muxid].refcnt);
+			if (muxtable[muxid].props->module)
+				module_put(muxtable[muxid].props->module);
 
-	if (xnarch_cpu_test_and_set(cpu, shielded_cpus))
-		goto unmask_and_exit;
-
-	while (test_bit(0, &shield_sync))
-		/* We don't want to defer the actual shielding for too
-		 * long, so we spin IRQS off. */
-		cpu_relax();
-
-	xnarch_cpu_clear(cpu, unshielded_cpus);
-
-	xnarch_lock_xirqs(&irq_shield, cpu);
-
-      unmask_and_exit:
-
-	rthal_local_irq_restore_hw(flags);
-}
-
-static void disengage_irq_shield(void)
-{
-	unsigned long flags;
-	int cpu;
-
-	rthal_local_irq_save_hw(flags);
-
-	cpu = rthal_processor_id();
-
-	if (xnarch_cpu_test_and_set(cpu, unshielded_cpus))
-		goto unmask_and_exit;
-
-	/* Prevent other CPUs from engaging the shield while we
-	   attempt to disengage. */
-	set_bit(0, &shield_sync);
-
-	/* Ok, this one is now unshielded. */
-	xnarch_cpu_clear(cpu, shielded_cpus);
-
-	smp_mb__after_clear_bit();
-
-	/* We want the shield to be either engaged on all CPUs (i.e. if at
-	   least one CPU asked for shielding), or disengaged on all
-	   (i.e. if no CPU asked for shielding). */
-
-	if (!xnarch_cpus_empty(shielded_cpus))
-		goto clear_sync;
-
-	/* At this point we know that we are the last CPU to disengage the
-	   shield, so we just unlock the external IRQs for all CPUs, and
-	   trigger an IPI on everyone but self to make sure that the
-	   remote interrupt logs will be played. We also forcibly unstall
-	   the shield stage on the local CPU in order to flush it the same
-	   way. */
-
-	xnarch_unlock_xirqs(&irq_shield, cpu);
-
-#ifdef CONFIG_SMP
-	{
-		cpumask_t other_cpus = xnarch_cpu_online_map;
-		xnarch_cpu_clear(cpu, other_cpus);
-		rthal_send_ipi(RTHAL_SERVICE_IPI1, other_cpus);
+			break;
+		}
 	}
-#endif /* CONFIG_SMP */
-
-	rthal_stage_irq_enable(&irq_shield);
-
-clear_sync:
-
-	clear_bit(0, &shield_sync);
-
-	smp_mb__after_clear_bit();
-
-unmask_and_exit:
-
-	rthal_local_irq_restore_hw(flags);
 }
-
-static inline void reset_shield(xnthread_t *thread)
-{
-	if (xnthread_test_state(thread, XNSHIELD))
-		engage_irq_shield();
-	else
-		disengage_irq_shield();
-}
-
-static void shield_handler(unsigned irq, void *cookie)
-{
-#ifdef CONFIG_SMP
-	if (irq != RTHAL_SERVICE_IPI1)
-#endif /* CONFIG_SMP */
-		rthal_propagate_irq(irq);
-}
-
-static inline void do_shield_domain_entry(void)
-{
-	xnarch_grab_xirqs(&shield_handler);
-}
-
-RTHAL_DECLARE_DOMAIN(shield_domain_entry);
-
-void xnshadow_reset_shield(void)
-{
-	xnthread_t *thread = xnshadow_thread(current);
-
-	if (!thread)
-		return;
-
-	reset_shield(thread);
-}
-
-#endif /* CONFIG_XENO_OPT_ISHIELD */
 
 static void lostage_handler(void *cookie)
 {
-	int cpuid = smp_processor_id(), reqnum, sig;
-	struct __lostagerq *rq = &lostagerq[cpuid];
+	int cpu = smp_processor_id(), reqnum, sig;
+	struct __lostagerq *rq = &lostagerq[cpu];
 
 	while ((reqnum = rq->out) != rq->in) {
 		struct task_struct *p = rq->req[reqnum].task;
 		rq->out = (reqnum + 1) & (LO_MAX_REQUESTS - 1);
 
-		xnltt_log_event(xeno_ev_lohandler, reqnum, p->comm, p->pid);
+		trace_mark(xn_nucleus_lostage_work, "reqnum %d comm %s pid %d",
+			   reqnum, p->comm, p->pid);
 
 		switch (rq->req[reqnum].type) {
-		case LO_START_REQ:
+		case LO_UNMAP_REQ:
 
-#ifdef CONFIG_SMP
-			if (xnshadow_thread(p))
-				/* Set up the initial task affinity using the
-				   information passed to xnpod_start_thread(). */
-				set_cpus_allowed(p,
-						 xnshadow_thread(p)->affinity);
-#endif /* CONFIG_SMP */
+			xnshadow_dereference_skin(rq->req[reqnum].arg);
 
-			goto do_wakeup;
-
+			/* fall through */
 		case LO_WAKEUP_REQ:
 
 			/* We need to downgrade the root thread
@@ -792,16 +898,14 @@ static void lostage_handler(void *cookie)
 			   spuriously inherited by the latter until
 			   the relaxed shadow actually resumes in
 			   secondary mode. */
-	
+
 			rpi_clear_local(xnshadow_thread(current));
 
-		do_wakeup:
+			/* fall through */
+		case LO_START_REQ:
 
-#ifdef CONFIG_XENO_OPT_ISHIELD
-			if (xnshadow_thread(p) &&
-			    xnthread_test_state(xnshadow_thread(p), XNSHIELD))
-				engage_irq_shield();
-#endif /* CONFIG_XENO_OPT_ISHIELD */
+			if (xnshadow_thread(p))
+				ishield_on(xnshadow_thread(p));
 
 			wake_up_process(p);
 
@@ -834,8 +938,8 @@ static void schedule_linux_call(int type, struct task_struct *p, int arg)
 {
 	/* Do _not_ use smp_processor_id() here so we don't trigger Linux
 	   preemption debug traps inadvertently (see lib/smp_processor_id.c). */
-	int cpuid = rthal_processor_id(), reqnum;
-	struct __lostagerq *rq = &lostagerq[cpuid];
+	int cpu = rthal_processor_id(), reqnum;
+	struct __lostagerq *rq = &lostagerq[cpu];
 	spl_t s;
 
 	XENO_ASSERT(NUCLEUS, p,
@@ -851,13 +955,13 @@ static void schedule_linux_call(int type, struct task_struct *p, int arg)
 	if (XENO_DEBUG(NUCLEUS) &&
 	    ((reqnum + 1) & (LO_MAX_REQUESTS - 1)) == rq->out)
 	    xnpod_fatal("lostage queue overflow on CPU %d! "
-			"Increase LO_MAX_REQUESTS", cpuid);
+			"Increase LO_MAX_REQUESTS", cpu);
 
 	rq->req[reqnum].type = type;
 	rq->req[reqnum].task = p;
 	rq->req[reqnum].arg = arg;
 	rq->in = (reqnum + 1) & (LO_MAX_REQUESTS - 1);
-
+	
 	splexit(s);
 
 	rthal_apc_schedule(lostage_apc);
@@ -918,9 +1022,7 @@ static int gatekeeper_thread(void *data)
 			thread->sched = xnpod_sched_slot(cpu);
 #endif /* CONFIG_SMP */
 			xnpod_resume_thread(thread, XNRELAX);
-#ifdef CONFIG_XENO_OPT_ISHIELD
-			disengage_irq_shield();
-#endif /* CONFIG_XENO_OPT_ISHIELD */
+			ishield_off();
 			xnpod_schedule();
 			xnlock_put_irqrestore(&nklock, s);
 		}
@@ -992,7 +1094,9 @@ redo:
 	   preemption and using the TASK_ATOMICSWITCH cumulative state
 	   provided by Adeos to Linux tasks. */
 
-	xnltt_log_event(xeno_ev_primarysw, this_task->comm);
+	trace_mark(xn_nucleus_shadow_gohard,
+		   "thread %p thread_name %s comm %s",
+		   thread, xnthread_name(thread), this_task->comm);
 
 	gk->thread = thread;
 	xnthread_set_info(thread, XNATOMIC);
@@ -1039,7 +1143,8 @@ redo:
 	if (rpi_p(thread))
 		rpi_clear_remote(thread);
 
-	xnltt_log_event(xeno_ev_primary, thread->name);
+	trace_mark(xn_nucleus_shadow_hardened, "thread %p thread_name %s",
+		   thread, xnthread_name(thread));
 
 	return 0;
 }
@@ -1084,22 +1189,20 @@ void xnshadow_relax(int notify)
 	   domain to the Linux domain.  This will cause the Linux task
 	   to resume using the register state of the shadow thread. */
 
-	xnltt_log_event(xeno_ev_secondarysw, thread->name);
+	trace_mark(xn_nucleus_shadow_gorelax, "thread %p thread_name %s",
+		  thread, xnthread_name(thread));
 
-#ifdef CONFIG_XENO_OPT_ISHIELD
-	if (xnthread_test_state(thread, XNSHIELD))
-		engage_irq_shield();
-#endif /* CONFIG_XENO_OPT_ISHIELD */
+	ishield_on(thread);
 
 	splhigh(s);
 
 	schedule_linux_call(LO_WAKEUP_REQ, current, 0);
 
-	rpi_push(thread, rthal_processor_id());
+	rpi_push(thread);
 
 	clear_task_nowakeup(current);
 
-	xnpod_suspend_thread(thread, XNRELAX, XN_INFINITE, NULL);
+	xnpod_suspend_thread(thread, XNRELAX, XN_INFINITE, XN_RELATIVE, NULL);
 
 	splexit(s);
 
@@ -1107,8 +1210,7 @@ void xnshadow_relax(int notify)
 		xnpod_fatal("xnshadow_relax() failed for thread %s[%d]",
 			    thread->name, xnthread_user_pid(thread));
 
-	prio = normalize_priority(thread->cprio);
-
+	prio = normalize_priority(xnthread_current_priority(thread));
 	rthal_reenter_root(get_switch_lock_owner(),
 			   prio ? SCHED_FIFO : SCHED_NORMAL, prio);
 
@@ -1118,10 +1220,24 @@ void xnshadow_relax(int notify)
 		/* Help debugging spurious relaxes. */
 		send_sig(SIGXCPU, current, 1);
 
+#ifdef CONFIG_SMP
+	/* If the shadow thread changed its CPU affinity while in
+	   primary mode, reset the CPU affinity of its Linux
+	   counter-part when returning to secondary mode. [Actually,
+	   there is no service changing the CPU affinity from primary
+	   mode available from the nucleus --rpm]. */
+	if (xnthread_test_info(thread, XNAFFSET)) {
+		xnthread_clear_info(thread, XNAFFSET);
+		set_cpus_allowed(current, xnthread_affinity(thread));
+	}
+#endif /* CONFIG_SMP */
+
 	/* "current" is now running into the Linux domain on behalf of the
 	   root thread. */
 
-	xnltt_log_event(xeno_ev_secondary, current->comm);
+	trace_mark(xn_nucleus_shadow_relaxed,
+		  "thread %p thread_name %s comm %s",
+		  thread, xnthread_name(thread), current->comm);
 }
 
 void xnshadow_exit(void)
@@ -1147,10 +1263,6 @@ void xnshadow_exit(void)
  * mapped to "current". This descriptor must have been previously
  * initialized by a call to xnpod_init_thread().
  *
- * @warning The thread must have been set the same magic number
- * (i.e. xnthread_set_magic()) than the one used to register the skin
- * it belongs to. Failing to do so might lead to unexpected results.
- *
  * @param u_completion is the address of an optional completion
  * descriptor aimed at synchronizing our parent thread with us. If
  * non-NULL, the information xnshadow_map() will store into the
@@ -1174,21 +1286,30 @@ void xnshadow_exit(void)
  * case, the real-time mapping operation has failed globally, and no
  * Xenomai resource remains attached to it.
  *
+ * - -EINVAL is returned if the thread control block does not bear the
+ * XNSHADOW bit, or if the thread has already been mapped.
+ *
  * Environments:
  *
  * This service can be called from:
  *
- * - Regular user-space process.
+ * - Regular user-space process. 
  *
  * Rescheduling: always.
  *
  */
 
-int xnshadow_map(xnthread_t *thread, xncompletion_t __user * u_completion)
+int xnshadow_map(xnthread_t *thread, xncompletion_t __user *u_completion)
 {
 	xnarch_cpumask_t affinity;
 	unsigned muxid, magic;
 	int prio, err;
+
+	if (!xnthread_test_state(thread, XNSHADOW))
+		return -EINVAL;
+
+	if (xnthread_test_state(thread, XNMAPPED))
+		return -EINVAL;
 
 #ifdef CONFIG_MMU
 	if (!(current->mm->def_flags & VM_LOCKED))
@@ -1202,19 +1323,20 @@ int xnshadow_map(xnthread_t *thread, xncompletion_t __user * u_completion)
 	magic = xnthread_get_magic(thread);
 
 	for (muxid = 0; muxid < XENOMAI_MUX_NR; muxid++) {
-		if (muxtable[muxid].magic == magic) {
+		if (muxtable[muxid].props && muxtable[muxid].props->magic == magic) {
 			xnarch_atomic_inc(&muxtable[muxid].refcnt);
 			xnarch_atomic_inc(&muxtable[0].refcnt);
-			if (muxtable[muxid].module
-			    && !try_module_get(muxtable[muxid].module))
+			if (muxtable[muxid].props->module
+			    && !try_module_get(muxtable[muxid].props->module))
 				return -ENOSYS;
 			break;
 		}
 	}
 
-	xnltt_log_event(xeno_ev_shadowmap,
-			thread->name, current->pid,
-			xnthread_base_priority(thread));
+	trace_mark(xn_nucleus_shadow_map,
+		   "thread %p thread_name %s pid %d priority %d",
+		   thread, xnthread_name(thread), current->pid,
+		   xnthread_base_priority(thread));
 
 	/* Switch on propagation of normal kernel events for the bound
 	   task. This is basically a per-task event filter which
@@ -1230,26 +1352,26 @@ int xnshadow_map(xnthread_t *thread, xncompletion_t __user * u_completion)
 	set_linux_task_priority(current, prio);
 	xnshadow_thrptd(current) = thread;
 	xnthread_set_state(thread, XNMAPPED);
-	xnpod_suspend_thread(thread, XNRELAX, XN_INFINITE, NULL);
+	xnpod_suspend_thread(thread, XNRELAX, XN_INFINITE, XN_RELATIVE, NULL);
+
+	/* Restrict affinity to a single CPU of nkaffinity & current set. */
+	xnarch_cpus_and(affinity, current->cpus_allowed, nkaffinity);
+	affinity = xnarch_cpumask_of_cpu(xnarch_first_cpu(affinity));
+	set_cpus_allowed(current, affinity);
 
 	if (u_completion) {
-		/* We still have the XNDORMANT bit set, so we can't
-		 * link to the RPI queue which only links _runnable_
-		 * relaxed shadow. */
+ 		/* We still have the XNDORMANT bit set, so we can't
+ 		 * link to the RPI queue which only links _runnable_
+ 		 * relaxed shadow. */
 		xnshadow_signal_completion(u_completion, 0);
 		return 0;
 	}
 
-	/* Nobody waits for us, so we may start the shadow immediately
-	   after having forced the CPU affinity to the current
-	   processor. Note that we don't use smp_processor_id() to prevent
-	   kernel debug stuff to yell at us for calling it in a preemptible
-	   section of code. */
+	/* Nobody waits for us, so we may start the shadow immediately. */
+	err = xnpod_start_thread(thread, 0, 0, affinity, NULL, NULL);
 
-	affinity = xnarch_cpumask_of_cpu(rthal_processor_id());
-	set_cpus_allowed(current, affinity);
-
-	xnpod_start_thread(thread, 0, 0, affinity, NULL, NULL);
+	if (err)
+		return err;
 
 	err = xnshadow_harden();
 
@@ -1262,7 +1384,6 @@ int xnshadow_map(xnthread_t *thread, xncompletion_t __user * u_completion)
 void xnshadow_unmap(xnthread_t *thread)
 {
 	struct task_struct *p;
-	unsigned muxid, magic;
 
 	if (XENO_DEBUG(NUCLEUS) &&
 	    !testbits(xnpod_current_sched()->status, XNKCOUT))
@@ -1270,29 +1391,12 @@ void xnshadow_unmap(xnthread_t *thread)
 
 	p = xnthread_archtcb(thread)->user_task;
 
-	magic = xnthread_get_magic(thread);
-
-	for (muxid = 0; muxid < XENOMAI_MUX_NR; muxid++) {
-		if (muxtable[muxid].magic == magic) {
-			if (xnarch_atomic_dec_and_test(&muxtable[0].refcnt))
-				xnarch_atomic_dec(&muxtable[0].refcnt);
-			if (xnarch_atomic_dec_and_test(&muxtable[muxid].refcnt))
-
-				/* We were the last thread, decrement the counter,
-				   since it was incremented by the xn_sys_bind
-				   operation. */
-				xnarch_atomic_dec(&muxtable[muxid].refcnt);
-			if (muxtable[muxid].module)
-				module_put(muxtable[muxid].module);
-
-			break;
-		}
-	}
-
 	xnthread_clear_state(thread, XNMAPPED);
 	rpi_pop(thread);
 
-	xnltt_log_event(xeno_ev_shadowunmap, thread->name, p ? p->pid : -1);
+	trace_mark(xn_nucleus_shadow_unmap,
+		   "thread %p thread_name %s pid %d",
+		   thread, xnthread_name(thread), p ? p->pid : -1);
 
 	if (!p)
 		return;
@@ -1304,13 +1408,7 @@ void xnshadow_unmap(xnthread_t *thread)
 
 	xnshadow_thrptd(p) = NULL;
 
-	if (p->state != TASK_RUNNING)
-		/* If the shadow is being unmapped in primary mode or blocked
-		   in secondary mode, the associated Linux task should also
-		   die. In the former case, the zombie Linux side returning to
-		   user-space will be trapped and exited inside the pod's
-		   rescheduling routines. */
-		schedule_linux_call(LO_WAKEUP_REQ, p, 0);
+	schedule_linux_call(LO_UNMAP_REQ, p, xnthread_get_magic(thread));
 }
 
 int xnshadow_wait_barrier(struct pt_regs *regs)
@@ -1360,9 +1458,9 @@ void xnshadow_start(xnthread_t *thread)
 {
 	struct task_struct *p = xnthread_archtcb(thread)->user_task;
 
- 	/* A shadow always starts in relaxed mode. */
- 	rpi_push(thread, xnsched_cpu(thread->sched));
-	xnltt_log_event(xeno_ev_shadowstart, thread->name);
+	rpi_push(thread);	/* A shadow always starts in relaxed mode. */
+	trace_mark(xn_nucleus_shadow_start, "thread %p thread_name %s",
+		   thread, xnthread_name(thread));
 	xnpod_resume_thread(thread, XNDORMANT);
 
 	if (p->state == TASK_INTERRUPTIBLE)
@@ -1378,7 +1476,7 @@ void xnshadow_renice(xnthread_t *thread)
 	/* We need to bound the priority values in the [1..MAX_RT_PRIO-1]
 	   range, since the core pod's priority scale is a superset of
 	   Linux's priority scale. */
-	int prio = normalize_priority(thread->cprio);
+	int prio = normalize_priority(xnthread_current_priority(thread));
 	schedule_linux_call(LO_RENICE_REQ, p, prio);
 
 	if (!xnthread_test_state(thread, XNDORMANT) &&
@@ -1501,7 +1599,7 @@ static int xnshadow_sys_bind(struct task_struct *curr, struct pt_regs *regs)
 	xnlock_get_irqsave(&nklock, s);
 
 	for (muxid = 1; muxid < XENOMAI_MUX_NR; muxid++)
-		if (muxtable[muxid].magic == magic)
+		if (muxtable[muxid].props && muxtable[muxid].props->magic == magic)
 			goto do_bind;
 
 	xnlock_put_irqrestore(&nklock, s);
@@ -1525,7 +1623,7 @@ static int xnshadow_sys_bind(struct task_struct *curr, struct pt_regs *regs)
 	   earlier than that, do not refer to nkpod until the latter had a
 	   chance to call xnpod_init(). */
 
-	if (!muxtable[muxid].eventcb)
+	if (!muxtable[muxid].props->eventcb)
 		goto eventcb_done;
 
 	xnlock_get_irqsave(&nklock, s);
@@ -1536,8 +1634,8 @@ static int xnshadow_sys_bind(struct task_struct *curr, struct pt_regs *regs)
 	if (ppd)
 		goto eventcb_done;
 
-	ppd = (xnshadow_ppd_t *) muxtable[muxid].eventcb(XNSHADOW_CLIENT_ATTACH,
-							 curr);
+	ppd = (xnshadow_ppd_t *) muxtable[muxid].props->eventcb(XNSHADOW_CLIENT_ATTACH,
+							       curr);
 
 	if (IS_ERR(ppd)) {
 		err = PTR_ERR(ppd);
@@ -1553,25 +1651,27 @@ static int xnshadow_sys_bind(struct task_struct *curr, struct pt_regs *regs)
 	if (ppd_insert(ppd) == -EBUSY) {
 		/* In case of concurrent binding (which can not happen with
 		   Xenomai libraries), detach right away the second ppd. */
-		muxtable[muxid].eventcb(XNSHADOW_CLIENT_DETACH, ppd);
+		muxtable[muxid].props->eventcb(XNSHADOW_CLIENT_DETACH, ppd);
 		ppd = NULL;
 		goto eventcb_done;
 	}
 
-	if (muxtable[muxid].module && !try_module_get(muxtable[muxid].module)) {
+	if (muxtable[muxid].props->module && !try_module_get(muxtable[muxid].props->module)) {
 		err = -ESRCH;
 		goto fail;
 	}
 
       eventcb_done:
-	if (!nkpod || testbits(nkpod->status, XNPIDLE)) {
-		/* Ok mate, but you really ought to create some pod in a way
-		   or another if you want me to be of some help here... */
-		if (muxtable[muxid].eventcb && ppd) {
+
+	if (!xnpod_active_p()) {
+		/* Ok mate, but you really ought to call xnpod_init()
+		   at some point if you want me to be of some help
+		   here... */
+		if (muxtable[muxid].props->eventcb && ppd) {
 			ppd_remove(ppd);
-			muxtable[muxid].eventcb(XNSHADOW_CLIENT_DETACH, ppd);
-			if (muxtable[muxid].module)
-				module_put(muxtable[muxid].module);
+			muxtable[muxid].props->eventcb(XNSHADOW_CLIENT_DETACH, ppd);
+			if (muxtable[muxid].props->module)
+				module_put(muxtable[muxid].props->module);
 		}
 
 		err = -ENOSYS;
@@ -1589,15 +1689,27 @@ static int xnshadow_sys_bind(struct task_struct *curr, struct pt_regs *regs)
 
 static int xnshadow_sys_info(struct task_struct *curr, struct pt_regs *regs)
 {
-	/* UNUSED int muxid = __xn_reg_arg1(regs); */
+	int muxid = __xn_reg_arg1(regs);
 	u_long infarg = __xn_reg_arg2(regs);
+	xntbase_t **timebasep;
 	xnsysinfo_t info;
+	spl_t s;
 
 	if (!__xn_access_ok(curr, VERIFY_WRITE, infarg, sizeof(info)))
 		return -EFAULT;
 
+	xnlock_get_irqsave(&nklock, s);
+
+	if (muxid < 0 || muxid > XENOMAI_MUX_NR ||
+	    muxtable[muxid].props == NULL) {
+		xnlock_put_irqrestore(&nklock, s);
+		return -EINVAL;
+	}
+
+	timebasep = muxtable[muxid].props->timebasep;
+	info.tickval = xntbase_get_tickval(timebasep ? *timebasep : &nktbase);
+	xnlock_put_irqrestore(&nklock, s);
 	info.cpufreq = xnarch_get_cpu_freq();
-	info.tickval = xnpod_get_tickval();
 	__xn_copy_to_user(curr, (void *)infarg, &info, sizeof(info));
 
 	return 0;
@@ -1731,7 +1843,7 @@ static int xnshadow_sys_trace(struct task_struct *curr, struct pt_regs *regs)
 	return err;
 }
 
-static xnsysent_t xnshadow_systab[] = {
+static xnsysent_t __systab[] = {
 	[__xn_sys_migrate] = {&xnshadow_sys_migrate, __xn_exec_current},
 	[__xn_sys_arch] = {&xnshadow_sys_arch, __xn_exec_any},
 	[__xn_sys_bind] = {&xnshadow_sys_bind, __xn_exec_lostage},
@@ -1739,6 +1851,17 @@ static xnsysent_t xnshadow_systab[] = {
 	[__xn_sys_completion] = {&xnshadow_sys_completion, __xn_exec_lostage},
 	[__xn_sys_barrier] = {&xnshadow_sys_barrier, __xn_exec_lostage},
 	[__xn_sys_trace] = {&xnshadow_sys_trace, __xn_exec_any},
+};
+
+
+static struct xnskin_props __props = {
+	.name = "sys",
+	.magic = 0x434F5245,
+	.nrcalls = sizeof(__systab) / sizeof(__systab[0]),
+	.systab = __systab,
+	.eventcb = NULL,
+	.timebasep = NULL,
+	.module = NULL
 };
 
 static inline int substitute_linux_syscall(struct task_struct *curr,
@@ -1762,11 +1885,10 @@ static inline int do_hisyscall_event(unsigned event, unsigned domid, void *data)
 	xnthread_t *thread;
 	u_long sysflags;
 
-	if (!nkpod || testbits(nkpod->status, XNPIDLE))
+	if (!xnpod_active_p())
 		goto no_skin;
 
-	if (xnsched_resched_p())
-		xnpod_schedule();
+	xnarch_hisyscall_entry();
 
 	p = current;
 	thread = xnshadow_thread(p);
@@ -1785,15 +1907,18 @@ static inline int do_hisyscall_event(unsigned event, unsigned domid, void *data)
 	muxid = __xn_mux_id(regs);
 	muxop = __xn_mux_op(regs);
 
-	xnltt_log_event(xeno_ev_syscall, thread->name, muxid, muxop);
+	trace_mark(xn_nucleus_syscall_histage,
+		   "thread %p thread_name %s muxid %d muxop %d",
+		   thread, thread ? xnthread_name(thread) : NULL,
+		   muxid, muxop);
 
 	if (muxid < 0 || muxid > XENOMAI_MUX_NR ||
-	    muxop < 0 || muxop >= muxtable[muxid].nrcalls) {
+	    muxop < 0 || muxop >= muxtable[muxid].props->nrcalls) {
 		__xn_error_return(regs, -ENOSYS);
 		return RTHAL_EVENT_STOP;
 	}
 
-	sysflags = muxtable[muxid].systab[muxop].flags;
+	sysflags = muxtable[muxid].props->systab[muxop].flags;
 
 	if ((sysflags & __xn_exec_shadow) != 0 && !thread) {
 		__xn_error_return(regs, -EPERM);
@@ -1851,7 +1976,7 @@ static inline int do_hisyscall_event(unsigned event, unsigned domid, void *data)
 		   immediately. */
 	}
 
-	err = muxtable[muxid].systab[muxop].svc(p, regs);
+	err = muxtable[muxid].props->systab[muxop].svc(p, regs);
 
 	if (err == -ENOSYS && (sysflags & __xn_exec_adaptive) != 0) {
 		if (switched) {
@@ -1960,13 +2085,15 @@ static inline int do_losyscall_event(unsigned event, unsigned domid, void *data)
 	muxid = __xn_mux_id(regs);
 	muxop = __xn_mux_op(regs);
 
-	xnltt_log_event(xeno_ev_syscall,
-			nkpod ? xnpod_current_thread()->name : "<system>",
-			muxid, muxop);
+	trace_mark(xn_nucleus_syscall_lostage,
+		   "thread %p thread_name %s muxid %d muxop %d",
+		   xnpod_active_p() ? xnpod_current_thread() : NULL,
+		   xnpod_active_p() ? xnthread_name(xnpod_current_thread()) : NULL,
+		   muxid, muxop);
 
 	/* Processing a real-time skin syscall. */
 
-	sysflags = muxtable[muxid].systab[muxop].flags;
+	sysflags = muxtable[muxid].props->systab[muxop].flags;
 
 	if ((sysflags & __xn_exec_conforming) != 0)
 		sysflags |= (thread ? __xn_exec_histage : __xn_exec_lostage);
@@ -1987,7 +2114,7 @@ static inline int do_losyscall_event(unsigned event, unsigned domid, void *data)
 	} else			/* We want to run the syscall in the Linux domain.  */
 		switched = 0;
 
-	err = muxtable[muxid].systab[muxop].svc(current, regs);
+	err = muxtable[muxid].props->systab[muxop].svc(current, regs);
 
 	if (err == -ENOSYS && (sysflags & __xn_exec_adaptive) != 0) {
 		if (switched) {
@@ -2003,8 +2130,7 @@ static inline int do_losyscall_event(unsigned event, unsigned domid, void *data)
 
 	__xn_status_return(regs, err);
 
-	if (nkpod && !testbits(nkpod->status, XNPIDLE)
-	    && xnpod_shadow_p() && signal_pending(current))
+	if (xnpod_active_p() && xnpod_shadow_p() && signal_pending(current))
 		request_syscall_restart(xnshadow_thread(current), regs, sysflags);
 	else if ((sysflags & __xn_exec_switchback) != 0 && switched)
 		xnshadow_relax(0);
@@ -2017,6 +2143,7 @@ RTHAL_DECLARE_EVENT(losyscall_event);
 static inline void do_taskexit_event(struct task_struct *p)
 {
 	xnthread_t *thread = xnshadow_thread(p); /* p == current */
+	unsigned magic;
 	spl_t s;
 
 	if (!thread)
@@ -2024,6 +2151,8 @@ static inline void do_taskexit_event(struct task_struct *p)
 
 	if (xnpod_shadow_p())
 		xnshadow_relax(0);
+
+	magic = xnthread_get_magic(thread);
 
 	xnlock_get_irqsave(&nklock, s);
 	/* Prevent wakeup call from xnshadow_unmap(). */
@@ -2035,7 +2164,9 @@ static inline void do_taskexit_event(struct task_struct *p)
 	xnlock_put_irqrestore(&nklock, s);
 	xnpod_schedule();
 
-	xnltt_log_event(xeno_ev_shadowexit, thread->name);
+	xnshadow_dereference_skin(magic);
+	trace_mark(xn_nucleus_shadow_exit, "thread %p thread_name %s",
+		   thread, xnthread_name(thread));
 }
 
 RTHAL_DECLARE_EXIT_EVENT(taskexit_event);
@@ -2044,37 +2175,29 @@ static inline void do_schedule_event(struct task_struct *next)
 {
 	struct task_struct *prev;
 	xnthread_t *threadin;
-	int cpuid;
 
-	if (!nkpod || testbits(nkpod->status, XNPIDLE))
+	if (!xnpod_active_p())
 		return;
 
 	prev = current;
 	threadin = xnshadow_thread(next);
 	set_switch_lock_owner(prev);
-	cpuid = rthal_processor_id();
 
 	if (threadin) {
-		/*
-		 * Check whether we need to unlock the timers, each
-		 * time a Linux task resumes from a stopped state,
-		 * excluding tasks resuming shortly for entering a
-		 * stopped state asap due to ptracing. To identify the
-		 * latter, we need to check for SIGSTOP and SIGINT in
-		 * order to encompass both the NPTL and LinuxThreads
-		 * behaviours.
-		 */
+		/* Check whether we need to unlock the timers, each time a
+		   Linux task resumes from a stopped state, excluding tasks
+		   resuming shortly for entering a stopped state asap due to
+		   ptracing. To identify the latter, we need to check for
+		   SIGSTOP and SIGINT in order to encompass both the NPTL and
+		   LinuxThreads behaviours. */
+
 		if (xnthread_test_info(threadin, XNDEBUG)) {
 			if (signal_pending(next)) {
 				sigset_t pending;
-				/*
-				 * Do not grab the sighand lock here:
-				 * it's useless, and we already own
-				 * the runqueue lock, so this would
-				 * expose us to deadlock situations on
-				 * SMP.
-				 */
+
+				spin_lock(&wrap_sighand_lock(next));	/* Already interrupt-safe. */
 				wrap_get_sigpending(&pending, next);
+				spin_unlock(&wrap_sighand_lock(next));
 
 				if (sigismember(&pending, SIGSTOP) ||
 				    sigismember(&pending, SIGINT))
@@ -2111,14 +2234,9 @@ static inline void do_schedule_event(struct task_struct *next)
 			}
 		}
 
-#ifdef CONFIG_XENO_OPT_ISHIELD
-		reset_shield(threadin);
-#endif /* CONFIG_XENO_OPT_ISHIELD */
-	} else if (next != gatekeeper[cpuid].server) {
-#ifdef CONFIG_XENO_OPT_ISHIELD
-		disengage_irq_shield();
-#endif /* CONFIG_XENO_OPT_ISHIELD */
-	}
+		ishield_reset(threadin);
+	} else if (next != gatekeeper[rthal_processor_id()].server)
+		ishield_off();
 
 	rpi_switch(next);
 }
@@ -2166,7 +2284,7 @@ static inline void do_sigwake_event(struct task_struct *p)
 	/* If we are kicking a shadow thread, make sure Linux won't
 	   schedule in its mate under our feet as a result of running
 	   signal_wake_up(). The Xenomai scheduler must remain in
-	   control for now, until we explicitely relax the shadow
+	   control for now, until we explicitly relax the shadow
 	   thread to allow for processing the pending signals. Make
 	   sure we keep the additional state flags unmodified so that
 	   we don't break any undergoing ptrace. */
@@ -2218,9 +2336,9 @@ RTHAL_DECLARE_SETSCHED_EVENT(setsched_event);
 static void detach_ppd(xnshadow_ppd_t * ppd)
 {
 	unsigned muxid = xnshadow_ppd_muxid(ppd);
-	muxtable[muxid].eventcb(XNSHADOW_CLIENT_DETACH, ppd);
-	if (muxtable[muxid].module)
-		module_put(muxtable[muxid].module);
+	muxtable[muxid].props->eventcb(XNSHADOW_CLIENT_DETACH, ppd);
+	if (muxtable[muxid].props->module)
+		module_put(muxtable[muxid].props->module);
 }
 
 static inline void do_cleanup_event(struct mm_struct *mm)
@@ -2252,12 +2370,7 @@ RTHAL_DECLARE_CLEANUP_EVENT(cleanup_event);
  *   being the pointer to the per-process data attached to the dying process.
  */
 
-int xnshadow_register_interface(const char *name,
-				unsigned magic,
-				int nrcalls,
-				xnsysent_t *systab,
-				void *(*eventcb) (int, void *),
-				struct module *module)
+int xnshadow_register_interface(struct xnskin_props *props)
 {
 	int muxid;
 	spl_t s;
@@ -2265,21 +2378,15 @@ int xnshadow_register_interface(const char *name,
 	/* We can only handle up to 256 syscalls per skin, check for over-
 	   and underflow (MKL). */
 
-	if (XENOMAI_MAX_SYSENT < nrcalls || 0 > nrcalls)
+	if (XENOMAI_MAX_SYSENT < props->nrcalls || 0 > props->nrcalls)
 		return -EINVAL;
 
 	xnlock_get_irqsave(&nklock, s);
 
 	for (muxid = 0; muxid < XENOMAI_MUX_NR; muxid++) {
-		if (muxtable[muxid].systab == NULL) {
-			muxtable[muxid].name = name;
-			muxtable[muxid].systab = systab;
-			muxtable[muxid].nrcalls = nrcalls;
-			muxtable[muxid].magic = magic;
+		if (muxtable[muxid].props == NULL) {
+			muxtable[muxid].props = props;
 			xnarch_atomic_set(&muxtable[muxid].refcnt, -1);
-			muxtable[muxid].eventcb = eventcb;
-			muxtable[muxid].module = module;
-
 			xnlock_put_irqrestore(&nklock, s);
 
 #ifdef CONFIG_PROC_FS
@@ -2312,18 +2419,15 @@ int xnshadow_unregister_interface(int muxid)
 	xnlock_get_irqsave(&nklock, s);
 
 	if (xnarch_atomic_get(&muxtable[muxid].refcnt) <= 0) {
-		muxtable[muxid].systab = NULL;
-		muxtable[muxid].nrcalls = 0;
-		muxtable[muxid].magic = 0;
+#ifdef CONFIG_PROC_FS
+		const char *name = muxtable[muxid].props->name;
+#endif /* CONFIG_PROC_FS */
+		muxtable[muxid].props = NULL;
 		xnarch_atomic_set(&muxtable[muxid].refcnt, -1);
 #ifdef CONFIG_PROC_FS
 		{
-			const char *name = muxtable[muxid].name;
-			muxtable[muxid].proc = NULL;
 			xnlock_put_irqrestore(&nklock, s);
-
 			xnpod_discard_iface_proc(name);
-
 			return 0;
 		}
 #endif /* CONFIG_PROC_FS */
@@ -2380,20 +2484,14 @@ void xnshadow_release_events(void)
 int xnshadow_mount(void)
 {
 	unsigned i, size;
-	int cpu;
+	int cpu, err;
 
 	nucleus_muxid = -1;
 
-#ifdef CONFIG_XENO_OPT_ISHIELD
-	if (rthal_register_domain(&irq_shield,
-				  "IShield",
-				  0x53484c44,
-				  RTHAL_ROOT_PRIO + 50, &shield_domain_entry))
-		return -EBUSY;
+	err = ishield_init();
 
-	shielded_cpus = CPU_MASK_NONE;
-	unshielded_cpus = xnarch_cpu_online_map;
-#endif /* CONFIG_XENO_OPT_ISHIELD */
+	if (err)
+		return err;
 
 	nkthrptd = rthal_alloc_ptdkey();
 	nkerrptd = rthal_alloc_ptdkey();
@@ -2423,7 +2521,7 @@ int xnshadow_mount(void)
 	rthal_catch_hisyscall(&hisyscall_event);
 
 	size = sizeof(xnqueue_t) * PPD_HASH_SIZE;
-	ppd_hash = (xnqueue_t *)xnarch_sysalloc(size);
+	ppd_hash = (xnqueue_t *)xnarch_alloc_host_mem(size);
 	if (!ppd_hash) {
 		xnshadow_cleanup();
 		printk(KERN_WARNING
@@ -2434,12 +2532,7 @@ int xnshadow_mount(void)
 	for (i = 0; i < PPD_HASH_SIZE; i++)
 		initq(&ppd_hash[i]);
 
-	nucleus_muxid =
-	    xnshadow_register_interface("sys",
-					0x434F5245,
-					sizeof(xnshadow_systab) /
-					sizeof(xnsysent_t), xnshadow_systab,
-					NULL, NULL);
+	nucleus_muxid = xnshadow_register_interface(&__props);
 
 	if (nucleus_muxid != 0) {
 		if (nucleus_muxid > 0) {
@@ -2467,7 +2560,7 @@ void xnshadow_cleanup(void)
 	nucleus_muxid = -1;
 
 	if (ppd_hash)
-		xnarch_sysfree(ppd_hash,
+		xnarch_free_host_mem(ppd_hash,
 			       sizeof(xnqueue_t) * PPD_HASH_SIZE);
 	ppd_hash = NULL;
 
@@ -2484,9 +2577,7 @@ void xnshadow_cleanup(void)
 	rthal_apc_free(lostage_apc);
 	rthal_free_ptdkey(nkerrptd);
 	rthal_free_ptdkey(nkthrptd);
-#ifdef CONFIG_XENO_OPT_ISHIELD
-	rthal_unregister_domain(&irq_shield);
-#endif /* CONFIG_XENO_OPT_ISHIELD */
+	ishield_cleanup();
 }
 
 /*@}*/

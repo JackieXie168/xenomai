@@ -1,9 +1,12 @@
+include_HEADERS = \
+	rtdk.h
+
 nodist_include_HEADERS=$(CONFIG_HEADER)
 
 SUBDIRS = \
 	asm-generic \
 	asm-blackfin \
-	asm-i386 \
+	asm-x86 \
 	asm-ia64 \
 	asm-powerpc \
 	asm-arm \

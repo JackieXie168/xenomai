@@ -44,7 +44,9 @@ typedef struct rt_sem_placeholder {
     xnhandle_t opaque;
 } RT_SEM_PLACEHOLDER;
 
-#if defined(__KERNEL__) || defined(__XENO_SIM__)
+#if (defined(__KERNEL__) || defined(__XENO_SIM__)) && !defined(DOXYGEN_CPP)
+
+#include <native/ppd.h>
 
 #define XENO_SEM_MAGIC 0x55550303
 
@@ -62,9 +64,15 @@ typedef struct rt_sem {
 
     char name[XNOBJECT_NAME_LEN]; /* !< Symbolic name. */
 
-#if defined(__KERNEL__) && defined(CONFIG_XENO_OPT_PERVASIVE)
+#ifdef CONFIG_XENO_OPT_PERVASIVE
     pid_t cpid;			/* !< Creator's pid. */
-#endif /* __KERNEL__ && CONFIG_XENO_OPT_PERVASIVE */
+#endif /* CONFIG_XENO_OPT_PERVASIVE */
+
+    xnholder_t rlink;		/* !< Link in resource queue. */
+
+#define rlink2sem(ln)		container_of(ln, RT_SEM, rlink)
+
+    xnqueue_t *rqueue;		/* !< Backpointer to resource queue. */
 
 } RT_SEM;
 
@@ -72,9 +80,24 @@ typedef struct rt_sem {
 extern "C" {
 #endif
 
+#ifdef CONFIG_XENO_OPT_NATIVE_SEM
+
 int __native_sem_pkg_init(void);
 
 void __native_sem_pkg_cleanup(void);
+
+static inline void __native_sem_flush_rq(xnqueue_t *rq)
+{
+	xeno_flush_rq(RT_SEM, rq, sem);
+}
+
+#else /* !CONFIG_XENO_OPT_NATIVE_SEM */
+
+#define __native_sem_pkg_init()		({ 0; })
+#define __native_sem_pkg_cleanup()		do { } while(0)
+#define __native_sem_flush_rq(rq)		do { } while(0)
+
+#endif /* !CONFIG_XENO_OPT_NATIVE_SEM */
 
 #ifdef __cplusplus
 }

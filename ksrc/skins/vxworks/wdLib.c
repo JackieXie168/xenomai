@@ -22,8 +22,6 @@
 
 #define WIND_WD_INITIALIZED XNTIMER_SPARE0
 
-static xnqueue_t wind_wd_q;
-
 static void wd_destroy_internal(wind_wd_t *wd);
 
 #ifdef CONFIG_XENO_EXPORT_REGISTRY
@@ -41,19 +39,19 @@ static int wd_read_proc(char *page,
 
 	p += sprintf(p, "timeout=%lld\n", xntimer_get_timeout(&wd->timerbase));
 
-#if defined(__KERNEL__) && defined(CONFIG_XENO_OPT_PERVASIVE)
+#ifdef CONFIG_XENO_OPT_PERVASIVE
 	{
 		xnpholder_t *holder =
-		    getheadpq(xnsynch_wait_queue(&wd->synchbase));
+		    getheadpq(xnsynch_wait_queue(&wd->rh->wdsynch));
 
 		while (holder) {
 			xnthread_t *sleeper = link2thread(holder, plink);
 			p += sprintf(p, "+%s\n", xnthread_name(sleeper));
 			holder =
-			    nextpq(xnsynch_wait_queue(&wd->synchbase), holder);
+			    nextpq(xnsynch_wait_queue(&wd->rh->wdsynch), holder);
 		}
 	}
-#endif /* __KERNEL__ && CONFIG_XENO_OPT_PERVASIVE */
+#endif /* CONFIG_XENO_OPT_PERVASIVE */
 
 	xnlock_put_irqrestore(&nklock, s);
 
@@ -99,15 +97,11 @@ static void wind_wd_trampoline(xntimer_t *timer)
 
 void wind_wd_init(void)
 {
-	initq(&wind_wd_q);
 }
 
 void wind_wd_cleanup(void)
 {
-	xnholder_t *holder;
-
-	while ((holder = getheadq(&wind_wd_q)) != NULL)
-		wd_destroy_internal(link2wind_wd(holder));
+	wind_wd_flush_rq(&__wind_global_rholder.wdq);
 }
 
 WDOG_ID wdCreate(void)
@@ -117,15 +111,19 @@ WDOG_ID wdCreate(void)
 
 	check_alloc(wind_wd_t, wd, return 0);
 
-	inith(&wd->link);
 	wd->magic = WIND_WD_MAGIC;
-#if defined(__KERNEL__) && defined(CONFIG_XENO_OPT_PERVASIVE)
-	xnsynch_init(&wd->synchbase, XNSYNCH_PRIO);
-#endif /* __KERNEL__ && CONFIG_XENO_OPT_PERVASIVE */
+#ifdef CONFIG_XENO_OPT_PERVASIVE
+	wd->rh = wind_get_rholder();
+	inith(&wd->plink);
+#endif /* CONFIG_XENO_OPT_PERVASIVE */
 
+	xntimer_init(&wd->timerbase, wind_tbase, wind_wd_trampoline);
+
+	inith(&wd->rlink);
+	wd->rqueue = &wind_get_rholder()->wdq;
 	xnlock_get_irqsave(&nklock, s);
 	__setbits(wd->timerbase.status, WIND_WD_INITIALIZED);
-	appendq(&wind_wd_q, &wd->link);
+	appendq(wd->rqueue, &wd->rlink);
 	xnlock_put_irqrestore(&nklock, s);
 
 #ifdef CONFIG_XENO_OPT_REGISTRY
@@ -155,6 +153,7 @@ STATUS wdDelete(WDOG_ID wdog_id)
 	check_OBJ_ID_ERROR(wdog_id, wind_wd_t, wd, WIND_WD_MAGIC, goto error);
 	wd_destroy_internal(wd);
 	xnlock_put_irqrestore(&nklock, s);
+	xnfree(wd);
 	return OK;
 
       error:
@@ -179,11 +178,10 @@ STATUS wdStart(WDOG_ID wdog_id, int timeout, wind_timer_t handler, long arg)
 	else
 		xntimer_stop(&wd->timerbase);
 
-	xntimer_init(&wd->timerbase, wind_wd_trampoline);
 	wd->handler = handler;
 	wd->arg = arg;
 
-	xntimer_start(&wd->timerbase, timeout, XN_INFINITE);
+	xntimer_start(&wd->timerbase, timeout, XN_INFINITE, XN_RELATIVE);
 
 	xnlock_put_irqrestore(&nklock, s);
 	return OK;
@@ -210,21 +208,20 @@ STATUS wdCancel(WDOG_ID wdog_id)
 	return ERROR;
 }
 
+/* Called with nklock locked, interrupts off. */
 static void wd_destroy_internal(wind_wd_t *wd)
 {
-	spl_t s;
-
-	xnlock_get_irqsave(&nklock, s);
+	removeq(wd->rqueue, &wd->rlink);
 	xntimer_destroy(&wd->timerbase);
 #ifdef CONFIG_XENO_OPT_REGISTRY
 	xnregistry_remove(wd->handle);
 #endif /* CONFIG_XENO_OPT_REGISTRY */
-#if defined(__KERNEL__) && defined(CONFIG_XENO_OPT_PERVASIVE)
-	xnsynch_destroy(&wd->synchbase);
-#endif /* __KERNEL__ && CONFIG_XENO_OPT_PERVASIVE */
-	removeq(&wind_wd_q, &wd->link);
+#ifdef CONFIG_XENO_OPT_PERVASIVE
+	if (wd->plink.last != wd->plink.next)
+		/* Deleted watchdog was pending for delivery to the
+		 * user-space server task: remove it from the
+		 * list of events to process. */
+		removeq(&wd->rh->wdpending, &wd->plink);
+#endif /* CONFIG_XENO_OPT_PERVASIVE */
 	wind_mark_deleted(wd);
-	xnlock_put_irqrestore(&nklock, s);
-
-	xnfree(wd);
 }

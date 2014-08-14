@@ -59,17 +59,22 @@ typedef struct pse51_cond {
 
 	pthread_condattr_t attr;
 	struct pse51_mutex *mutex;
+	pse51_kqueues_t *owningq;
 } pse51_cond_t;
 
 static pthread_condattr_t default_cond_attr;
 
 static void cond_destroy_internal(pse51_cond_t * cond, pse51_kqueues_t *q)
 {
+	spl_t s;
+
+	xnlock_get_irqsave(&nklock, s);
 	removeq(&q->condq, &cond->link);
 	/* synchbase wait queue may not be empty only when this function is
 	   called from pse51_cond_pkg_cleanup, hence the absence of
 	   xnpod_schedule(). */
 	xnsynch_destroy(&cond->synchbase);
+	xnlock_put_irqrestore(&nklock, s);
 	xnfree(cond);
 }
 
@@ -105,15 +110,20 @@ int pthread_cond_init(pthread_cond_t * cnd, const pthread_condattr_t * attr)
 	pse51_cond_t *cond;
 	xnqueue_t *condq;
 	spl_t s;
+	int err;
 
 	if (!attr)
 		attr = &default_cond_attr;
 
+	cond = (pse51_cond_t *) xnmalloc(sizeof(*cond));
+	if (!cond)
+		return ENOMEM;
+
 	xnlock_get_irqsave(&nklock, s);
 
 	if (attr->magic != PSE51_COND_ATTR_MAGIC) {
-		xnlock_put_irqrestore(&nklock, s);
-		return EINVAL;
+		err = EINVAL;
+		goto error;
 	}
 
 	condq = &pse51_kqueues(attr->pshared)->condq;
@@ -124,15 +134,9 @@ int pthread_cond_init(pthread_cond_t * cnd, const pthread_condattr_t * attr)
 		     holder = nextq(condq, holder))
 			if (holder == &shadow->cond->link) {
 				/* cond is already in the queue. */
-				xnlock_put_irqrestore(&nklock, s);
-				return EBUSY;
+				err = EBUSY;
+				goto error;
 			}
-	}
-
-	cond = (pse51_cond_t *) xnmalloc(sizeof(*cond));
-	if (!cond) {
-		xnlock_put_irqrestore(&nklock, s);
-		return ENOMEM;
 	}
 
 	shadow->magic = PSE51_COND_MAGIC;
@@ -142,12 +146,17 @@ int pthread_cond_init(pthread_cond_t * cnd, const pthread_condattr_t * attr)
 	inith(&cond->link);
 	cond->attr = *attr;
 	cond->mutex = NULL;
+	cond->owningq = pse51_kqueues(attr->pshared);
 
 	appendq(condq, &cond->link);
 
 	xnlock_put_irqrestore(&nklock, s);
 
 	return 0;
+
+  error:
+	xnlock_put_irqrestore(&nklock, s);
+	return err;
 }
 
 /**
@@ -163,6 +172,8 @@ int pthread_cond_init(pthread_cond_t * cnd, const pthread_condattr_t * attr)
  * @return 0 on succes,
  * @return an error number if:
  * - EINVAL, the condition variable @a cnd is invalid;
+ * - EPERM, the condition variable is not process-shared and does not belong to
+ *   the current process;
  * - EBUSY, some thread is currently using the condition variable.
  *
  * @see
@@ -184,16 +195,21 @@ int pthread_cond_destroy(pthread_cond_t * cnd)
 	}
 
 	cond = shadow->cond;
+	if (cond->owningq != pse51_kqueues(cond->attr.pshared)) {
+		xnlock_put_irqrestore(&nklock, s);
+		return EPERM;
+	}
 
 	if (xnsynch_nsleepers(&cond->synchbase) || cond->mutex) {
 		xnlock_put_irqrestore(&nklock, s);
 		return EBUSY;
 	}
 
-	cond_destroy_internal(cond, pse51_kqueues(cond->attr.pshared));
 	pse51_mark_deleted(shadow);
 
 	xnlock_put_irqrestore(&nklock, s);
+
+	cond_destroy_internal(cond, pse51_kqueues(cond->attr.pshared));
 
 	return 0;
 }
@@ -232,7 +248,8 @@ int pse51_cond_timedwait_prologue(xnthread_t *cur,
 				  struct __shadow_cond *shadow,
 				  struct __shadow_mutex *mutex,
 				  unsigned *count_ptr,
-				  xnticks_t to)
+				  int timed,
+				  xnticks_t abs_to)
 {
 	pse51_cond_t *cond;
 	spl_t s;
@@ -257,10 +274,10 @@ int pse51_cond_timedwait_prologue(xnthread_t *cur,
 		goto unlock_and_return;
 	}
 
-	err = clock_adjust_timeout(&to, cond->attr.clock);
-
-	if (err)
+	if (cond->owningq != pse51_kqueues(cond->attr.pshared)) {
+		err = EPERM;
 		goto unlock_and_return;
+	}
 
 	/* Unlock mutex, with its previous recursive lock count stored
 	   in "*count_ptr". */
@@ -276,7 +293,11 @@ int pse51_cond_timedwait_prologue(xnthread_t *cur,
 	}
 
 	/* Wait for another thread to signal the condition. */
-	xnsynch_sleep_on(&cond->synchbase, to);
+	if (timed)
+		xnsynch_sleep_on(&cond->synchbase, abs_to,
+				 clock_flag(TIMER_ABSTIME, cond->attr.clock));
+	else
+		xnsynch_sleep_on(&cond->synchbase, XN_INFINITE, XN_RELATIVE);
 
 	/* There are four possible wakeup conditions :
 	   - cond_signal / cond_broadcast, no status bit is set, and the function
@@ -319,7 +340,7 @@ int pse51_cond_timedwait_epilogue(xnthread_t *cur,
 
 	cond = shadow->cond;
 
-	err = pse51_mutex_timedlock_internal(cur, mutex, count, XN_INFINITE);
+	err = pse51_mutex_timedlock_internal(cur, mutex, count, 0, XN_INFINITE);
 
 	if (err == EINTR)
 		goto unlock_and_return;
@@ -375,8 +396,10 @@ int pse51_cond_timedwait_epilogue(xnthread_t *cur,
  *
  * @return 0 on success,
  * @return an error number if:
- * - EINVAL, the specified condition variable or mutex is invalid;
  * - EPERM, the caller context is invalid;
+ * - EINVAL, the specified condition variable or mutex is invalid;
+ * - EPERM, the specified condition variable is not process-shared and does not
+ *   belong to the current process;
  * - EINVAL, another thread is currently blocked on @a cnd using another mutex
  *   than @a mx;
  * - EPERM, the specified mutex is not owned by the caller.
@@ -400,7 +423,7 @@ int pthread_cond_wait(pthread_cond_t * cnd, pthread_mutex_t * mx)
 	int err;
 
 	err = pse51_cond_timedwait_prologue(cur, cond, mutex,
-					    &count, XN_INFINITE);
+					    &count, 0, XN_INFINITE);
 
 	if (!err || err == EINTR)
 		while (EINTR == pse51_cond_timedwait_epilogue(cur, cond,
@@ -430,8 +453,10 @@ int pthread_cond_wait(pthread_cond_t * cnd, pthread_mutex_t * mx)
  *
  * @return 0 on success,
  * @return an error number if:
- * - EINVAL, the specified condition variable, mutex or timeout is invalid;
  * - EPERM, the caller context is invalid;
+ * - EPERM, the specified condition variable is not process-shared and does not
+ *   belong to the current process;
+ * - EINVAL, the specified condition variable, mutex or timeout is invalid;
  * - EINVAL, another thread is currently blocked on @a cnd using another mutex
  *   than @a mx;
  * - EPERM, the specified mutex is not owned by the caller;
@@ -456,7 +481,7 @@ int pthread_cond_timedwait(pthread_cond_t * cnd,
 	unsigned count;
 	int err;
 
-	err = pse51_cond_timedwait_prologue(cur, cond, mutex, &count,
+	err = pse51_cond_timedwait_prologue(cur, cond, mutex, &count, 1,
 					    ts2ticks_ceil(abstime) + 1);
 
 	if (!err || err == EINTR || err == ETIMEDOUT)
@@ -479,7 +504,9 @@ int pthread_cond_timedwait(pthread_cond_t * cnd,
  *
  * @return 0 on succes,
  * @return an error number if:
- * - EINVAL, the condition variable is invalid.
+ * - EINVAL, the condition variable is invalid;
+ * - EPERM, the condition variable is not process-shared and does not belong to
+ *   the current process.
  *
  * @see
  * <a href="http://www.opengroup.org/onlinepubs/000095399/functions/pthread_cond_signal.html.">
@@ -500,6 +527,12 @@ int pthread_cond_signal(pthread_cond_t * cnd)
 	}
 
 	cond = shadow->cond;
+#if XENO_DEBUG(POSIX)
+	if (cond->owningq != pse51_kqueues(cond->attr.pshared)) {
+		xnlock_put_irqrestore(&nklock, s);
+		return EPERM;
+	}
+#endif /* XENO_DEBUG(POSIX) */
 
 	/* FIXME: If the mutex associated with cnd is owned by the current
 	   thread, we could postpone rescheduling until pthread_mutex_unlock is
@@ -521,7 +554,9 @@ int pthread_cond_signal(pthread_cond_t * cnd)
  *
  * @return 0 on succes,
  * @return an error number if:
- * - EINVAL, the condition variable is invalid.
+ * - EINVAL, the condition variable is invalid;
+ * - EPERM, the condition variable is not process-shared and does not belong to
+ *   the current process.
  *
  * @see
  * <a href="http://www.opengroup.org/onlinepubs/000095399/functions/pthread_cond_broadcast.html">
@@ -542,6 +577,10 @@ int pthread_cond_broadcast(pthread_cond_t * cnd)
 	}
 
 	cond = shadow->cond;
+	if (cond->owningq != pse51_kqueues(cond->attr.pshared)) {
+		xnlock_put_irqrestore(&nklock, s);
+		return EPERM;
+	}
 
 	if (xnsynch_flush(&cond->synchbase, 0) == XNSYNCH_RESCHED)
 		xnpod_schedule();
@@ -559,8 +598,8 @@ void pse51_condq_cleanup(pse51_kqueues_t *q)
 	xnlock_get_irqsave(&nklock, s);
 
 	while ((holder = getheadq(&q->condq)) != NULL) {
-		cond_destroy_internal(link2cond(holder), q);
 		xnlock_put_irqrestore(&nklock, s);
+		cond_destroy_internal(link2cond(holder), q);
 #if XENO_DEBUG(POSIX)
 		xnprintf("Posix: destroying condition variable %p.\n",
 			 link2cond(holder));

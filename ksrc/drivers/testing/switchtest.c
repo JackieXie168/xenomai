@@ -50,7 +50,7 @@ static int rtswitch_pend_rt(rtswitch_context_t *ctx,
 	task = &ctx->tasks[idx];
 	task->base.flags |= RTSWITCH_RT;
 
-	xnsynch_sleep_on(&task->rt_synch, XN_INFINITE);
+	xnsynch_sleep_on(&task->rt_synch, XN_INFINITE, XN_RELATIVE);
 
 	if (xnthread_test_info(xnpod_current_thread(), XNBREAK))
 		return -EINTR;
@@ -81,12 +81,10 @@ static int rtswitch_to_rt(rtswitch_context_t *ctx,
 	++ctx->switches_count;
 	ctx->error.last_switch.from = from_idx;
 	ctx->error.last_switch.to = to_idx;
-	barrier();
 
 	switch (to->base.flags & RTSWITCH_RT) {
 	case RTSWITCH_NRT:
 		rtswitch_utask[ctx->cpu] = to;
-		barrier();
 		rtdm_nrtsig_pend(&rtswitch_wake_utask);
 		xnlock_get_irqsave(&nklock, s);
 		break;
@@ -101,7 +99,7 @@ static int rtswitch_to_rt(rtswitch_context_t *ctx,
 		return -EINVAL;
 	}
 
-	xnsynch_sleep_on(&from->rt_synch, XN_INFINITE);
+	xnsynch_sleep_on(&from->rt_synch, XN_INFINITE, XN_RELATIVE);
 
 	xnlock_put_irqrestore(&nklock, s);
 
@@ -154,7 +152,6 @@ static int rtswitch_to_nrt(rtswitch_context_t *ctx,
 	++ctx->switches_count;
 	ctx->error.last_switch.from = from_idx;
 	ctx->error.last_switch.to = to_idx;
-	barrier();
 
 	switch (to->base.flags & RTSWITCH_RT) {
 	case RTSWITCH_NRT:
@@ -331,7 +328,7 @@ static int rtswitch_create_ktask(rtswitch_context_t *ctx,
 	   the created task. */
 	set_cpus_allowed(current, cpumask_of_cpu(ctx->cpu));
 
-	err = xnpod_init_thread(&task->ktask, name, 1, init_flags, 0);
+	err = xnpod_init_thread(&task->ktask, rtdm_tbase, name, 1, init_flags, 0, NULL);
 
 	if (!err)
 		err = xnpod_start_thread(&task->ktask,
@@ -392,7 +389,7 @@ static int rtswitch_close(struct rtdm_dev_context *context,
 
 static int rtswitch_ioctl_nrt(struct rtdm_dev_context *context,
                               rtdm_user_info_t *user_info,
-                              int request,
+                              unsigned int request,
                               void *arg)
 {
 	rtswitch_context_t *ctx = (rtswitch_context_t *) context->dev_private;
@@ -493,7 +490,7 @@ static int rtswitch_ioctl_nrt(struct rtdm_dev_context *context,
 
 static int rtswitch_ioctl_rt(struct rtdm_dev_context *context,
                              rtdm_user_info_t *user_info,
-                             int request,
+                             unsigned int request,
                              void *arg)
 {
 	rtswitch_context_t *ctx = (rtswitch_context_t *) context->dev_private;
@@ -563,6 +560,7 @@ static struct rtdm_device device = {
 
 	device_class: RTDM_CLASS_TESTING,
 	device_sub_class: RTDM_SUBCLASS_SWITCHTEST,
+	profile_version: RTTST_PROFILE_VER,
 	driver_name: "xeno_switchtest",
 	driver_version: RTDM_DRIVER_VER(0, 1, 1),
 	peripheral_name: "Context Switch Test",
@@ -570,7 +568,7 @@ static struct rtdm_device device = {
 	proc_name: device.device_name,
 };
 
-void rtswitch_utask_waker(rtdm_nrtsig_t sig)
+void rtswitch_utask_waker(rtdm_nrtsig_t sig, void *arg)
 {
 	up(&rtswitch_utask[xnarch_current_cpu()]->nrt_synch);
 }
@@ -579,8 +577,8 @@ int __init __switchtest_init(void)
 {
 	int err;
 
-	err = rtdm_nrtsig_init(&rtswitch_wake_utask, rtswitch_utask_waker);
-
+	err = rtdm_nrtsig_init(&rtswitch_wake_utask,
+			       rtswitch_utask_waker, NULL);
 	if (err)
 		return err;
 

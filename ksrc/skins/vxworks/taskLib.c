@@ -30,6 +30,21 @@ static int testSafe(wind_task_t *task);
 static void wind_task_delete_hook(xnthread_t *xnthread);
 static void wind_task_trampoline(void *cookie);
 
+static int wind_task_get_denormalized_prio(xnthread_t *thread)
+{
+	return wind_denormalized_prio(xnthread_current_priority(thread));
+}
+
+static unsigned wind_task_get_magic(void)
+{
+	return VXWORKS_SKIN_MAGIC;
+}
+
+static xnthrops_t windtask_ops = {
+	.get_denormalized_prio = &wind_task_get_denormalized_prio,
+	.get_magic = &wind_task_get_magic,
+};
+
 void wind_task_init(void)
 {
 	initq(&wind_tasks_q);
@@ -88,17 +103,13 @@ STATUS taskInit(WIND_TCB *pTcb,
 	/* VxWorks does not check for invalid option flags, so we
 	   neither. */
 
-#if defined(__KERNEL__) && defined(CONFIG_XENO_OPT_PERVASIVE)
-	/* VxWorks priority scale is inverted compared to the core
-	   pod's we are going to use for hosting our threads. */
-	bflags |= XNINVPS;
-
+#ifdef CONFIG_XENO_OPT_PERVASIVE
 	if (flags & VX_SHADOW)
 		bflags |= XNSHADOW;
-#else /* !(__KERNEL__ && CONFIG_XENO_OPT_PERVASIVE) */
+#else /* !CONFIG_XENO_OPT_PERVASIVE */
 	if (stacksize < 1024)
 		return ERROR;
-#endif /* __KERNEL__ && CONFIG_XENO_OPT_PERVASIVE */
+#endif /* CONFIG_XENO_OPT_PERVASIVE */
 
 	if (flags & VX_FP_TASK)
 		bflags |= XNFPU;
@@ -115,15 +126,14 @@ STATUS taskInit(WIND_TCB *pTcb,
 		sprintf(pTcb->name, "t%lu", pTcb->flow_id);
 
 	if (xnpod_init_thread(&pTcb->threadbase,
+			      wind_tbase,
 			      pTcb->name,
 			      wind_normalized_prio(prio), bflags,
-			      stacksize) != 0) {
+			      stacksize, &windtask_ops) != 0) {
 		/* Assume this is the only possible failure. */
 		wind_errnoset(S_memLib_NOT_ENOUGH_MEMORY);
 		return ERROR;
 	}
-
-	xnthread_set_magic(&pTcb->threadbase, VXWORKS_SKIN_MAGIC);
 
 	/* finally set the Tcb after error conditions checking */
 	pTcb->magic = WIND_TASK_MAGIC;
@@ -227,17 +237,19 @@ TASK_ID taskSpawn(const char *name,
 			  arg9);
 
 	if (status == ERROR)
-		return ERROR;
+		goto error;
 
 	task->auto_delete = 1;
 	status = taskActivate(task_id);
 
-	if (status == ERROR) {
-		taskDeleteForce(task_id);
-		return ERROR;
-	}
+	if (status == ERROR)
+		goto error;
 
 	return task_id;
+
+      error:
+	taskDeleteForce(task_id);
+	return ERROR;
 }
 
 STATUS taskDeleteForce(TASK_ID task_id)
@@ -328,7 +340,7 @@ STATUS taskSuspend(TASK_ID task_id)
 	check_OBJ_ID_ERROR(task_id, wind_task_t, task, WIND_TASK_MAGIC,
 			   goto error);
 
-	xnpod_suspend_thread(&task->threadbase, XNSUSP, XN_INFINITE, NULL);
+	xnpod_suspend_thread(&task->threadbase, XNSUSP, XN_INFINITE, XN_RELATIVE, NULL);
 
 	error_check(xnthread_test_info(&task->threadbase, XNBREAK), -EINTR,
 		    goto error);
@@ -576,7 +588,7 @@ TASK_ID taskNameToId(const char *name)
 static int testSafe(wind_task_t *task)
 {
 	while (task->safecnt > 0) {
-		xnsynch_sleep_on(&task->safesync, XN_INFINITE);
+		xnsynch_sleep_on(&task->safesync, XN_INFINITE, XN_RELATIVE);
 		error_check(xnthread_test_info(&task->threadbase, XNBREAK),
 			    -EINTR, return ERROR);
 	}

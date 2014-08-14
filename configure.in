@@ -14,10 +14,6 @@ else
 	XENO_EMPTY_CFLAGS=false
 fi
 
-if eval test $includedir = /usr/include; then
-  AC_MSG_ERROR([Using /usr/include as includedir is not supported. Please change your --prefix or specify another --includedir])
-fi
-
 AC_CONFIG_HEADERS(src/include/xeno_config.h)
 AC_CONFIG_AUX_DIR(config)
 AC_CONFIG_SRCDIR(src/skins/native/task.c)
@@ -61,7 +57,7 @@ AC_MSG_CHECKING([for target architecture])
 
 case "$host" in
  i*86*-*)
-	XENO_TARGET_ARCH=i386
+	XENO_TARGET_ARCH=x86
         XENO_LINUX_ARCH=i386
 	XENO_LINUX_INSTALL_TARGET=install
         ;;
@@ -84,7 +80,7 @@ case "$host" in
         ;;
  bfin-*|bfinnommu-*|blackfin-*)
 	XENO_TARGET_ARCH=blackfin
-        XENO_LINUX_ARCH=bfinnommu
+        XENO_LINUX_ARCH=blackfin
 	XENO_LINUX_INSTALL_TARGET=install
         ;;
  arm*-*)
@@ -93,6 +89,11 @@ case "$host" in
 	XENO_LINUX_INSTALL_TARGET=install_image
 	XENO_LINUX_IMAGE=arch/arm/boot/zImage
 	;;
+ x86_64-*|amd64-*)
+	XENO_TARGET_ARCH=x86
+        XENO_LINUX_ARCH=x86_64
+	XENO_LINUX_INSTALL_TARGET=install
+        ;;
  *) echo ""
    echo "*******************************************"
    echo "Still unsupported target: $host -- Sorry."
@@ -102,7 +103,7 @@ case "$host" in
 esac
 
 AC_MSG_RESULT([$XENO_TARGET_ARCH])
-AM_CONDITIONAL(XENO_TARGET_ARCH_I386,[test $XENO_TARGET_ARCH = i386])
+AM_CONDITIONAL(XENO_LINUX_ARCH_I386,[test $XENO_LINUX_ARCH = i386])
 
 dnl
 dnl Parse options
@@ -137,7 +138,7 @@ dnl SEP (default: disabled) and TSC support for x86 (default: enabled)
 CONFIG_XENO_X86_SEP=
 CONFIG_X86_TSC=y
 
-if test $XENO_TARGET_ARCH = i386; then
+if test $XENO_TARGET_ARCH = x86; then
   AC_MSG_CHECKING(for x86 SEP instructions in syscalls)
   AC_ARG_ENABLE(x86-sep,
 	AS_HELP_STRING([--enable-x86-sep], [Enable x86 SEP instructions for issuing syscalls]),
@@ -162,7 +163,7 @@ dnl ARCH support for ARM (default: 4)
 if test $XENO_TARGET_ARCH = arm ; then
   CONFIG_XENO_ARM_ARCH=4
   CONFIG_XENO_ARM_SA1100=
-  CONFIG_XENO_ARM_EABI=
+  CONFIX_XENO_ARM_EABI=
 
   unset CONFIG_XENO_ARM_SA1100
   unset tsc_type
@@ -225,15 +226,6 @@ ixp4xx, pxa, s3c2410, sa1100.]),
   AC_MSG_CHECKING(for ARM SA1100 architecture)
   AC_MSG_RESULT(${CONFIG_XENO_ARM_SA1100:-no})
 
-  AC_MSG_CHECKING(for ARM EABI interface)
-  AC_ARG_ENABLE(arm-eabi,
-	AS_HELP_STRING([--enable-arm-eabi], [Enable ARM EABI interface]),
-	[case "$enableval" in
-	y | yes) CONFIG_XENO_ARM_EABI=y ;;
-	*) unset CONFIG_XENO_ARM_EABI ;;
-	esac])
-  AC_MSG_RESULT(${CONFIG_XENO_ARM_EABI:-no})
-
   AC_MSG_CHECKING(for TSC emulation in user-space.)
   if test $tsc_type; then
 	AC_ARG_ENABLE(arm-tsc,
@@ -248,6 +240,14 @@ user-space]),
 	AC_MSG_RESULT(not supported by this board)
   fi
 
+  AC_MSG_CHECKING(for ARM EABI interface)
+  AC_ARG_ENABLE(arm-eabi,
+	AS_HELP_STRING([--enable-arm-eabi], [Enable ARM EABI interface]),
+	[case "$enableval" in
+	y | yes) CONFIG_XENO_ARM_EABI=y ;;
+	*) unset CONFIG_XENO_ARM_EABI ;;
+	esac])
+  AC_MSG_RESULT(${CONFIG_XENO_ARM_EABI:-no})
 fi
 
 dnl Flags for building Linux in Xenomai build tree.
@@ -325,13 +325,37 @@ patch. Default is to infer the patch name from Linux kernel version.]),
   if test x"$ADEOS_PATCH" = x && test x"$linux_base_version" != x ; then
         set -- $srcdir/ksrc/arch/$XENO_TARGET_ARCH/patches/adeos-*$linux_base_version-$XENO_LINUX_ARCH-*
         ADEOS_PATCH=$1
+	if test ! -e $ADEOS_PATCH; then
+		set -- $srcdir/ksrc/arch/$XENO_TARGET_ARCH/patches/adeos-*$linux_base_version-$XENO_TARGET_ARCH-*
+		ADEOS_PATCH=$1
+	fi
   fi
   if test x"$ADEOS_PATCH" = x || test ! -e $ADEOS_PATCH ; then
      AC_MSG_ERROR([Unable to find Adeos patch, please use --with-adeos-patch])
   else
      AC_MSG_RESULT([$ADEOS_PATCH])
   fi
+  case "$ADEOS_PATCH" in
+	*-powerpc-*) XENO_LINUX_ARCH=powerpc;;
+  esac
   AC_SUBST(ADEOS_PATCH)
+
+  unset LNDIR
+  AC_CHECK_PROG(LNDIR, lndir, lndir)
+  if test "x$LNDIR" != "x"; then
+    AC_MSG_CHECKING(if lndir supports the -silent -ignorelinks options)
+    if mkdir conftest1.dir && : > conftest1.dir/foo && mkdir conftest2.dir; then
+	  cd conftest2.dir && $LNDIR -silent -ignorelinks ../conftest1.dir \
+		&& cd ..
+	  test -e conftest2.dir/foo && LNDIR="$LNDIR -silent -ignorelinks"
+	  rm -Rf contest1.dir conftest2.dir
+    fi
+    if test "x$LNDIR" = "xlndir"; then
+	AC_MSG_RESULT(no)
+    else
+	AC_MSG_RESULT(yes)
+    fi
+  fi
 
   AC_CONFIG_COMMANDS(linux, [
      if test -e linux/.xenomai-prepared ; then
@@ -356,23 +380,29 @@ patch. Default is to infer the patch name from Linux kernel version.]),
                fi
                mkdir linux
                echo $ECHO_N "Making linux a shadow copy of $XENO_LINUX_SRCDIR... $ECHO_C" 
-               cd $XENO_LINUX_SRCDIR
-               find . -! -type d | while read f ; do
-                   d=$targetdir/`dirname $f`
-                   mkdir -p $d && ln -sf $XENO_LINUX_SRCDIR/$f $d/`basename $f`
-               done
+	       if test -z "$LNDIR"; then
+	           cd $XENO_LINUX_SRCDIR
+                   find . -! -type d | while read f ; do
+                       d=$targetdir/`dirname $f`
+                       mkdir -p $d && ln -sf $XENO_LINUX_SRCDIR/$f $d/`basename $f`
+                   done
+               else
+		   cd $targetdir && $LNDIR $XENO_LINUX_SRCDIR
+	       fi
                echo "${ECHO_T}done."
            fi
            cd $targetdir
 
            if test -e $XENO_LINUX_SRCDIR/.config ; then
               . $XENO_LINUX_SRCDIR/.config
-              test x"$CONFIG_X86" = xy && cfg_arch=i386 || :
-              test x"$CONFIG_PPC" = xy && cfg_arch=ppc || :
-              test x"$CONFIG_IA64" = xy && cfg_arch=ia64 || :
-              test x"$CONFIG_PPC64" = xy && cfg_arch=ppc64 || :
+	      test x"$CONFIG_ARM" = xy && cfg_arch=arm || :
               test x"$CONFIG_BLACKFIN" = xy && cfg_arch=blackfin || :
-              if test $cfg_arch = $XENO_TARGET_ARCH ; then
+              test x"$CONFIG_IA64" = xy && cfg_arch=ia64 || :
+              test x"$CONFIG_PPC" = xy && cfg_arch=ppc || :
+              test x"$CONFIG_PPC64" = xy && cfg_arch=ppc64 || :
+              test x"$CONFIG_X86_64" = xy && cfg_arch=x86_64 || :
+              test x"$CONFIG_X86" = xy && cfg_arch=i386 || :
+              if test $cfg_arch = $XENO_LINUX_ARCH ; then
                  cp $XENO_LINUX_SRCDIR/.config .xenomai.config
               fi
               echo "Cleaning linux directory..." 
@@ -381,7 +411,7 @@ patch. Default is to infer the patch name from Linux kernel version.]),
            fi
            cd ..
            $srcdir/scripts/prepare-kernel.sh \
-             --adeos="$ADEOS_PATCH" --linux=linux --arch=$XENO_LINUX_ARCH
+             --adeos="$ADEOS_PATCH" --linux=linux --arch=$XENO_LINUX_ARCH	
            test -e .xenomai.config && mv .xenomai.config linux/.config || :
            cat > linux/.xenomai-prepared.tmp <<EOF
 PREPARED_LINUX_VERSION=$XENO_LINUX_VERSION
@@ -393,7 +423,8 @@ EOF
            XENO_TARGET_ARCH=$XENO_TARGET_ARCH
            XENO_LINUX_ARCH=$XENO_LINUX_ARCH
            XENO_LINUX_VERSION=$linux_full_version
-         ADEOS_PATCH=$ADEOS_PATCH])
+           ADEOS_PATCH=$ADEOS_PATCH
+	   LNDIR="$LNDIR"])
 fi
 AM_CONDITIONAL(XENO_BUILD_LINUX, [test \! x"$XENO_LINUX_SRCDIR" = x])
 
@@ -489,8 +520,8 @@ test x$CONFIG_X86_TSC = xy && AC_DEFINE(CONFIG_X86_TSC,1,[config])
 test -n "$CONFIG_XENO_ARM_ARCH" && AC_DEFINE_UNQUOTED(CONFIG_XENO_ARM_ARCH,$CONFIG_XENO_ARM_ARCH,[config])
 
 test x$CONFIG_XENO_ARM_SA1100 = xy && AC_DEFINE(CONFIG_XENO_ARM_SA1100,1,[config])
-test x$CONFIG_XENO_ARM_EABI = xy && AC_DEFINE(CONFIG_XENO_ARM_EABI,1,[config])
 test $CONFIG_XENO_ARM_HW_DIRECT_TSC && AC_DEFINE_UNQUOTED(CONFIG_XENO_ARM_HW_DIRECT_TSC,$CONFIG_XENO_ARM_HW_DIRECT_TSC,[config])
+test x$CONFIG_XENO_ARM_EABI = xy && AC_DEFINE(CONFIG_XENO_ARM_EABI,1,[config])
 
 dnl CAUTION: We need to have the CONFIG_XENO_XX symbols always
 dnl defined when the configuration header is read, but we want the
@@ -576,7 +607,7 @@ XENO_USER_APP_CFLAGS=$XENO_USER_CFLAGS
 XENO_USER_APP_LDFLAGS=$XENO_USER_LDFLAGS
 
 case $XENO_TARGET_ARCH in
- i386)
+ x86)
 	XENO_USER_CFLAGS="$XENO_USER_CFLAGS -Wall -pipe -fstrict-aliasing $gcc_w_noalias"
         ;;
  powerpc)
@@ -625,7 +656,7 @@ AC_MSG_RESULT(${ac_cv_ld_file_option:-no})
 LD_FILE_OPTION=$ac_cv_ld_file_option
 AC_SUBST(LD_FILE_OPTION)
 
-AC_MSG_CHECKING(whether POSIX skin library automatically calls mlockall)
+AC_MSG_CHECKING(whether the POSIX skin library automatically calls mlockall)
 AC_ARG_ENABLE(posix-auto-mlockall,
 	AS_HELP_STRING([--enable-posix-auto-mlockall], [Enable Xenomai POSIX
 skin library to automatically call mlockall at startup. This option is mainly
@@ -638,6 +669,36 @@ unmodified with Xenomai POSIX skin]),
 AC_MSG_RESULT(${CONFIG_XENO_POSIX_AUTO_MLOCKALL:-no})
 if test x$CONFIG_XENO_POSIX_AUTO_MLOCKALL = xy; then
 	AC_DEFINE(CONFIG_XENO_POSIX_AUTO_MLOCKALL,1,[config])
+fi
+
+AC_MSG_CHECKING(whether the pSOS skin library automatically calls mlockall)
+AC_ARG_ENABLE(psos-auto-mlockall,
+	AS_HELP_STRING([--enable-psos-auto-mlockall], [Enable the
+Xenomai pSOS skin library to automatically call mlockall at
+process startup. Unless this option is switched on, the application
+will have to lock its memory explicitly while initializing.]),
+	[case "$enableval" in
+	y | yes) CONFIG_XENO_PSOS_AUTO_MLOCKALL=y ;;
+	*) unset CONFIG_XENO_PSOS_AUTO_MLOCKALL ;;
+	esac])
+AC_MSG_RESULT(${CONFIG_XENO_PSOS_AUTO_MLOCKALL:-no})
+if test x$CONFIG_XENO_POSIX_PSOS_MLOCKALL = xy; then
+	AC_DEFINE(CONFIG_XENO_PSOS_AUTO_MLOCKALL,1,[config])
+fi
+
+AC_MSG_CHECKING(whether the uITRON skin library automatically calls mlockall)
+AC_ARG_ENABLE(uitron-auto-mlockall,
+	AS_HELP_STRING([--enable-uitron-auto-mlockall], [Enable the
+Xenomai uITRON skin library to automatically call mlockall at
+process startup. Unless this option is switched on, the application
+will have to lock its memory explicitly while initializing.]),
+	[case "$enableval" in
+	y | yes) CONFIG_XENO_UITRON_AUTO_MLOCKALL=y ;;
+	*) unset CONFIG_XENO_UITRON_AUTO_MLOCKALL ;;
+	esac])
+AC_MSG_RESULT(${CONFIG_XENO_UITRON_AUTO_MLOCKALL:-no})
+if test x$CONFIG_XENO_POSIX_UITRON_MLOCKALL = xy; then
+	AC_DEFINE(CONFIG_XENO_UITRON_AUTO_MLOCKALL,1,[config])
 fi
 
 save_LIBS="$LIBS"
@@ -668,9 +729,9 @@ AC_SUBST([CONFIG_STATUS_DEPENDENCIES],
 AC_SUBST(XENO_POSIX_WRAPPERS)
 
 base=asm-$XENO_TARGET_ARCH
-AC_CONFIG_LINKS([src/include/asm/xenomai:$srcdir/include/$base])
+AC_CONFIG_LINKS([src/include/asm/xenomai:include/$base])
 base=asm-generic
-AC_CONFIG_LINKS([src/include/$base/xenomai:$srcdir/include/$base])
+AC_CONFIG_LINKS([src/include/$base/xenomai:include/$base])
 
 AC_CONFIG_FILES([ \
 	Makefile \
@@ -680,6 +741,7 @@ AC_CONFIG_FILES([ \
 	scripts/xeno-load \
 	scripts/xeno-test \
 	src/Makefile \
+	src/rtdk/Makefile \
 	src/skins/Makefile \
        	src/skins/posix/Makefile \
        	src/skins/native/Makefile \
@@ -688,6 +750,7 @@ AC_CONFIG_FILES([ \
        	src/skins/vrtx/Makefile \
        	src/skins/rtdm/Makefile \
        	src/skins/rtai/Makefile \
+       	src/skins/uitron/Makefile \
 	src/include/Makefile \
        	src/testsuite/Makefile \
        	src/testsuite/latency/Makefile \
@@ -695,6 +758,7 @@ AC_CONFIG_FILES([ \
        	src/testsuite/cyclic/Makefile \
        	src/testsuite/switchtest/Makefile \
 	src/testsuite/irqbench/Makefile \
+	src/testsuite/clocktest/Makefile \
 	src/utils/Makefile \
 	src/utils/can/Makefile \
        	include/Makefile \
@@ -702,8 +766,8 @@ AC_CONFIG_FILES([ \
        	include/asm-generic/bits/Makefile \
        	include/asm-blackfin/Makefile \
        	include/asm-blackfin/bits/Makefile \
-       	include/asm-i386/Makefile \
-       	include/asm-i386/bits/Makefile \
+       	include/asm-x86/Makefile \
+       	include/asm-x86/bits/Makefile \
        	include/asm-powerpc/Makefile \
        	include/asm-powerpc/bits/Makefile \
        	include/asm-ia64/Makefile \

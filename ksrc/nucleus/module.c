@@ -34,7 +34,6 @@
 #ifdef CONFIG_XENO_OPT_PERVASIVE
 #include <nucleus/core.h>
 #endif /* CONFIG_XENO_OPT_PERVASIVE */
-#include <nucleus/ltt.h>
 #include <asm/xenomai/bits/init.h>
 
 MODULE_DESCRIPTION("Xenomai nucleus");
@@ -55,10 +54,8 @@ void xnmod_alloc_glinks(xnqueue_t *freehq)
 {
 	xngholder_t *sholder, *eholder;
 
-	sholder =
-	    (xngholder_t *) xnheap_alloc(&kheap,
-					 sizeof(xngholder_t) *
-					 XNMOD_GHOLDER_REALLOC);
+	sholder = xnheap_alloc(&kheap,
+			       sizeof(xngholder_t) * XNMOD_GHOLDER_REALLOC);
 
 	if (!sholder) {
 		/* If we are running out of memory but still have some free
@@ -88,6 +85,10 @@ void xnmod_alloc_glinks(xnqueue_t *freehq)
 
 extern struct proc_dir_entry *rthal_proc_root;
 
+#ifdef CONFIG_XENO_OPT_STATS
+static struct proc_dir_entry *tmstat_proc_root;
+#endif /* CONFIG_XENO_OPT_STATS */
+
 #ifdef CONFIG_XENO_OPT_PERVASIVE
 static struct proc_dir_entry *iface_proc_root;
 #endif /* CONFIG_XENO_OPT_PERVASIVE */
@@ -99,7 +100,9 @@ struct sched_seq_iterator {
 		int cpu;
 		pid_t pid;
 		char name[XNOBJECT_NAME_LEN];
+		char timebase[XNOBJECT_NAME_LEN];
 		int cprio;
+		int dnprio;
 		xnticks_t period;
 		xnticks_t timeout;
 		xnflags_t state;
@@ -108,8 +111,7 @@ struct sched_seq_iterator {
 
 static void *sched_seq_start(struct seq_file *seq, loff_t *pos)
 {
-	struct sched_seq_iterator *iter =
-	    (struct sched_seq_iterator *)seq->private;
+	struct sched_seq_iterator *iter = seq->private;
 
 	if (*pos > iter->nentries)
 		return NULL;
@@ -122,13 +124,9 @@ static void *sched_seq_start(struct seq_file *seq, loff_t *pos)
 
 static void *sched_seq_next(struct seq_file *seq, void *v, loff_t *pos)
 {
-	struct sched_seq_iterator *iter =
-	    (struct sched_seq_iterator *)seq->private;
+	struct sched_seq_iterator *iter = seq->private;
 
 	++*pos;
-
-	if (v == SEQ_START_TOKEN)
-		return &iter->sched_info[0];
 
 	if (*pos > iter->nentries)
 		return NULL;
@@ -145,23 +143,24 @@ static int sched_seq_show(struct seq_file *seq, void *v)
 	char sbuf[64], pbuf[16];
 
 	if (v == SEQ_START_TOKEN)
-		seq_printf(seq, "%-3s  %-6s %-8s %-8s %-10s %-10s %s\n",
-			   "CPU", "PID", "PRI", "PERIOD", "TIMEOUT", "STAT", "NAME");
+		seq_printf(seq, "%-3s  %-6s %-8s %-10s %-10s %-8s  %-10s %s\n",
+			   "CPU", "PID", "PRI", "PERIOD", "TIMEOUT", "TIMEBASE", "STAT", "NAME");
 	else {
-		struct sched_seq_info *p = (struct sched_seq_info *)v;
+		struct sched_seq_info *p = v;
 
-		if (p->state & XNINVPS)
+		if (p->cprio != p->dnprio)
 			snprintf(pbuf, sizeof(pbuf), "%3d(%d)",
-				 p->cprio, xnpod_rescale_prio(p->cprio));
+				 p->cprio, p->dnprio);
 		else
 			snprintf(pbuf, sizeof(pbuf), "%3d", p->cprio);
 
-		seq_printf(seq, "%3u  %-6d %-8s %-8Lu %-10Lu %-10s %s\n",
+		seq_printf(seq, "%3u  %-6d %-8s %-10Lu %-10Lu %-8s  %-10s %s\n",
 			   p->cpu,
 			   p->pid,
 			   pbuf,
 			   p->period,
 			   p->timeout,
+			   p->timebase,
 			   xnthread_symbolic_status(p->state, sbuf,
 						    sizeof(sbuf)), p->name);
 	}
@@ -184,7 +183,7 @@ static int sched_seq_open(struct inode *inode, struct file *file)
 	int err, count, rev;
 	spl_t s;
 
-	if (!nkpod)
+	if (!xnpod_active_p())
 		return -ESRCH;
 
 	xnlock_get_irqsave(&nklock, s);
@@ -212,7 +211,7 @@ static int sched_seq_open(struct inode *inode, struct file *file)
 	}
 
 	iter->nentries = 0;
-	iter->start_time = xntimer_get_jiffies();
+	iter->start_time = xntbase_get_jiffies(&nktbase);
 
 	/* Take a snapshot element-wise, restart if something changes
 	   underneath us. */
@@ -234,16 +233,19 @@ static int sched_seq_open(struct inode *inode, struct file *file)
 		iter->sched_info[n].pid = xnthread_user_pid(thread);
 		memcpy(iter->sched_info[n].name, thread->name, sizeof(iter->sched_info[n].name));
 		iter->sched_info[n].cprio = thread->cprio;
+		iter->sched_info[n].dnprio = xnthread_get_denormalized_prio(thread);
 		iter->sched_info[n].period = xnthread_get_period(thread);
 		iter->sched_info[n].timeout = xnthread_get_timeout(thread, iter->start_time);
 		iter->sched_info[n].state = xnthread_state_flags(thread);
+		memcpy(iter->sched_info[n].timebase, xntbase_name(xnthread_time_base(thread)),
+		       sizeof(iter->sched_info[n].timebase));
 
 		holder = nextq(&nkpod->threadq, holder);
 
 		xnlock_put_irqrestore(&nklock, s);
 	}
 
-	seq = (struct seq_file *)file->private_data;
+	seq = file->private_data;
 	seq->private = iter;
 
 	return 0;
@@ -269,15 +271,14 @@ struct stat_seq_iterator {
 		unsigned long ssw;
 		unsigned long csw;
 		unsigned long pf;
-		xnticks_t runtime;
+		xnticks_t exectime;
 		xnticks_t account_period;
 	} stat_info[1];
 };
 
 static void *stat_seq_start(struct seq_file *seq, loff_t *pos)
 {
-	struct stat_seq_iterator *iter =
-	    (struct stat_seq_iterator *)seq->private;
+	struct stat_seq_iterator *iter = seq->private;
 
 	if (*pos > iter->nentries)
 		return NULL;
@@ -290,13 +291,9 @@ static void *stat_seq_start(struct seq_file *seq, loff_t *pos)
 
 static void *stat_seq_next(struct seq_file *seq, void *v, loff_t *pos)
 {
-	struct stat_seq_iterator *iter =
-	    (struct stat_seq_iterator *)seq->private;
+	struct stat_seq_iterator *iter = seq->private;
 
 	++*pos;
-
-	if (v == SEQ_START_TOKEN)
-		return &iter->stat_info[0];
 
 	if (*pos > iter->nentries)
 		return NULL;
@@ -316,16 +313,16 @@ static int stat_seq_show(struct seq_file *seq, void *v)
 			   "CPU", "PID", "MSW", "CSW", "PF", "STAT", "%CPU",
 			   "NAME");
 	else {
-		struct stat_seq_info *p = (struct stat_seq_info *)v;
+		struct stat_seq_info *p = v;
 		int usage = 0;
 
 		if (p->account_period) {
 			while (p->account_period > 0xFFFFFFFF) {
-				p->runtime >>= 16;
+				p->exectime >>= 16;
 				p->account_period >>= 16;
 			}
 			usage =
-			    xnarch_ulldiv(p->runtime * 1000LL +
+			    xnarch_ulldiv(p->exectime * 1000LL +
 					  (p->account_period >> 1),
 					  p->account_period, NULL);
 		}
@@ -354,7 +351,7 @@ static int stat_seq_open(struct inode *inode, struct file *file)
 	int err, count, thrq_rev, intr_rev, irq;
 	spl_t s;
 
-	if (!nkpod)
+	if (!xnpod_active_p())
 		return -ESRCH;
 
       restart_unlocked:
@@ -367,14 +364,14 @@ static int stat_seq_open(struct inode *inode, struct file *file)
 
 	xnlock_put_irqrestore(&nklock, s);
 
-	/* The order is important here: first xnintr_list_rev then xnintr_count.
-	 * On the other hand, xnintr_attach/detach() update xnintr_count first
-	 * and then xnintr_list_rev.
-	 * This should guarantee that we can't get an up-to-date xnintr_list_rev
-	 * and old xnintr_count here. The other way around is not a problem as
-	 * xnintr_query() will notice this fact later.
-	 * Should xnintr_list_rev change later, xnintr_query() will trigger
-	 * an appropriate error below. */
+	/* The order is important here: first xnintr_list_rev then
+	 * xnintr_count.  On the other hand, xnintr_attach/detach()
+	 * update xnintr_count first and then xnintr_list_rev.  This
+	 * should guarantee that we can't get an up-to-date
+	 * xnintr_list_rev and old xnintr_count here. The other way
+	 * around is not a problem as xnintr_query() will notice this
+	 * fact later.  Should xnintr_list_rev change later,
+	 * xnintr_query() will trigger an appropriate error below. */
 
 	intr_rev = xnintr_list_rev;
 	xnarch_memory_barrier();
@@ -423,16 +420,17 @@ static int stat_seq_open(struct inode *inode, struct file *file)
 		stat_info->csw = xnstat_counter_get(&thread->stat.csw);
 		stat_info->pf = xnstat_counter_get(&thread->stat.pf);
 
-		period = sched->last_account_switch - thread->stat.account.start;
+		period = sched->last_account_switch - thread->stat.lastperiod.start;
 		if (!period && thread == sched->runthread) {
-			stat_info->runtime = 1;
+			stat_info->exectime = 1;
 			stat_info->account_period = 1;
 		} else {
-			stat_info->runtime = thread->stat.account.total;
+			stat_info->exectime = thread->stat.account.total -
+				thread->stat.lastperiod.total;
 			stat_info->account_period = period;
 		}
-		thread->stat.account.total = 0;
-		thread->stat.account.start = sched->last_account_switch;
+		thread->stat.lastperiod.total = thread->stat.account.total;
+		thread->stat.lastperiod.start = sched->last_account_switch;
 
 		holder = nextq(&nkpod->threadq, holder);
 
@@ -453,7 +451,7 @@ static int stat_seq_open(struct inode *inode, struct file *file)
 			err = xnintr_query(irq, &cpu, &prev, intr_rev,
 					   stat_info->name,
 					   &stat_info->csw,
-					   &stat_info->runtime,
+					   &stat_info->exectime,
 					   &stat_info->account_period);
 			if (err == -EAGAIN)
 				goto restart_unlocked;
@@ -469,7 +467,7 @@ static int stat_seq_open(struct inode *inode, struct file *file)
 		};
 	}
 
-	seq = (struct seq_file *)file->private_data;
+	seq = file->private_data;
 	seq->private = iter;
 
 	return 0;
@@ -482,6 +480,187 @@ static struct file_operations stat_seq_operations = {
 	.llseek = seq_lseek,
 	.release = seq_release_private,
 };
+
+struct tmstat_seq_iterator {
+	int nentries;
+	struct tmstat_seq_info {
+		int cpu;
+		unsigned int scheduled;
+		unsigned int fired;
+		xnticks_t timeout;
+		xnticks_t interval;
+		xnflags_t status;
+		char handler[12];
+		char name[XNOBJECT_NAME_LEN];
+	} stat_info[1];
+};
+
+static void *tmstat_seq_start(struct seq_file *seq, loff_t *pos)
+{
+	struct tmstat_seq_iterator *iter = seq->private;
+
+	if (*pos > iter->nentries)
+		return NULL;
+
+	if (*pos == 0)
+		return SEQ_START_TOKEN;
+
+	return iter->stat_info + *pos - 1;
+}
+
+static void *tmstat_seq_next(struct seq_file *seq, void *v, loff_t *pos)
+{
+	struct tmstat_seq_iterator *iter = seq->private;
+
+	++*pos;
+
+	if (*pos > iter->nentries)
+		return NULL;
+
+	return iter->stat_info + *pos - 1;
+}
+
+static int tmstat_seq_show(struct seq_file *seq, void *v)
+{
+	if (v == SEQ_START_TOKEN)
+		seq_printf(seq,
+			   "%-3s  %-10s  %-10s  %-9s  %-9s  %-11s  %-15s\n",
+			   "CPU", "SCHEDULED", "FIRED", "TIMEOUT",
+			   "INTERVAL", "HANDLER", "NAME");
+	else {
+		struct tmstat_seq_info *p = v;
+		char timeout_buf[21]  = "-        ";
+		char interval_buf[21] = "-        ";
+
+		if (!testbits(p->status, XNTIMER_DEQUEUED))
+			snprintf(timeout_buf, sizeof(timeout_buf), "%-9llu",
+				 p->timeout);
+		if (testbits(p->status, XNTIMER_PERIODIC))
+			snprintf(interval_buf, sizeof(interval_buf), "%-9llu",
+				 p->interval);
+		seq_printf(seq,
+			   "%-3u  %-10u  %-10u  %s  %s  %-11s  %-15s\n",
+			   p->cpu, p->scheduled, p->fired, timeout_buf,
+			   interval_buf, p->handler, p->name);
+	}
+
+	return 0;
+}
+
+static struct seq_operations tmstat_op = {
+	.start = &tmstat_seq_start,
+	.next = &tmstat_seq_next,
+	.stop = &stat_seq_stop,
+	.show = &tmstat_seq_show
+};
+
+static int tmstat_seq_open(struct inode *inode, struct file *file)
+{
+	xntbase_t *base = PDE(inode)->data;
+	struct tmstat_seq_iterator *iter = NULL;
+	struct seq_file *seq;
+	xnholder_t *holder;
+	struct tmstat_seq_info *stat_info;
+	int err, count, tmq_rev;
+	spl_t s;
+
+	if (!xnpod_active_p())
+		return -ESRCH;
+
+	xnlock_get_irqsave(&nklock, s);
+
+      restart:
+	count = countq(&base->timerq);
+	holder = getheadq(&base->timerq);
+	tmq_rev = base->timerq_rev;
+
+	xnlock_put_irqrestore(&nklock, s);
+
+	if (iter)
+		kfree(iter);
+	iter = kmalloc(sizeof(*iter)
+		       + (count - 1) * sizeof(struct tmstat_seq_info),
+		       GFP_KERNEL);
+	if (!iter)
+		return -ENOMEM;
+
+	err = seq_open(file, &tmstat_op);
+
+	if (err) {
+		kfree(iter);
+		return err;
+	}
+
+	iter->nentries = 0;
+
+	/* Take a snapshot element-wise, restart if something changes
+	   underneath us. */
+
+	while (holder) {
+		xntimer_t *timer;
+
+		xnlock_get_irqsave(&nklock, s);
+
+		if (base->timerq_rev != tmq_rev)
+			goto restart;
+
+		timer = tblink2timer(holder);
+		/* Skip inactive timers */
+		if (xnstat_counter_get(&timer->scheduled) == 0)
+			goto skip;
+
+		stat_info = &iter->stat_info[iter->nentries++];
+
+		stat_info->cpu = xnsched_cpu(xntimer_sched(timer));
+		stat_info->scheduled = xnstat_counter_get(&timer->scheduled);
+		stat_info->fired = xnstat_counter_get(&timer->fired);
+		stat_info->timeout = xntimer_get_timeout(timer);
+		stat_info->interval = xntimer_get_interval(timer);
+		stat_info->status = timer->status;
+		memcpy(stat_info->handler, timer->handler_name,
+		       sizeof(stat_info->handler)-1);
+		stat_info->handler[sizeof(stat_info->handler)-1] = 0;
+		xnobject_copy_name(stat_info->name, timer->name);
+
+	      skip:
+		holder = nextq(&base->timerq, holder);
+
+		xnlock_put_irqrestore(&nklock, s);
+	}
+
+	seq = file->private_data;
+	seq->private = iter;
+
+	return 0;
+}
+
+static struct file_operations tmstat_seq_operations = {
+	.owner = THIS_MODULE,
+	.open = tmstat_seq_open,
+	.read = seq_read,
+	.llseek = seq_lseek,
+	.release = seq_release_private,
+};
+
+static struct proc_dir_entry *add_proc_fops(const char *name,
+					    struct file_operations *fops,
+					    size_t size,
+					    struct proc_dir_entry *parent);
+
+void xnpod_declare_tbase_proc(xntbase_t *base)
+{
+	struct proc_dir_entry *entry;
+
+	entry = add_proc_fops(base->name, &tmstat_seq_operations, 0,
+			      tmstat_proc_root);
+	if (entry)
+		entry->data = base;
+}
+
+void xnpod_discard_tbase_proc(xntbase_t *base)
+{
+	remove_proc_entry(base->name, tmstat_proc_root);
+}
 
 #endif /* CONFIG_XENO_OPT_STATS */
 
@@ -541,7 +720,7 @@ static int latency_read_proc(char *page,
 {
 	int len;
 
-	len = sprintf(page, "%Lu\n", xnarch_tsc_to_ns(nkschedlat));
+	len = sprintf(page, "%Lu\n", xnarch_tsc_to_ns(nklatency));
 	len -= off;
 	if (len <= off + count)
 		*eof = 1;
@@ -573,7 +752,7 @@ static int latency_write_proc(struct file *file,
 	if ((*end != '\0' && !isspace(*end)) || ns < 0)
 		return -EINVAL;
 
-	nkschedlat = xnarch_ns_to_tsc(ns);
+	nklatency = xnarch_ns_to_tsc(ns);
 
 	return count;
 }
@@ -601,24 +780,68 @@ static int timer_read_proc(char *page,
 			   char **start,
 			   off_t off, int count, int *eof, void *data)
 {
-	const char *tm_status = "off", *wd_status = "";
-	xnticks_t jiffies = 0, tickval = 0;
+	const char *tm_status, *wd_status = "";
 	int len;
 
-	if (nkpod && testbits(nkpod->status, XNTIMED)) {
-		tm_status = nktimer->get_type();
-		tickval = xnpod_get_tickval();
-		jiffies = xntimer_get_jiffies();
+	if (xnpod_active_p() && xntbase_enabled_p(&nktbase)) {
+		tm_status = "on";
 #ifdef CONFIG_XENO_OPT_WATCHDOG
 		wd_status = "+watchdog";
 #endif /* CONFIG_XENO_OPT_WATCHDOG */
 	}
+	else
+		tm_status = "off";
 
 	len = sprintf(page,
-		      "status=%s%s:setup=%Lu:tickval=%Lu:jiffies=%Lu\n",
-		      tm_status, wd_status, xnarch_tsc_to_ns(nktimerlat), tickval, jiffies);
+		      "status=%s%s:setup=%Lu:clock=%Lu:timerdev=%s:clockdev=%s\n",
+		      tm_status, wd_status, xnarch_tsc_to_ns(nktimerlat),
+		      xntbase_get_rawclock(&nktbase),
+		      XNARCH_TIMER_DEVICE, XNARCH_CLOCK_DEVICE);
 
 	len -= off;
+	if (len <= off + count)
+		*eof = 1;
+	*start = page + off;
+	if (len > count)
+		len = count;
+	if (len < 0)
+		len = 0;
+
+	return len;
+}
+
+static int timebase_read_proc(char *page,
+			      char **start,
+			      off_t off, int count, int *eof, void *data)
+{
+	xnholder_t *holder;
+	xntbase_t *tbase;
+	char *p = page;
+	int len = 0;
+
+	p += sprintf(p, "%-10s %10s  %10s   %s\n",
+		     "NAME", "RESOLUTION", "JIFFIES", "STATUS");
+
+	for (holder = getheadq(&nktimebaseq);
+	     holder != NULL; holder = nextq(&nktimebaseq, holder)) {
+		tbase = link2tbase(holder);
+		if (xntbase_periodic_p(tbase))
+			p += sprintf(p, "%-10s %10lu  %10Lu   %s%s%s\n",
+				     tbase->name,
+				     tbase->tickvalue,
+				     tbase->jiffies,
+				     xntbase_enabled_p(tbase) ? "enabled" : "disabled",
+				     xntbase_timeset_p(tbase) ? ",set" : ",unset",
+				     xntbase_isolated_p(tbase) ? ",isolated" : "");
+		else
+			p += sprintf(p, "%-10s %10s  %10s   %s\n",
+				     tbase->name,
+				     "1",
+				     "n/a",
+				     "enabled,set");
+	}
+
+	len = p - page - off;
 	if (len <= off + count)
 		*eof = 1;
 	*start = page + off;
@@ -679,7 +902,7 @@ static int heap_read_proc(char *page,
 {
 	int len;
 
-	if (!nkpod)
+	if (!xnpod_active_p())
 		return -ESRCH;
 
 	len = sprintf(page, "size=%lu:used=%lu:pagesz=%lu\n",
@@ -697,6 +920,59 @@ static int heap_read_proc(char *page,
 		len = 0;
 
 	return len;
+}
+
+static int affinity_read_proc(char *page,
+			      char **start,
+			      off_t off, int count, int *eof, void *data)
+{
+	unsigned long val = 0;
+	int len, cpu;
+
+	for (cpu = 0; cpu < sizeof(val) * 8; cpu++)
+		if (xnarch_cpu_isset(cpu, nkaffinity))
+			val |= (1 << cpu);
+
+	len = sprintf(page, "%08lx\n", val);
+	len -= off;
+	if (len <= off + count)
+		*eof = 1;
+	*start = page + off;
+	if (len > count)
+		len = count;
+	if (len < 0)
+		len = 0;
+
+	return len;
+}
+
+static int affinity_write_proc(struct file *file,
+			       const char __user * buffer,
+			       unsigned long count, void *data)
+{
+	char *end, buf[16];
+	unsigned long val;
+	xnarch_cpumask_t new_affinity;
+	int n, cpu;
+
+	n = count > sizeof(buf) - 1 ? sizeof(buf) - 1 : count;
+
+	if (copy_from_user(buf, buffer, n))
+		return -EFAULT;
+
+	buf[n] = '\0';
+	val = simple_strtol(buf, &end, 0);
+
+	if (*end != '\0' && !isspace(*end))
+		return -EINVAL;
+
+	xnarch_cpus_clear(new_affinity);
+	for (cpu = 0; cpu < sizeof(val) * 8; cpu++, val >>= 1)
+		if (val & 1)
+			xnarch_cpu_set(cpu, new_affinity);
+	nkaffinity = new_affinity;
+
+	return count;
 }
 
 static struct proc_dir_entry *add_proc_leaf(const char *name,
@@ -752,6 +1028,9 @@ void xnpod_init_proc(void)
 
 #ifdef CONFIG_XENO_OPT_STATS
 	add_proc_fops("stat", &stat_seq_operations, 0, rthal_proc_root);
+
+	tmstat_proc_root =
+		create_proc_entry("timerstat", S_IFDIR, rthal_proc_root);
 #endif /* CONFIG_XENO_OPT_STATS */
 
 #if defined(CONFIG_SMP) && XENO_DEBUG(NUCLEUS)
@@ -767,9 +1046,14 @@ void xnpod_init_proc(void)
 
 	add_proc_leaf("timer", &timer_read_proc, NULL, NULL, rthal_proc_root);
 
+	add_proc_leaf("timebases", &timebase_read_proc, NULL, NULL, rthal_proc_root);
+
 	add_proc_leaf("irq", &irq_read_proc, NULL, NULL, rthal_proc_root);
 
 	add_proc_leaf("heap", &heap_read_proc, NULL, NULL, rthal_proc_root);
+
+	add_proc_leaf("affinity", &affinity_read_proc, &affinity_write_proc,
+		      NULL, rthal_proc_root);
 
 #ifdef CONFIG_XENO_OPT_PERVASIVE
 	iface_proc_root =
@@ -783,19 +1067,24 @@ void xnpod_delete_proc(void)
 	int muxid;
 
 	for (muxid = 0; muxid < XENOMAI_MUX_NR; muxid++)
-		if (muxtable[muxid].proc)
-			remove_proc_entry(muxtable[muxid].name,
+		if (muxtable[muxid].props && muxtable[muxid].props->name)
+			remove_proc_entry(muxtable[muxid].props->name,
 					  iface_proc_root);
 
 	remove_proc_entry("interfaces", rthal_proc_root);
 #endif /* CONFIG_XENO_OPT_PERVASIVE */
+	remove_proc_entry("affinity", rthal_proc_root);
 	remove_proc_entry("heap", rthal_proc_root);
 	remove_proc_entry("irq", rthal_proc_root);
 	remove_proc_entry("timer", rthal_proc_root);
+	remove_proc_entry("timebases", rthal_proc_root);
 	remove_proc_entry("version", rthal_proc_root);
 	remove_proc_entry("latency", rthal_proc_root);
 	remove_proc_entry("sched", rthal_proc_root);
 #ifdef CONFIG_XENO_OPT_STATS
+	/* All timebases must have been deregistered now. */
+	XENO_ASSERT(NUCLEUS, !getheadq(&nktimebaseq), ;);
+	remove_proc_entry("timerstat", rthal_proc_root);
 	remove_proc_entry("stat", rthal_proc_root);
 #endif /* CONFIG_XENO_OPT_STATS */
 #if defined(CONFIG_SMP) && XENO_DEBUG(NUCLEUS)
@@ -809,7 +1098,7 @@ static int iface_read_proc(char *page,
 			   char **start,
 			   off_t off, int count, int *eof, void *data)
 {
-	struct xnskentry *iface = (struct xnskentry *)data;
+	struct xnskin_slot *iface = data;
 	int len, refcnt = xnarch_atomic_get(&iface->refcnt);
 
 	len = sprintf(page, "%d\n", refcnt < 0 ? 0 : refcnt);
@@ -826,11 +1115,11 @@ static int iface_read_proc(char *page,
 	return len;
 }
 
-void xnpod_declare_iface_proc(struct xnskentry *iface)
+void xnpod_declare_iface_proc(struct xnskin_slot *iface)
 {
-	iface->proc = add_proc_leaf(iface->name,
-				    &iface_read_proc, NULL, iface,
-				    iface_proc_root);
+	add_proc_leaf(iface->props->name,
+		      &iface_read_proc, NULL, iface,
+		      iface_proc_root);
 }
 
 void xnpod_discard_iface_proc(const char *iface_name)
@@ -848,7 +1137,7 @@ int __init __xeno_sys_init(void)
 
 	xnmod_sysheap_size = module_param_value(sysheap_size_arg) * 1024;
 
-	nkmsgbuf = xnarch_sysalloc(XNPOD_FATAL_BUFSZ);
+	nkmsgbuf = xnarch_alloc_host_mem(XNPOD_FATAL_BUFSZ);
 
 	if (!nkmsgbuf) {
 		err = -ENOMEM;
@@ -867,10 +1156,6 @@ int __init __xeno_sys_init(void)
 
 	xnintr_mount();
 
-#ifdef CONFIG_LTT
-	xnltt_mount();
-#endif /* CONFIG_LTT */
-
 #ifdef CONFIG_XENO_OPT_PIPE
 	err = xnpipe_mount();
 
@@ -888,13 +1173,10 @@ int __init __xeno_sys_init(void)
 
 	if (err)
 		goto cleanup_shadow;
-
-	err = xncore_mount();
-
-	if (err)
-		goto cleanup_heap;
 #endif /* CONFIG_XENO_OPT_PERVASIVE */
 #endif /* __KERNEL__ */
+
+	xntbase_mount();
 
 	xnloginfo("real-time nucleus v%s (%s) loaded.\n",
 		  XENO_VERSION_STRING, XENO_VERSION_NAME);
@@ -906,12 +1188,6 @@ int __init __xeno_sys_init(void)
 #ifdef __KERNEL__
 
 #ifdef CONFIG_XENO_OPT_PERVASIVE
-
-	xncore_umount();
-
-      cleanup_heap:
-
-	xnheap_umount();
 
       cleanup_shadow:
 
@@ -954,6 +1230,8 @@ void __exit __xeno_sys_exit(void)
 	xnshadow_cleanup();
 #endif /* CONFIG_XENO_OPT_PERVASIVE */
 
+	xntbase_umount();
+
 #if defined(__KERNEL__) &&  defined(CONFIG_PROC_FS)
 	xnpod_delete_proc();
 #endif /* __KERNEL__ && CONFIG_PROC_FS */
@@ -962,19 +1240,15 @@ void __exit __xeno_sys_exit(void)
 
 #ifdef __KERNEL__
 #ifdef CONFIG_XENO_OPT_PERVASIVE
-	xncore_umount();
 	xnheap_umount();
 #endif /* CONFIG_XENO_OPT_PERVASIVE */
 #ifdef CONFIG_XENO_OPT_PIPE
 	xnpipe_umount();
 #endif /* CONFIG_XENO_OPT_PIPE */
-#ifdef CONFIG_LTT
-	xnltt_umount();
-#endif /* CONFIG_LTT */
 #endif /* __KERNEL__ */
 
 	if (nkmsgbuf)
-		xnarch_sysfree(nkmsgbuf, XNPOD_FATAL_BUFSZ);
+		xnarch_free_host_mem(nkmsgbuf, XNPOD_FATAL_BUFSZ);
 
 	xnloginfo("real-time nucleus unloaded.\n");
 }

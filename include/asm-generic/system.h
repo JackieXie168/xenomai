@@ -47,6 +47,9 @@
 #define CONFIG_XENO_OPT_DEBUG_NUCLEUS 0
 #endif
 
+/* Time base export */
+#define xnarch_declare_tbase(base)		do { } while(0)
+
 /* Tracer interface */
 #define xnarch_trace_max_begin(v)		rthal_trace_max_begin(v)
 #define xnarch_trace_max_end(v)		rthal_trace_max_end(v)
@@ -122,6 +125,8 @@ typedef struct { atomic_t owner; } xnlock_t;
 
 #define XNARCH_NR_IRQS               RTHAL_NR_IRQS
 #define XNARCH_TIMER_IRQ	     RTHAL_TIMER_IRQ
+#define XNARCH_TIMER_DEVICE          RTHAL_TIMER_DEVICE
+#define XNARCH_CLOCK_DEVICE          RTHAL_CLOCK_DEVICE
 
 #define XNARCH_ROOT_STACKSZ   0	/* Only a placeholder -- no stack */
 
@@ -166,34 +171,28 @@ typedef struct xnarch_heapcb {
 extern "C" {
 #endif
 
-static inline long long xnarch_tsc_to_ns (long long ts)
+unsigned long long xnarch_get_host_time(void);
+
+long long xnarch_tsc_to_ns(long long ts);
+
+static inline long long xnarch_tsc_to_ns_rounded(long long ts)
 {
-    return xnarch_llimd(ts,1000000000,RTHAL_CPU_FREQ);
+    return (xnarch_llimd(ts, 1000000000, RTHAL_CPU_FREQ/2) + 1) / 2;
 }
 
-static inline long long xnarch_ns_to_tsc (long long ns)
-{
-    return xnarch_llimd(ns,RTHAL_CPU_FREQ,1000000000);
-}
+long long xnarch_ns_to_tsc(long long ns);
 
-static inline unsigned long long xnarch_get_cpu_time (void)
-{
-    return xnarch_tsc_to_ns(xnarch_get_cpu_tsc());
-}
+unsigned long long xnarch_get_cpu_time(void);
 
-static inline unsigned long long xnarch_get_cpu_freq (void)
+static inline unsigned long long xnarch_get_cpu_freq(void)
 {
     return RTHAL_CPU_FREQ;
 }
 
-static inline unsigned xnarch_current_cpu (void)
+static inline unsigned xnarch_current_cpu(void)
 {
     return rthal_processor_id();
 }
-
-#define xnarch_declare_cpuid  rthal_declare_cpuid
-#define xnarch_get_cpu(flags) rthal_get_cpu(flags)
-#define xnarch_put_cpu(flags) rthal_put_cpu(flags)
 
 #define xnarch_halt(emsg) \
 do { \
@@ -231,6 +230,11 @@ static inline void xnlock_init (xnlock_t *lock)
     *lock = XNARCH_LOCK_UNLOCKED;
 }
 
+#define DECLARE_XNLOCK(lock)		xnlock_t lock
+#define DECLARE_EXTERN_XNLOCK(lock)	extern xnlock_t lock
+#define DEFINE_XNLOCK(lock)		xnlock_t lock = XNARCH_LOCK_UNLOCKED
+#define DEFINE_PRIVATE_XNLOCK(lock)	static DEFINE_XNLOCK(lock)
+
 #if XENO_DEBUG(NUCLEUS)
 
 #define XNARCH_DEBUG_SPIN_LIMIT 3000000
@@ -245,17 +249,14 @@ static inline int __xnlock_get (xnlock_t *lock,
 static inline int __xnlock_get (xnlock_t *lock)
 {
 #endif /* !XENO_DEBUG(NUCLEUS) */
-    rthal_declare_cpuid;
     int recursing;
 
-    rthal_load_cpuid();
-
-    recursing = (atomic_read(&lock->owner) == cpuid);
+    recursing = (atomic_read(&lock->owner) == rthal_processor_id());
     if (!recursing) {
 #if XENO_DEBUG(NUCLEUS)
 	    unsigned long long lock_date = rthal_rdtsc();
 #endif /* XENO_DEBUG(NUCLEUS) */
-	    while(atomic_cmpxchg(&lock->owner, ~0, cpuid) != ~0)
+	    while(atomic_cmpxchg(&lock->owner, ~0, rthal_processor_id()) != ~0)
 		    do {
 			    cpu_relax();
 
@@ -266,7 +267,7 @@ static inline int __xnlock_get (xnlock_t *lock)
 					   "Xenomai: stuck on nucleus lock %p\n"
 					   "       waiter = %s:%u (%s(), CPU #%d)\n"
 					   "       owner  = %s:%u (%s(), CPU #%d)\n",
-					   lock,file,line,function,cpuid,
+					   lock,file,line,function,rthal_processor_id(),
 					   lock->file,lock->line,lock->function,lock->cpu);
 				    show_stack(NULL,NULL);
 				    for (;;)
@@ -281,7 +282,7 @@ static inline int __xnlock_get (xnlock_t *lock)
 	    lock->file = file;
 	    lock->function = function;
 	    lock->line = line;
-	    lock->cpu = cpuid;
+	    lock->cpu = rthal_processor_id();
 #endif /* XENO_DEBUG(NUCLEUS) */
         }
 
@@ -290,30 +291,22 @@ static inline int __xnlock_get (xnlock_t *lock)
 
 static inline void xnlock_put (xnlock_t *lock)
 {
-    rthal_declare_cpuid;
-
-    rthal_load_cpuid();
-    if (likely(atomic_read(&lock->owner) == cpuid)) {
+	if (likely(atomic_read(&lock->owner) == rthal_processor_id())) {
 
 #if XENO_DEBUG(NUCLEUS)
 	    extern xnlockinfo_t xnlock_stats[];
 
 	    unsigned long long lock_time = rthal_rdtsc() - lock->lock_date;
+	    int cpu = rthal_processor_id();
 
-	    if (lock_time > xnlock_stats[cpuid].lock_time) {
-		    xnlock_stats[cpuid].lock_time = lock_time;
-		    xnlock_stats[cpuid].spin_time = lock->spin_time;
-		    xnlock_stats[cpuid].file = lock->file;
-		    xnlock_stats[cpuid].function = lock->function;
-		    xnlock_stats[cpuid].line = lock->line;
+	    if (lock_time > xnlock_stats[cpu].lock_time) {
+		    xnlock_stats[cpu].lock_time = lock_time;
+		    xnlock_stats[cpu].spin_time = lock->spin_time;
+		    xnlock_stats[cpu].file = lock->file;
+		    xnlock_stats[cpu].function = lock->function;
+		    xnlock_stats[cpu].line = lock->line;
 	    }
 #endif /* XENO_DEBUG(NUCLEUS) */
-	    /*
-	     * Make sure all data written inside the lock is visible to
-	     * other CPUs before we release the lock.
-	     */
-	    xnarch_memory_barrier();
-
 	    atomic_set(&lock->owner, ~0);
     }
 #if XENO_DEBUG(NUCLEUS)
@@ -385,6 +378,11 @@ static inline int xnlock_is_owner(xnlock_t *lock)
 #define xnlock_clear_irqon(lock)       rthal_local_irq_enable()
 #define xnlock_is_owner(lock)	       1
 
+#define DECLARE_XNLOCK(lock)
+#define DECLARE_EXTERN_XNLOCK(lock)
+#define DEFINE_XNLOCK(lock)
+#define DEFINE_PRIVATE_XNLOCK(lock)
+
 static inline int xnarch_send_ipi (xnarch_cpumask_t cpumask)
 {
     return 0;
@@ -414,14 +412,9 @@ static inline int xnarch_remap_io_page_range(struct vm_area_struct *vma,
     return wrap_remap_io_page_range(vma,from,to,size,prot);
 }
 
-static inline int xnarch_remap_kmem_page_range(struct vm_area_struct *vma,
-					       unsigned long from,
-					       unsigned long to,
-					       unsigned long size,
-					       pgprot_t prot)
-{
-    return wrap_remap_kmem_page_range(vma,from,to,size,prot);
-}
+#ifndef xnarch_hisyscall_entry
+static inline void xnarch_hisyscall_entry(void)	{ }
+#endif
 
 #ifdef __cplusplus
 }

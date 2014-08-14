@@ -24,8 +24,7 @@
 
 #include <nucleus/core.h>
 #include <nucleus/thread.h>
-#include <nucleus/synch.h>
-#include <native/timer.h>
+#include <native/types.h>
 
 /* Creation flags. */
 #define T_FPU     XNFPU
@@ -91,6 +90,14 @@ typedef struct rt_task_info {
     
     char name[XNOBJECT_NAME_LEN];  /**< Symbolic name assigned at creation. */
 
+    RTIME exectime; /**< Execution time in primary mode in nanoseconds. */
+
+    int modeswitches; /**< Number of primary->secondary mode switches. */
+
+    int ctxswitches; /**< Number of context switches. */
+
+    int pagefaults; /**< Number of triggered page faults. */
+
 } RT_TASK_INFO;
 
 #define RT_MCB_FSTORE_LIMIT  64
@@ -110,7 +117,9 @@ typedef struct rt_task_mcb {
 
 } RT_TASK_MCB;
 
-#if defined(__KERNEL__) || defined(__XENO_SIM__)
+#if (defined(__KERNEL__) || defined(__XENO_SIM__)) && !defined(DOXYGEN_CPP)
+
+#include <nucleus/synch.h>
 
 #define XENO_TASK_MAGIC 0x55550101
 
@@ -130,11 +139,11 @@ typedef struct rt_task {
 
     int overrun;
 
-    xnsynch_t safesynch; /* !< Safe synchronization object. */
+    xnsynch_t safesynch;	/* !< Safe synchronization object. */
 
-    u_long safelock;	 /* !< Safe lock count. */
+    u_long safelock;		/* !< Safe lock count. */
 
-    u_long cstamp;	/* !< Creation stamp. */
+    u_long cstamp;		/* !< Creation stamp. */
 
     xnarch_cpumask_t affinity;
 

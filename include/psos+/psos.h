@@ -22,10 +22,10 @@
  * pSOS and pSOS+ are registered trademarks of Wind River Systems, Inc.
  */
 
-#ifndef _XENO_SKIN_PSOS_H
-#define _XENO_SKIN_PSOS_H
+#ifndef _PSOS_PSOS_H
+#define _PSOS_PSOS_H
 
-#include <nucleus/types.h>
+#include <nucleus/thread.h>
 
 #define PSOS_SKIN_MAGIC     0x50534F53
 #define PSOS_SKIN_VERSION   5
@@ -56,7 +56,16 @@
 #define T_LOCAL       0x0000
 #define T_NOFPU       0x0000
 #define T_FPU         0x0002
+
+/* Those bits are Xenomai-specific. */
 #define T_SHADOW      0x8000
+#define  T_SHIELD      XNSHIELD
+#define  T_TRAPSW      XNTRAPSW
+#define  T_RPIOFF      XNRPIOFF
+
+#define T_START_MASK   (T_NOPREEMPT|T_TSLICE|T_NOASR|T_SUPV|T_NOISR|T_LEVELMASK7)
+#define T_MODE_MASK    (T_NOPREEMPT|T_TSLICE|T_NOASR|T_NOISR| \
+			T_LEVELMASK7|T_SHIELD|T_TRAPSW|T_RPIOFF)
 
 #define RN_PRIOR      0x0002
 #define RN_FIFO       0x0000
@@ -209,7 +218,7 @@ u_long ev_receive(u_long events,
 u_long ev_send(u_long tid,
 	       u_long events);
 
-u_long pt_create(char name[4],
+u_long pt_create(const char *name,
 		 void *paddr,
 		 void *laddr,
 		 u_long psize,
@@ -223,7 +232,7 @@ u_long pt_delete(u_long tid);
 u_long pt_getbuf(u_long tid,
 		 void **bufaddr);
 
-u_long pt_ident(char name[4],
+u_long pt_ident(const char *name,
 		u_long node,
 		u_long *tid_r);
 
@@ -234,14 +243,14 @@ u_long q_broadcast(u_long qid,
 		   u_long msgbuf[4],
 		   u_long *count_r);
 
-u_long q_create(char name[4],
+u_long q_create(const char *name,
 		u_long maxnum,
 		u_long flags,
 		u_long *qid_r);
 
 u_long q_delete(u_long qid);
 
-u_long q_ident(char name[4],
+u_long q_ident(const char *name,
 	       u_long node,
 	       u_long *qid_r);
 
@@ -256,7 +265,7 @@ u_long q_send(u_long qid,
 u_long q_urgent(u_long qid,
 		u_long msgbuf[4]);
 
-u_long q_vcreate(char name[4],
+u_long q_vcreate(const char *name,
 		 u_long flags,
 		 u_long maxnum,
 		 u_long maxlen,
@@ -264,7 +273,7 @@ u_long q_vcreate(char name[4],
 
 u_long q_vdelete(u_long qid);
 
-u_long q_vident(char name[4],
+u_long q_vident(const char *name,
 		u_long node,
 		u_long *qid_r);
 
@@ -288,7 +297,7 @@ u_long q_vbroadcast(u_long qid,
 		    u_long msglen,
 		    u_long *count_r);
 
-u_long rn_create(char name[4],
+u_long rn_create(const char *name,
 		 void *rnaddr,
 		 u_long rnsize,
 		 u_long usize,
@@ -304,20 +313,20 @@ u_long rn_getseg(u_long rnid,
 		 u_long timeout,
 		 void **segaddr);
 
-u_long rn_ident(char name[4],
+u_long rn_ident(const char *name,
 		u_long *rnid_r);
 
 u_long rn_retseg(u_long rnid,
 		 void *segaddr);
 
-u_long sm_create(char name[4],
+u_long sm_create(const char *name,
 		 u_long icount,
 		 u_long flags,
 		 u_long *smid_r);
 
 u_long sm_delete(u_long smid);
 
-u_long sm_ident(char name[4],
+u_long sm_ident(const char *name,
 		u_long node,
 		u_long *smid_r);
 
@@ -327,10 +336,15 @@ u_long sm_p(u_long smid,
 
 u_long sm_v(u_long smid);
 
-u_long t_create(char name[4],
+u_long t_create(const char *name,
 		u_long prio,
 		u_long sstack,
 		u_long ustack,
+		u_long flags,
+		u_long *tid_r);
+
+u_long t_shadow(const char *name, /* Xenomai extension. */
+		u_long prio,
 		u_long flags,
 		u_long *tid_r);
 
@@ -340,7 +354,7 @@ u_long t_getreg(u_long tid,
 		u_long regnum,
 		u_long *regvalue_r);
 
-u_long t_ident(char name[4],
+u_long t_ident(const char *name,
 	       u_long node,
 	       u_long *tid_r);
 
@@ -398,8 +412,17 @@ u_long tm_wkwhen(u_long date,
 		 u_long time,
 		 u_long ticks);
 
+u_long tm_getm(unsigned long long *ns_r); /* Xenomai extension. */
+
+u_long tm_signal(u_long value,	/* Xenomai extension. */
+		 u_long interval,
+		 int signo,
+		 u_long *tmid_r);
+
+u_long tm_getc(unsigned long long *ticks_r); /* Xenomai extension. */
+
 #ifdef __cplusplus
 };
 #endif /* __cplusplus */
 
-#endif /* !_XENO_SKIN_PSOS_H */
+#endif /* !_PSOS_PSOS_H */

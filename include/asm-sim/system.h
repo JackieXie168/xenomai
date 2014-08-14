@@ -34,6 +34,7 @@
 
 struct xnthread;
 struct xnsynch;
+struct xntbase;
 struct XenoThread;
 struct mvm_displayctx;
 struct mvm_displayctl;
@@ -82,15 +83,17 @@ typedef unsigned long xnlock_t;
 		xnlock_get_irqsave(lock, x);		\
 	} while(0)
 
+#define DECLARE_XNLOCK(lock)
+#define DECLARE_EXTERN_XNLOCK(lock)
+#define DEFINE_XNLOCK(lock)
+#define DEFINE_PRIVATE_XNLOCK(lock)
+
 #define XNARCH_NR_CPUS              1
 
 #define XNARCH_NR_IRQS              256
 
 /* Should be equal to the value used for creating the mvmtimer object (mvm_start_timer). */
 #define XNARCH_TIMER_IRQ	    1
-
-#define XNARCH_DEFAULT_TICK         10000000 /* ns, i.e. 10ms */
-#define XNARCH_HOST_TICK            0 /* No host ticking service. */
 
 #define XNARCH_THREAD_STACKSZ 0 /* Let the simulator choose. */
 #define XNARCH_ROOT_STACKSZ   0	/* Only a placeholder -- no stack */
@@ -121,6 +124,11 @@ typedef unsigned long xnarch_cpumask_t;
 #define xnarch_uldiv(ull, d)         xnarch_uldivrem(ull, d, NULL)
 #define xnarch_ulmod(ull, d)         ({ u_long _rem;                    \
                                         xnarch_uldivrem(ull,d,&_rem); _rem; })
+#define xnarch_divmod64(a,b,r)       ({ if (r) \
+				                *r = (a) % (b);		\
+			                (a) / (b); })
+#define xnarch_div64(a,b)            ((a) / (b))
+#define xnarch_mod64(a,b)            ((a) % (b))
 
 static inline int xnarch_imuldiv(int i, int mult, int div)
 {
@@ -162,9 +170,9 @@ static inline unsigned long long xnarch_ullmul(unsigned long m1,
     return (unsigned long long) m1 * m2;
 }
 
-static inline unsigned long long xnarch_ulldiv (unsigned long long ull,
-						unsigned long uld,
-						unsigned long *rem)
+static inline unsigned long long xnarch_ulldiv(unsigned long long ull,
+					       unsigned long uld,
+					       unsigned long *rem)
 {
     if (rem)
 	*rem = ull % uld;
@@ -172,9 +180,9 @@ static inline unsigned long long xnarch_ulldiv (unsigned long long ull,
     return ull / uld;
 }
 
-static inline unsigned long ffnz (unsigned long word)
+static inline unsigned long ffnz(unsigned long word)
 {
-    return ffs((int)word) - 1;
+    return ffsl(word) - 1;
 }
 
 #define xnarch_stack_size(tcb)    0
@@ -253,6 +261,9 @@ xnarch_read_environ (const char *name, const char **ptype, void *pvar)
 #define __init
 #define __exit
 
+/* Kernel markers */
+#define trace_mark(...);
+
 #define container_of(ptr, type, member) ({                      \
         const typeof( ((type *)0)->member ) *__mptr = (ptr);    \
         (type *)( (char *)__mptr - offsetof(type,member) );})
@@ -270,6 +281,8 @@ int mvm_run(void *tcbarg,
 	    void *faddr);
 
 void mvm_finalize_init(void);
+
+void mvm_declare_tbase(struct xntbase *base);
 
 void mvm_sleep(unsigned long ticks);
 
@@ -381,6 +394,11 @@ static inline unsigned long long xnarch_tsc_to_ns (unsigned long long ts)
     return ts;
 }
 
+static inline unsigned long long xnarch_tsc_to_ns_rounded (unsigned long long ts)
+{
+    return ts;
+}
+
 static inline unsigned long long xnarch_ns_to_tsc (unsigned long long ns)
 {
     return ns;
@@ -406,7 +424,7 @@ static inline void xnarch_halt (const char *emsg)
     __mvm_breakable(mvm_fatal)("%s",emsg);
 }
 
-static inline void *xnarch_sysalloc (u_long bytes)
+static inline void *xnarch_alloc_host_mem (u_long bytes)
 {
     void *chunk = malloc(bytes);
     if (chunk)
@@ -414,16 +432,13 @@ static inline void *xnarch_sysalloc (u_long bytes)
     return chunk;
 }
 
-static inline void xnarch_sysfree (void *chunk, u_long bytes)
+static inline void xnarch_free_host_mem (void *chunk, u_long bytes)
 {
     memset(chunk, 0xdb, bytes);
     free(chunk);
 }
 
 #define xnarch_current_cpu()  0
-#define xnarch_declare_cpuid  const int cpuid = 0
-#define xnarch_get_cpu(x)     do  { (x) = (x); } while(0)
-#define xnarch_put_cpu(x)     do { } while(0)
 
 #define cpu_relax()           do { } while(0)
 
@@ -491,6 +506,9 @@ if (cond) \
 __mvm_breakable(mvm_post_graph)(&(obj)->__mvm_display_context,state); \
 while(0)
 
+/* Time base export */
+#define xnarch_declare_tbase(base)		mvm_declare_tbase(base)
+
 /* Tracer interface */
 #define xnarch_trace_max_begin(v)		({int err = -ENOSYS; err; })
 #define xnarch_trace_max_end(v)		({int err = -ENOSYS; err; })
@@ -548,11 +566,5 @@ static inline long IS_ERR(const void *ptr)
 {
 	return IS_ERR_VALUE((unsigned long)ptr);
 }
-
-/* Pre-set config switches. */
-
-#define CONFIG_XENO_OPT_TIMING_PERIODIC 1
-#define CONFIG_XENO_OPT_TIMER_HEAP 1
-#define CONFIG_XENO_OPT_TIMER_HEAP_CAPACITY 256
 
 #endif /* !_XENO_ASM_SIM_SYSTEM_H */

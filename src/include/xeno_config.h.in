@@ -31,7 +31,13 @@
 #undef CONFIG_XENO_POSIX_AUTO_MLOCKALL
 
 /* config */
+#undef CONFIG_XENO_PSOS_AUTO_MLOCKALL
+
+/* config */
 #undef CONFIG_XENO_REVISION_LEVEL
+
+/* config */
+#undef CONFIG_XENO_UITRON_AUTO_MLOCKALL
 
 /* config */
 #undef CONFIG_XENO_VERSION_MAJOR
@@ -88,10 +94,6 @@
 
 /* Define to 1 if you have the <unistd.h> header file. */
 #undef HAVE_UNISTD_H
-
-/* Define to the sub-directory in which libtool stores uninstalled libraries.
-   */
-#undef LT_OBJDIR
 
 /* Name of package */
 #undef PACKAGE

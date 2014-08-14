@@ -45,6 +45,8 @@
  *
  *@{*/
 
+/** @example pipe.c */
+
 #include <nucleus/pod.h>
 #include <nucleus/heap.h>
 #include <nucleus/registry.h>
@@ -81,7 +83,7 @@ static xnpnode_t __pipe_pnode = {
 static void __pipe_flush_pool(xnheap_t *heap,
 			      void *poolmem, u_long poolsize, void *cookie)
 {
-	xnarch_sysfree(poolmem, poolsize);
+	xnarch_free_host_mem(poolmem, poolsize);
 }
 
 static void *__pipe_alloc_handler(int bminor, size_t size, void *cookie)
@@ -120,6 +122,7 @@ int __native_pipe_pkg_init(void)
 
 void __native_pipe_pkg_cleanup(void)
 {
+	__native_pipe_flush_rq(&__native_global_rholder.pipeq);
 }
 
 /**
@@ -206,8 +209,19 @@ void __native_pipe_pkg_cleanup(void)
 
 int rt_pipe_create(RT_PIPE *pipe, const char *name, int minor, size_t poolsize)
 {
+#if CONFIG_XENO_OPT_NATIVE_PIPE_BUFSZ > 0
+	/* XNCORE_PAGE_SIZE is guaranteed to be significantly greater
+	 * than sizeof(RT_PIPE_MSG), so that we could store a message
+	 * header along with a useful buffer space into the local
+	 * pool. */
+	size_t streamsz = CONFIG_XENO_OPT_NATIVE_PIPE_BUFSZ < XNCORE_PAGE_SIZE ?
+		XNCORE_PAGE_SIZE : CONFIG_XENO_OPT_NATIVE_PIPE_BUFSZ;
+#else
+#define streamsz  0
+#endif
 	void *poolmem;
 	int err = 0;
+	spl_t s;
 
 	if (!xnpod_root_p())
 		return -EPERM;
@@ -221,19 +235,25 @@ int rt_pipe_create(RT_PIPE *pipe, const char *name, int minor, size_t poolsize)
 	xnobject_copy_name(pipe->name, name);
 
 	if (poolsize > 0) {
-		/* Account for the overhead so that the actual free space is large
-		   enough to match the requested size. */
+		/* Make sure we won't hit trivial argument errors when calling
+		   xnheap_init(). */
 
-		poolsize = xnheap_rounded_size(poolsize, PAGE_SIZE);
-		poolmem = xnarch_sysalloc(poolsize);
+		poolsize += streamsz;
+
+		/* Account for the minimum heap size and overhead so
+		   that the actual free space is large enough to match
+		   the requested size. */
+
+		poolsize = xnheap_rounded_size(poolsize, XNCORE_PAGE_SIZE);
+		poolmem = xnarch_alloc_host_mem(poolsize);
 
 		if (!poolmem)
 			return -ENOMEM;
 
 		/* Use natural page size */
-		err = xnheap_init(&pipe->privpool, poolmem, poolsize, PAGE_SIZE);
+		err = xnheap_init(&pipe->privpool, poolmem, poolsize, XNCORE_PAGE_SIZE);
 		if (err) {
-			xnarch_sysfree(poolmem, poolsize);
+			xnarch_free_host_mem(poolmem, poolsize);
 			return err;
 		}
 
@@ -241,8 +261,7 @@ int rt_pipe_create(RT_PIPE *pipe, const char *name, int minor, size_t poolsize)
 	}
 
 #if CONFIG_XENO_OPT_NATIVE_PIPE_BUFSZ > 0
-	pipe->buffer = xnheap_alloc(pipe->bufpool,
-				    CONFIG_XENO_OPT_NATIVE_PIPE_BUFSZ + sizeof(RT_PIPE_MSG));
+	pipe->buffer = xnheap_alloc(pipe->bufpool, streamsz);
 	if (pipe->buffer == NULL) {
 		if (pipe->bufpool == &pipe->privpool)
 			xnheap_destroy(&pipe->privpool, __pipe_flush_pool,
@@ -250,7 +269,7 @@ int rt_pipe_create(RT_PIPE *pipe, const char *name, int minor, size_t poolsize)
 		return -ENOMEM;
 	}
 	inith(&pipe->buffer->link);
-	pipe->buffer->size = CONFIG_XENO_OPT_NATIVE_PIPE_BUFSZ;
+	pipe->buffer->size = streamsz - sizeof(RT_PIPE_MSG);
 #endif /* CONFIG_XENO_OPT_NATIVE_PIPE_BUFSZ > 0 */
 
 	minor = xnpipe_connect(minor,
@@ -265,6 +284,11 @@ int rt_pipe_create(RT_PIPE *pipe, const char *name, int minor, size_t poolsize)
 		return minor;
 	}
 	pipe->minor = minor;
+	inith(&pipe->rlink);
+	pipe->rqueue = &xeno_get_rholder()->pipeq;
+	xnlock_get_irqsave(&nklock, s);
+	appendq(pipe->rqueue, &pipe->rlink);
+	xnlock_put_irqrestore(&nklock, s);
 
 #ifdef CONFIG_XENO_OPT_PERVASIVE
 	pipe->cpid = 0;
@@ -347,6 +371,8 @@ int rt_pipe_delete(RT_PIPE *pipe)
 		return err;
 	}
 
+	removeq(pipe->rqueue, &pipe->rlink);
+
 	err = xnpipe_disconnect(pipe->minor);
 
 	if (pipe->buffer != NULL) {
@@ -394,7 +420,9 @@ int rt_pipe_delete(RT_PIPE *pipe)
  * consumed, the message space should be freed using rt_pipe_free().
  * The application code can retrieve the actual data and size carried
  * by the message by respectively using the P_MSGPTR() and P_MSGSIZE()
- * macros.
+ * macros. *msgp is set to NULL and zero is returned to the caller, in
+ * case the peer closed the channel while rt_pipe_receive() was
+ * reading from it.
  *
  * @param timeout The number of clock ticks to wait for some message
  * to arrive (see note). Passing TM_INFINITE causes the caller to
@@ -406,9 +434,14 @@ int rt_pipe_delete(RT_PIPE *pipe)
  * message is returned upon success; this value will be equal to
  * P_MSGSIZE(*msgp). Otherwise:
  *
+ * - 0 is returned and *msgp is set to NULL if the peer closed the
+ * channel while rt_pipe_receive() was reading from it. This is to be
+ * distinguished from an empty message return, where *msgp points to a
+ * valid - albeit empty - message block (i.e. P_MSGSIZE(*msgp) == 0).
+ *
  * - -EINVAL is returned if @a pipe is not a pipe descriptor.
  *
- * - -EIDRM is returned if @a pipe is a closed pipe descriptor.
+ * - -EIDRM is returned if @a pipe was closed while reading.
  *
  * - -ENODEV or -EBADF are returned if @a pipe is scrambled.
  *
@@ -439,11 +472,9 @@ int rt_pipe_delete(RT_PIPE *pipe)
  * Rescheduling: always unless the request is immediately satisfied or
  * @a timeout specifies a non-blocking operation.
  *
- * @note This service is sensitive to the current operation mode of
- * the system timer, as defined by the CONFIG_XENO_OPT_TIMING_PERIOD
- * parameter. In periodic mode, clock ticks are interpreted as
- * periodic jiffies. In oneshot mode, clock ticks are interpreted as
- * nanoseconds.
+ * @note The @a timeout value will be interpreted as jiffies if the
+ * native skin is bound to a periodic time base (see
+ * CONFIG_XENO_OPT_NATIVE_PERIOD), or nanoseconds otherwise.
  */
 
 ssize_t rt_pipe_receive(RT_PIPE *pipe, RT_PIPE_MSG **msgp, RTIME timeout)
@@ -464,6 +495,11 @@ ssize_t rt_pipe_receive(RT_PIPE *pipe, RT_PIPE_MSG **msgp, RTIME timeout)
 	}
 
 	n = xnpipe_recv(pipe->minor, msgp, timeout);
+
+	if (n == -EIDRM) {
+		*msgp = NULL;
+		n = 0;	/* Remap to POSIX semantics. */
+	}
 
       unlock_and_exit:
 
@@ -509,6 +545,12 @@ ssize_t rt_pipe_receive(RT_PIPE *pipe, RT_PIPE_MSG **msgp, RTIME timeout)
  * @return The number of read bytes copied to the @a buf is returned
  * upon success. Otherwise:
  *
+ * - 0 is returned if the peer closed the channel while rt_pipe_read()
+ * was reading from it. There is no way to distinguish this situation
+ * from an empty message return using rt_pipe_read(). One should
+ * rather call rt_pipe_receive() whenever this information is
+ * required.
+ *
  * - -EINVAL is returned if @a pipe is not a pipe descriptor.
  *
  * - -EIDRM is returned if @a pipe is a closed pipe descriptor.
@@ -546,11 +588,9 @@ ssize_t rt_pipe_receive(RT_PIPE *pipe, RT_PIPE_MSG **msgp, RTIME timeout)
  * Rescheduling: always unless the request is immediately satisfied or
  * @a timeout specifies a non-blocking operation.
  *
- * @note This service is sensitive to the current operation mode of
- * the system timer, as defined by the CONFIG_XENO_OPT_TIMING_PERIOD
- * parameter. In periodic mode, clock ticks are interpreted as
- * periodic jiffies. In oneshot mode, clock ticks are interpreted as
- * nanoseconds.
+ * @note The @a timeout value will be interpreted as jiffies if the
+ * native skin is bound to a periodic time base (see
+ * CONFIG_XENO_OPT_NATIVE_PERIOD), or nanoseconds otherwise.
  */
 
 ssize_t rt_pipe_read(RT_PIPE *pipe, void *buf, size_t size, RTIME timeout)
@@ -565,6 +605,9 @@ ssize_t rt_pipe_read(RT_PIPE *pipe, void *buf, size_t size, RTIME timeout)
 
 	if (nbytes < 0)
 		return nbytes;
+
+	if (msg == NULL)	/* Closed by peer? */
+		return 0;
 
 	if (size < P_MSGSIZE(msg))
 		nbytes = -ENOBUFS;
@@ -870,58 +913,6 @@ repeat:
 }
 
 /**
- * @fn ssize_t rt_pipe_flush(RT_PIPE *pipe)
- *
- * @brief Flush the pipe.
- *
- * This operation makes the data available for reading from the
- * associated special device.
- *
- * @param pipe The descriptor address of the pipe to flush.
- *
- * @return Zero upon success. Otherwise:
- *
- * - -EINVAL is returned if @a pipe is not a pipe descriptor.
- *
- * - -EPIPE is returned if the associated special device is not yet
- * open.
- *
- * - -EIDRM is returned if @a pipe is a closed pipe descriptor.
- *
- * - -ENODEV or -EBADF are returned if @a pipe is scrambled.
- *
- * Environments:
- *
- * This service can be called from:
- *
- * - Kernel module initialization/cleanup code
- * - Interrupt service routine
- * - Kernel-based task
- *
- * Rescheduling: possible.
- *
- * @note This service is deprecated, since the streamed data is now
- * immediately available to the receiving side.
- */
-
-ssize_t rt_pipe_flush(RT_PIPE *pipe)
-{
-	int err = 0;
-	spl_t s;
-
-	xnlock_get_irqsave(&nklock, s);
-
-	pipe = xeno_h2obj_validate(pipe, XENO_PIPE_MAGIC, RT_PIPE);
-
-	if (!pipe)
-		err = xeno_handle_error(pipe, XENO_PIPE_MAGIC, RT_PIPE);
-
-	xnlock_put_irqrestore(&nklock, s);
-
-	return err;
-}
-
-/**
  * @fn RT_PIPE_MSG *rt_pipe_alloc(RT_PIPE *pipe,size_t size)
  *
  * @brief Allocate a message pipe buffer.
@@ -995,6 +986,71 @@ int rt_pipe_free(RT_PIPE *pipe, RT_PIPE_MSG *msg)
 	return xnheap_free(pipe->bufpool, msg);
 }
 
+/**
+ * @fn int rt_pipe_flush(RT_PIPE *pipe, int mode)
+ *
+ * @brief Flush the i/o queues associated with the kernel endpoint of
+ * a message pipe.
+ *
+ * This service flushes all data pending for consumption by the remote
+ * side in user-space for the given message pipe. Upon success, no
+ * data remains to be read from the remote side of the connection.
+ *
+ * The user-space equivalent is a call to:
+ * ioctl(pipefd, XNPIPEIOC_FLUSH, 0).
+ *
+ * @param pipe The descriptor address of the pipe to flush.
+ *
+ * @param mode A mask indicating which queues need to be flushed; the
+ * following flags may be combined in a single flush request:
+ *
+ * - XNPIPE_IFLUSH causes the input queue to be flushed (i.e. data
+ * coming from user-space to the kernel endpoint will be discarded).
+ *
+ * - XNPIPE_OFLUSH causes the output queue to be flushed (i.e. data
+ * going to user-space from the kernel endpoint will be discarded).
+ *
+ * @return Zero is returned upon success. Otherwise:
+ *
+ * - -EINVAL is returned if @a pipe is not a pipe descriptor.
+ *
+ * - -EIDRM is returned if @a pipe is a closed pipe descriptor.
+ *
+ * - -ENODEV or -EBADF are returned if @a pipe is scrambled.
+ *
+ * Environments:
+ *
+ * This service can be called from:
+ *
+ * - Kernel module initialization/cleanup code
+ * - Interrupt service routine
+ * - Kernel-based task
+ *
+ * Rescheduling: never.
+ */
+
+int rt_pipe_flush(RT_PIPE *pipe, int mode)
+{
+	int minor;
+	spl_t s;
+
+	xnlock_get_irqsave(&nklock, s);
+
+	pipe = xeno_h2obj_validate(pipe, XENO_PIPE_MAGIC, RT_PIPE);
+
+	if (!pipe) {
+		int err = xeno_handle_error(pipe, XENO_PIPE_MAGIC, RT_PIPE);
+		xnlock_put_irqrestore(&nklock, s);
+		return err;
+	}
+
+	minor = pipe->minor;
+
+	xnlock_put_irqrestore(&nklock, s);
+
+	return xnpipe_flush(minor, mode);
+}
+
 /*@}*/
 
 EXPORT_SYMBOL(rt_pipe_create);
@@ -1004,6 +1060,6 @@ EXPORT_SYMBOL(rt_pipe_send);
 EXPORT_SYMBOL(rt_pipe_read);
 EXPORT_SYMBOL(rt_pipe_write);
 EXPORT_SYMBOL(rt_pipe_stream);
-EXPORT_SYMBOL(rt_pipe_flush);
 EXPORT_SYMBOL(rt_pipe_alloc);
 EXPORT_SYMBOL(rt_pipe_free);
+EXPORT_SYMBOL(rt_pipe_flush);

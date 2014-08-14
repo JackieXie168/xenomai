@@ -32,14 +32,25 @@ void rtcan_raw_remove_filter(struct rtcan_socket *sock);
 
 void rtcan_rcv(struct rtcan_device *rtcandev, struct rtcan_skb *skb);
 
-void rtcan_tx_loopback(struct rtcan_device *rtcandev);
-#ifdef CONFIG_XENO_DRIVERS_CAN_TX_LOOPBACK
-#define rtcan_tx_loopback_enabled(sock) (sock->tx_loopback)
-#define rtcan_tx_loopback_pending(dev) (dev->tx_socket)
-#else /* !CONFIG_XENO_DRIVERS_CAN_TX_LOOPBACK */
-#define rtcan_tx_loopback_enabled(sock) (0)
-#define rtcan_tx_loopback_pending(dev) (0)
-#endif /* CONFIG_XENO_DRIVERS_CAN_TX_LOOPBACK */
+void rtcan_loopback(struct rtcan_device *rtcandev);
+#ifdef CONFIG_XENO_DRIVERS_CAN_LOOPBACK
+#define rtcan_loopback_enabled(sock) (sock->loopback)
+#define rtcan_loopback_pending(dev) (dev->tx_socket)
+#else /* !CONFIG_XENO_DRIVERS_CAN_LOOPBACK */
+#define rtcan_loopback_enabled(sock) (0)
+#define rtcan_loopback_pending(dev) (0)
+#endif /* CONFIG_XENO_DRIVERS_CAN_LOOPBACK */
+
+#ifdef CONFIG_XENO_DRIVERS_CAN_BUS_ERR
+void __rtcan_raw_enable_bus_err(struct rtcan_socket *sock);
+static inline void rtcan_raw_enable_bus_err(struct rtcan_socket *sock)
+{
+    if ((sock->err_mask & CAN_ERR_BUSERROR))
+	__rtcan_raw_enable_bus_err(sock);
+}
+#else
+#define rtcan_raw_enable_bus_err(sock)
+#endif
 
 int __init rtcan_raw_proto_register(void);
 void __exit rtcan_raw_proto_unregister(void);

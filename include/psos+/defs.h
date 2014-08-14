@@ -17,10 +17,10 @@
  * 02111-1307, USA.
  */
 
-#ifndef _psos_defs_h
-#define _psos_defs_h
+#ifndef _PSOS_DEFS_H
+#define _PSOS_DEFS_H
 
-#include "nucleus/xenomai.h"
+#include <nucleus/xenomai.h>
 
 #define psos_h2obj_active(h,m,t) \
 ((h) && ((t *)(h))->magic == (m) ? ((t *)(h)) : NULL)
@@ -38,4 +38,4 @@
 (psos_h2obj_deleted(h,m,t) ? ERR_OBJDEL : \
 (psos_h2obj_any(h) ? ERR_OBJTYPE : ERR_OBJID))
 
-#endif /* !_psos_defs_h */
+#endif /* !_PSOS_DEFS_H */

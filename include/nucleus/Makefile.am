@@ -8,7 +8,7 @@ includesub_HEADERS = \
 	heap.h \
 	intr.h \
 	jhash.h \
-	ltt.h \
+	map.h \
 	module.h \
 	pipe.h \
 	pod.h \
@@ -20,6 +20,7 @@ includesub_HEADERS = \
 	synch.h \
 	system.h \
 	thread.h \
+	timebase.h \
 	timer.h \
 	trace.h \
 	types.h \

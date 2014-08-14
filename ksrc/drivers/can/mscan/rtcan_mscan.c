@@ -253,7 +253,7 @@ static int rtcan_mscan_interrupt(rtdm_irq_t *irq_handle)
 	/* Wake up a sender */
 	rtdm_sem_up(&dev->tx_sem);
 
-	if (rtcan_tx_loopback_pending(dev)) {
+	if (rtcan_loopback_pending(dev)) {
 
 	    if (recv_lock_free) {
 		recv_lock_free = 0;
@@ -261,7 +261,7 @@ static int rtcan_mscan_interrupt(rtdm_irq_t *irq_handle)
 		rtdm_lock_get(&rtcan_socket_lock);
 	    }
 
-	    rtcan_tx_loopback(dev);
+	    rtcan_loopback(dev);
 	}
     }
 
@@ -777,7 +777,7 @@ int __init rtcan_mscan_init_one(int idx, unsigned long addr, int irq)
     if ((dev = rtcan_dev_alloc(0, 0)) == NULL) {
         return -ENOMEM;
     }
-    
+
     dev->ctrl_name = mscan_ctlr_name;
     dev->board_name = mscan_board_name;
 
@@ -791,11 +791,11 @@ int __init rtcan_mscan_init_one(int idx, unsigned long addr, int irq)
     }
 
     regs = (struct mscan_regs *)dev->base_addr;
-    
+
     /* Enable MSCAN module. */
     regs->canctl1 |= MSCAN_CANE;
     udelay(100);
-    
+
     /* Set dummy state for following call */
     dev->state = CAN_STATE_ACTIVE;
 
@@ -804,9 +804,9 @@ int __init rtcan_mscan_init_one(int idx, unsigned long addr, int irq)
 
     /* Give device an interface name (so that programs using this driver
        don't need to know the device ID) */
-    
+
     strncpy(dev->name, RTCAN_DEV_NAME, IFNAMSIZ);
-    
+
     dev->hard_start_xmit = rtcan_mscan_start_xmit;
     dev->do_set_mode = rtcan_mscan_set_mode;
     dev->do_set_bit_time = rtcan_mscan_set_bit_time;
@@ -819,10 +819,8 @@ int __init rtcan_mscan_init_one(int idx, unsigned long addr, int irq)
 	printk("ERROR! rtdm_irq_request for IRQ %d failed\n", irq);
 	goto out_iounmap;
     }
-    rtdm_irq_enable(&dev->irq_handle);
 
     mscan_chip_config(regs);
-    
 
     /* Register RTDM device */
     ret = rtcan_dev_register(dev);

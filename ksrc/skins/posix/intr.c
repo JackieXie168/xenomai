@@ -88,13 +88,13 @@
  *
  * @retval 0 on success;
  * @retval -1 with @a errno set if:
+ * - ENOSYS, kernel-space Xenomai POSIX skin was built without support for
+ *   interrupts, use RTDM or enable CONFIG_XENO_OPT_POSIX_INTR in kernel
+ *   configuration;
  * - ENOMEM, insufficient memory exists in the system heap to create the
  *   interrupt object, increase CONFIG_XENO_OPT_SYS_HEAPSZ;
  * - EINVAL, a low-level error occured while attaching the interrupt;
- * - EBUSY, an interrupt handler was already registered for the irq line @a irq;
- * - ENOSYS, kernel-space Xenomai POSIX skin was built without support for
- *   interrupts, use RTDM or enable CONFIG_XENO_OPT_POSIX_INTR in kernel
- *   configuration.
+ * - EBUSY, an interrupt handler was already registered for the irq line @a irq.
  */
 int pthread_intr_attach_np(pthread_intr_t * intrp,
 			   unsigned irq,
@@ -112,12 +112,13 @@ int pthread_intr_attach_np(pthread_intr_t * intrp,
 
 	xnintr_init(&intr->intr_base, NULL, irq, isr, iack, 0);
 
-#if defined(__KERNEL__) && defined(CONFIG_XENO_OPT_PERVASIVE)
+#ifdef CONFIG_XENO_OPT_PERVASIVE
 	xnsynch_init(&intr->synch_base, XNSYNCH_PRIO);
 	intr->pending = 0;
-#endif /* __KERNEL__ && CONFIG_XENO_OPT_PERVASIVE */
+#endif /* CONFIG_XENO_OPT_PERVASIVE */
 	intr->magic = PSE51_INTR_MAGIC;
 	inith(&intr->link);
+	intr->owningq = pse51_kqueues(0);
 	xnlock_get_irqsave(&nklock, s);
 	appendq(&pse51_kqueues(0)->intrq, &intr->link);
 	xnlock_put_irqrestore(&nklock, s);
@@ -135,7 +136,7 @@ int pthread_intr_attach_np(pthread_intr_t * intrp,
 	return -1;
 }
 
-int pse51_intr_detach_inner(pthread_intr_t intr, pse51_kqueues_t *q)
+static int pse51_intr_detach_inner(pthread_intr_t intr, pse51_kqueues_t *q, int force)
 {
 	int rc = XNSYNCH_DONE;
 	spl_t s;
@@ -147,9 +148,14 @@ int pse51_intr_detach_inner(pthread_intr_t intr, pse51_kqueues_t *q)
 		thread_set_errno(EINVAL);
 		return -1;
 	}
-#if defined(__KERNEL__) && defined(CONFIG_XENO_OPT_PERVASIVE)
+	if (!force && intr->owningq != pse51_kqueues(0)) {
+		xnlock_put_irqrestore(&nklock, s);
+		thread_set_errno(EPERM);
+		return -1;
+	}
+#ifdef CONFIG_XENO_OPT_PERVASIVE
 	rc = xnsynch_destroy(&intr->synch_base);
-#endif /* __KERNEL__ && CONFIG_XENO_OPT_PERVASIVE */
+#endif /* CONFIG_XENO_OPT_PERVASIVE */
 
 	pse51_mark_deleted(intr);
 
@@ -185,14 +191,15 @@ int pse51_intr_detach_inner(pthread_intr_t intr, pse51_kqueues_t *q)
  *
  * @retval 0 on success;
  * @retval -1 with @a errno set if:
- * - EINVAL, the interrupt object @a intr is invalid;
  * - ENOSYS, kernel-space Xenomai POSIX skin was built without support for
  *   interrupts, use RTDM or enable CONFIG_XENO_OPT_POSIX_INTR in kernel
- *   configuration.
+ *   configuration;
+ * - EINVAL, the interrupt object @a intr is invalid;
+ * - EPERM, the interrupt @a intr does not belong to the current process.
  */
 int pthread_intr_detach_np(pthread_intr_t intr)
 {
-	return pse51_intr_detach_inner(intr, pse51_kqueues(0));
+	return pse51_intr_detach_inner(intr, pse51_kqueues(0), 0);
 }
 
 /**
@@ -208,10 +215,11 @@ int pthread_intr_detach_np(pthread_intr_t intr)
  *
  * @retval 0 on success;
  * @retval -1 with @a errno set if:
- * - EINVAL, the identifier @a intr or @a cmd is invalid;
  * - ENOSYS, kernel-space Xenomai POSIX skin was built without support for
  *   interrupts, use RTDM or enable CONFIG_XENO_OPT_POSIX_INTR in kernel
- *   configuration.
+ *   configuration;
+ * - EINVAL, the identifier @a intr or @a cmd is invalid;
+ * - EPERM, the interrupt @a intr does not belong to the current process.
  */
 int pthread_intr_control_np(pthread_intr_t intr, int cmd)
 {
@@ -223,6 +231,12 @@ int pthread_intr_control_np(pthread_intr_t intr, int cmd)
 	if (!pse51_obj_active(intr, PSE51_INTR_MAGIC, struct pse51_interrupt)) {
 		xnlock_put_irqrestore(&nklock, s);
 		thread_set_errno(EINVAL);
+		return -1;
+	}
+
+	if (intr->owningq != pse51_kqueues(0)) {
+		xnlock_put_irqrestore(&nklock, s);
+		thread_set_errno(EPERM);
 		return -1;
 	}
 
@@ -259,7 +273,7 @@ void pse51_intrq_cleanup(pse51_kqueues_t *q)
 	xnlock_get_irqsave(&nklock, s);
 
 	while ((holder = getheadq(&q->intrq)) != NULL) {
-		pthread_intr_detach_np(link2intr(holder));
+		pse51_intr_detach_inner(link2intr(holder), pse51_kqueues(0), 1);
 		xnlock_put_irqrestore(&nklock, s);
 #if XENO_DEBUG(POSIX)
 		xnprintf("Posix interruption handler %p was not destroyed, "
@@ -299,12 +313,13 @@ void pse51_intr_pkg_cleanup(void)
  *
  * @return the number of interrupt received on success;
  * @return -1 with @a errno set if:
- * - EIDRM, the interrupt object was deleted;
- * - ETIMEDOUT, the timeout specified by @a to expired;
- * - EINTR, pthread_intr_wait_np() was interrupted by a signal;
  * - ENOSYS, kernel-space Xenomai POSIX skin was built without support for
  *   interrupts, use RTDM or enable CONFIG_XENO_OPT_POSIX_INTR in kernel
- *   configuration.
+ *   configuration;
+ * - EIDRM, the interrupt object was deleted;
+ * - EPERM, the interrupt @a intr does not belong to the current process;
+ * - ETIMEDOUT, the timeout specified by @a to expired;
+ * - EINTR, pthread_intr_wait_np() was interrupted by a signal.
  */
 int pthread_intr_wait_np(pthread_intr_t intr, const struct timespec *to);
 #endif /* Doxygen */

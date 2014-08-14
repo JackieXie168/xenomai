@@ -18,15 +18,30 @@
  * Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  */
 
-#include "vrtx/task.h"
+#include <vrtx/task.h>
 
-static vrtxidmap_t *vrtx_task_idmap;
+static xnmap_t *vrtx_task_idmap;
 
 static xnqueue_t vrtx_task_q;
 
 static u_long vrtx_default_stacksz;
 
 static TCB vrtx_idle_tcb;
+
+static int vrtx_get_denormalized_prio(xnthread_t *thread)
+{
+	return vrtx_denormalized_prio(xnthread_current_priority(thread));
+}
+
+static unsigned vrtx_get_magic(void)
+{
+	return VRTX_SKIN_MAGIC;
+}
+
+static xnthrops_t vrtxtask_ops = {
+	.get_denormalized_prio = &vrtx_get_denormalized_prio,
+	.get_magic = &vrtx_get_magic,
+};
 
 static void vrtxtask_delete_hook(xnthread_t *thread)
 {
@@ -42,7 +57,7 @@ static void vrtxtask_delete_hook(xnthread_t *thread)
 		xnfree(task->param);
 
 	if (task->tid)
-		vrtx_put_id(vrtx_task_idmap, task->tid);
+		xnmap_remove(vrtx_task_idmap, task->tid);
 
 	vrtx_mark_deleted(task);
 
@@ -53,12 +68,11 @@ int vrtxtask_init(u_long stacksize)
 {
 	initq(&vrtx_task_q);
 	vrtx_default_stacksz = stacksize;
-	vrtx_task_idmap = vrtx_alloc_idmap(VRTX_MAX_NTASKS, 1);
+	vrtx_task_idmap = xnmap_create(VRTX_MAX_NTASKS, VRTX_MAX_NTASKS / 2, 1);
 
 	if (!vrtx_task_idmap)
 		return -ENOMEM;
 
-	vrtx_get_id(vrtx_task_idmap, 0, NULL);	/* Reserve slot #0 */
 	xnpod_add_hook(XNHOOK_THREAD_DELETE, vrtxtask_delete_hook);
 
 	return 0;
@@ -79,7 +93,7 @@ void vrtxtask_cleanup(void)
 	xnlock_put_irqrestore(&nklock, s);
 
 	xnpod_remove_hook(XNHOOK_THREAD_DELETE, vrtxtask_delete_hook);
-	vrtx_free_idmap(vrtx_task_idmap);
+	xnmap_delete(vrtx_task_idmap);
 }
 
 static void vrtxtask_trampoline(void *cookie)
@@ -107,13 +121,14 @@ int sc_tecreate_inner(vrtxtask_t *task,
 	if (user == 0)
 		user = vrtx_default_stacksz;
 
-	if (prio < 0 || prio > 255 || tid < -1 || tid > 255 || (!(mode & 0x100) && user + sys < 1024)) {	/* Tiny kernel stack */
+	if (prio < 0 || prio > 255 || tid < -1 || tid > 255 ||
+	    (!(mode & 0x100) && user + sys < 1024)) {	/* Tiny kernel stack */
 		*errp = ER_IIP;
 		return -1;
 	}
 
 	if (tid != 0)
-		tid = vrtx_get_id(vrtx_task_idmap, tid, task);
+		tid = xnmap_enter(vrtx_task_idmap, tid, task);
 
 	if (tid < 0) {
 		*errp = ER_TID;
@@ -124,7 +139,7 @@ int sc_tecreate_inner(vrtxtask_t *task,
 		_paddr = xnmalloc(psize);
 
 		if (!_paddr) {
-			vrtx_put_id(vrtx_task_idmap, tid);
+			xnmap_remove(vrtx_task_idmap, tid);
 			*errp = ER_MEM;
 			return -1;
 		}
@@ -135,31 +150,26 @@ int sc_tecreate_inner(vrtxtask_t *task,
 
 	sprintf(name, "t%.3d", tid);
 
-#if defined(__KERNEL__) && defined(CONFIG_XENO_OPT_PERVASIVE)
-	/* VRTX priority scale is inverted compared to the core pod's
-	   we are going to use for hosting our threads. */
-	bflags |= XNINVPS;
-
+#ifdef CONFIG_XENO_OPT_PERVASIVE
 	if (mode & 0x100)
 		bflags |= XNSHADOW;
-#endif /* !(__KERNEL__ && CONFIG_XENO_OPT_PERVASIVE) */
+#endif /* CONFIG_XENO_OPT_PERVASIVE */
 
 	if (!(mode & 0x8))
 		bflags |= XNFPU;
 
 	if (xnpod_init_thread(&task->threadbase,
+			      vrtx_tbase,
 			      name,
 			      vrtx_normalized_prio(prio),
-			      bflags, user + sys) != 0) {
+			      bflags, user + sys, &vrtxtask_ops) != 0) {
 		if (_paddr)
 			xnfree(_paddr);
 
-		vrtx_put_id(vrtx_task_idmap, tid);
+		xnmap_remove(vrtx_task_idmap, tid);
 		*errp = ER_MEM;
 		return -1;
 	}
-
-	xnthread_set_magic(&task->threadbase, VRTX_SKIN_MAGIC);
 
 	inith(&task->link);
 	task->tid = tid;
@@ -270,7 +280,7 @@ void sc_tdelete(int tid, int opt, int *errp)
 	if (tid == 0)
 		task = vrtx_current_task();
 	else {
-		task = (vrtxtask_t *)vrtx_get_object(vrtx_task_idmap, tid);
+		task = xnmap_fetch(vrtx_task_idmap, tid);
 
 		if (!task) {
 			*errp = ER_TID;
@@ -302,7 +312,7 @@ void sc_tpriority(int tid, int prio, int *errp)
 	if (tid == 0)
 		task = vrtx_current_task();
 	else {
-		task = (vrtxtask_t *)vrtx_get_object(vrtx_task_idmap, tid);
+		task = xnmap_fetch(vrtx_task_idmap, tid);
 
 		if (!task) {
 			*errp = ER_TID;
@@ -379,7 +389,7 @@ void sc_tresume(int tid, int opt, int *errp)
 	if (tid == 0)
 		task = vrtx_current_task();
 	else {
-		task = (vrtxtask_t *)vrtx_get_object(vrtx_task_idmap, tid);
+		task = xnmap_fetch(vrtx_task_idmap, tid);
 
 		if (!task) {
 			*errp = ER_TID;
@@ -433,7 +443,7 @@ void sc_tsuspend(int tid, int opt, int *errp)
 				task->vrtxtcb.TCBSTAT = TBSSUSP;
 
 				xnpod_suspend_thread(&task->threadbase,
-						     XNSUSP, XN_INFINITE, NULL);
+						     XNSUSP, XN_INFINITE, XN_RELATIVE, NULL);
 
 				if (xnthread_test_info(&task->threadbase, XNBREAK))
 					*errp = -EINTR;
@@ -455,7 +465,7 @@ void sc_tsuspend(int tid, int opt, int *errp)
 	if (tid == 0)
 		task = vrtx_current_task();
 	else {
-		task = (vrtxtask_t *)vrtx_get_object(vrtx_task_idmap, tid);
+		task = xnmap_fetch(vrtx_task_idmap, tid);
 
 		if (!task) {
 			*errp = ER_TID;
@@ -467,7 +477,7 @@ void sc_tsuspend(int tid, int opt, int *errp)
 
 	*errp = RET_OK;
 
-	xnpod_suspend_thread(&task->threadbase, XNSUSP, XN_INFINITE, NULL);
+	xnpod_suspend_thread(&task->threadbase, XNSUSP, XN_INFINITE, XN_RELATIVE, NULL);
 
 	if (xnthread_test_info(&task->threadbase, XNBREAK))
 		*errp = -EINTR;
@@ -515,7 +525,7 @@ TCB *sc_tinquiry(int pinfo[], int tid, int *errp)
 
 		task = vrtx_current_task();
 	} else {
-		task = (vrtxtask_t *)vrtx_get_object(vrtx_task_idmap, tid);
+		task = xnmap_fetch(vrtx_task_idmap, tid);
 
 		if (!task) {
 			tcb = NULL;

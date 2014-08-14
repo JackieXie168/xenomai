@@ -40,7 +40,11 @@ typedef struct rt_heap_info {
 
     int mode;			/* !< Creation mode. */
 
-    size_t heapsize;		/* !< Size of heap memory. */
+    size_t heapsize;		/* !< Requested heap size. */
+
+    size_t usablemem;		/* !< Available heap memory. */
+
+    size_t usedmem;		/* !< Amount of memory used. */
 
     char name[XNOBJECT_NAME_LEN]; /* !< Symbolic name. */
 
@@ -59,6 +63,8 @@ typedef struct rt_heap_placeholder {
 } RT_HEAP_PLACEHOLDER;
 
 #if defined(__KERNEL__) || defined(__XENO_SIM__)
+
+#include <native/ppd.h>
 
 #define XENO_HEAP_MAGIC 0x55550808
 
@@ -80,9 +86,15 @@ typedef struct rt_heap {
 
     char name[XNOBJECT_NAME_LEN]; /* !< Symbolic name. */
 
-#if defined(__KERNEL__) && defined(CONFIG_XENO_OPT_PERVASIVE)
+#ifdef CONFIG_XENO_OPT_PERVASIVE
     pid_t cpid;			/* !< Creator's pid. */
-#endif /* __KERNEL__ && CONFIG_XENO_OPT_PERVASIVE */
+#endif /* CONFIG_XENO_OPT_PERVASIVE */
+
+    xnholder_t rlink;		/* !< Link in resource queue. */
+
+#define rlink2heap(ln)		container_of(ln, RT_HEAP, rlink)
+
+    xnqueue_t *rqueue;		/* !< Backpointer to resource queue. */
 
 } RT_HEAP;
 
@@ -90,9 +102,24 @@ typedef struct rt_heap {
 extern "C" {
 #endif
 
+#ifdef CONFIG_XENO_OPT_NATIVE_HEAP
+
 int __native_heap_pkg_init(void);
 
 void __native_heap_pkg_cleanup(void);
+
+static inline void __native_heap_flush_rq(xnqueue_t *rq)
+{
+	xeno_flush_rq(RT_HEAP, rq, heap);
+}
+
+#else /* !CONFIG_XENO_OPT_NATIVE_HEAP */
+
+#define __native_heap_pkg_init()		({ 0; })
+#define __native_heap_pkg_cleanup()		do { } while(0)
+#define __native_heap_flush_rq(rq)		do { } while(0)
+
+#endif /* !CONFIG_XENO_OPT_NATIVE_HEAP */
 
 #ifdef __cplusplus
 }

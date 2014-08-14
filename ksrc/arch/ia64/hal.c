@@ -75,15 +75,18 @@ static void rthal_timer_set_irq(unsigned tick_irq)
     rthal_critical_exit(flags);
 }
 
-int rthal_timer_request(void (*handler) (void), unsigned long nstick)
+int rthal_timer_request(void (*handler) (void), int cpu)
 {
     unsigned long flags;
+
+    if (cpu > 0)
+	    goto out;
 
     flags = rthal_critical_enter(NULL);
 
     rthal_irq_release(RTHAL_TIMER_IRQ);
 
-    rthal_set_timer(nstick);
+    ipipe_tune_timer(0, IPIPE_GRAB_TIMER);
 
     if (rthal_irq_request(RTHAL_TIMER_IRQ,
                           (rthal_irq_handler_t) handler, NULL, NULL) < 0) {
@@ -101,15 +104,20 @@ int rthal_timer_request(void (*handler) (void), unsigned long nstick)
 
     rthal_timer_set_irq(RTHAL_TIMER_IRQ);
 
+out:
+
     return 0;
 }
 
-void rthal_timer_release(void)
+void rthal_timer_release(int cpu)
 {
     unsigned long flags;
 
+    if (cpu > 0)
+	    return;
+
     rthal_timer_set_irq(RTHAL_HOST_TIMER_IRQ);
-    rthal_reset_timer();
+    ipipe_tune_timer(0, IPIPE_RESET_TIMER);
     flags = rthal_critical_enter(NULL);
     rthal_irq_release(RTHAL_TIMER_IRQ);
     rthal_irq_release(RTHAL_HOST_TIMER_IRQ);
@@ -225,12 +233,8 @@ int rthal_irq_end(unsigned irq)
 
 static inline int do_exception_event(unsigned event, unsigned domid, void *data)
 {
-    rthal_declare_cpuid;
-
-    rthal_load_cpuid();
-
     if (domid == RTHAL_DOMAIN_ID) {
-        rthal_realtime_faults[cpuid][event]++;
+	    rthal_realtime_faults[rthal_processor_id()][event]++;
 
         if (rthal_trap_handler != NULL &&
             rthal_trap_handler(event, domid, data) != 0)

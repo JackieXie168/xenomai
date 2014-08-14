@@ -24,30 +24,41 @@
 
 static wind_tick_handler_t tick_handler;
 static long tick_handler_arg;
-static int tick_status [XNARCH_NR_CPUS];
 
 void tickAnnounce(void)
 {
-	if (tick_handler != NULL)
-		tick_handler(tick_handler_arg);
-
-	tick_status[xnarch_current_cpu()] = xnpod_announce_tick(&nkclock);
+	/* Announce a tick to the time base. */
+	xntbase_tick(wind_tbase);
 }
 
-static int __tickAnnounce(xnintr_t *intr)
+void wind_sysclk_hook(void)
 {
-	tickAnnounce();
-	return tick_status[xnarch_current_cpu()];
+	tick_handler(tick_handler_arg);
 }
 
-int wind_sysclk_init(u_long init_rate)
+int wind_sysclk_init(u_long period)
 {
-	return sysClkRateSet(init_rate);
+	extern u_long sync_time;
+	u_long init_rate = ONE_BILLION / period;
+	int err;
+
+	err = xntbase_alloc("vxworks", period, sync_time ? 0 : XNTBISO,
+			    &wind_tbase);
+	if (err)
+		return err;
+
+	err = sysClkRateSet(init_rate);
+	if (err)
+		xntbase_free(wind_tbase);
+	else
+		xntbase_start(wind_tbase);
+
+	return err;
 }
 
 void wind_sysclk_cleanup(void)
 {
-	xnpod_reset_timer();	/* Back to the default timer setup. */
+	xntbase_free(wind_tbase);
 }
 
 STATUS sysClkConnect(wind_tick_handler_t func, long arg)
@@ -57,39 +68,37 @@ STATUS sysClkConnect(wind_tick_handler_t func, long arg)
 
 	tick_handler_arg = arg;
 	tick_handler = func;
+	xntbase_set_hook(wind_tbase, &wind_sysclk_hook);
 
 	return OK;
 }
 
 void sysClkDisable(void)
 {
-	xnpod_stop_timer();
+	xntbase_stop(wind_tbase);
 }
 
 void sysClkEnable(void)
 {
-	/* Rely on the fact that even if sysClkDisable was called, the value of
-	   nkpod->tickvalue did not change. */
-	xnpod_start_timer(xnpod_get_tickval(), &__tickAnnounce);
+	xntbase_start(wind_tbase);
 }
 
 int sysClkRateGet(void)
 {
-	return xnpod_get_ticks2sec();
+	return xntbase_get_ticks2sec(wind_tbase);
 }
 
 STATUS sysClkRateSet(int new_rate)
 {
 	int err;
 
+	error_check(!xnpod_secondary_p(), -EPERM, return ERROR);
+
 	if (new_rate <= 0) {
 		return ERROR;
 	}
 
-	if (testbits(nkpod->status, XNTIMED))
-		xnpod_stop_timer();
-
-	err = xnpod_start_timer(ONE_BILLION / new_rate, &__tickAnnounce);
+	err = xntbase_update(wind_tbase, ONE_BILLION / new_rate);
 
 	return err == 0 ? OK : ERROR;
 }

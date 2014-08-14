@@ -38,6 +38,8 @@ typedef struct rt_pipe_placeholder {
 
 #ifdef __KERNEL__
 
+#include <native/ppd.h>
+
 #define XENO_PIPE_MAGIC  0x55550202
 
 #define P_SYNCWAIT  0
@@ -54,8 +56,7 @@ typedef struct rt_pipe {
 
     xnholder_t link;		/* !< Link in flush queue. */
 
-#define link2rtpipe(laddr) \
-((RT_PIPE *)(((char *)laddr) - (int)(&((RT_PIPE *)0)->link)))
+#define link2rtpipe(ln)	container_of(ln, RT_PIPE, link)
 
     int minor;			/* !< Device minor number.  */
 
@@ -76,6 +77,12 @@ typedef struct rt_pipe {
 #ifdef CONFIG_XENO_OPT_PERVASIVE
     pid_t cpid;			/* !< Creator's pid. */
 #endif /* CONFIG_XENO_OPT_PERVASIVE */
+
+    xnholder_t rlink;		/* !< Link in resource queue. */
+
+#define rlink2pipe(ln)		container_of(ln, RT_PIPE, rlink)
+
+    xnqueue_t *rqueue;		/* !< Backpointer to resource queue. */
 
 } RT_PIPE;
 
@@ -129,11 +136,27 @@ RT_PIPE_MSG *rt_pipe_alloc(RT_PIPE *pipe,
 int rt_pipe_free(RT_PIPE *pipe,
                  RT_PIPE_MSG *msg);
 
-ssize_t __deprecated_call__ rt_pipe_flush(RT_PIPE *pipe);
+int rt_pipe_flush(RT_PIPE *pipe,
+		  int mode);
+
+#ifdef CONFIG_XENO_OPT_NATIVE_PIPE
 
 int __native_pipe_pkg_init(void);
 
 void __native_pipe_pkg_cleanup(void);
+
+static inline void __native_pipe_flush_rq(xnqueue_t *rq)
+{
+	xeno_flush_rq(RT_PIPE, rq, pipe);
+}
+
+#else /* !CONFIG_XENO_OPT_NATIVE_PIPE */
+
+#define __native_pipe_pkg_init()		({ 0; })
+#define __native_pipe_pkg_cleanup()		do { } while(0)
+#define __native_pipe_flush_rq(rq)		do { } while(0)
+
+#endif /* !CONFIG_XENO_OPT_NATIVE_PIPE */
 
 #else /* !__KERNEL__ */
 

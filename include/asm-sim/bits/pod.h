@@ -23,26 +23,14 @@
 #include <time.h>
 #include <xeno_config.h>
 
-static inline int xnarch_start_timer (unsigned long nstick,
-				      void (*tickhandler)(void))
-{
-    return mvm_start_timer(nstick,tickhandler);
-}
+#define xnarch_start_timer(tick_handler, cpu)	\
+  ({ mvm_start_timer(0, tick_handler); 0; })
 
-static inline void xnarch_stop_timer (void)
-{
-    mvm_stop_timer();
-}
+#define xnarch_stop_timer(cpu)	mvm_stop_timer()
 
-static inline void xnarch_leave_root(xnarchtcb_t *rootcb)
-{
-    /* Empty */
-}
+#define xnarch_leave_root(rootcb)  do { } while(0)
 
-static inline void xnarch_enter_root(xnarchtcb_t *rootcb)
-{
-    /* Empty */
-}
+#define xnarch_enter_root(rootcb)  do { } while(0)
 
 static inline void xnarch_switch_to (xnarchtcb_t *out_tcb,
 				     xnarchtcb_t *in_tcb)
@@ -140,20 +128,16 @@ static inline void xnarch_escalate (void)
 #define xnarch_notify_halt()	/* Nullified */
 #define xnarch_notify_shutdown() /* Nullified */
 
-/* Align to system time, even if it does not make great sense. */
-static inline unsigned long long xnarch_get_sys_time(void)
+static inline unsigned long long xnarch_get_host_time(void)
 {
     struct timeval tv;
 
-    if(gettimeofday(&tv, NULL))
-        {
+    if (gettimeofday(&tv, NULL)) {
         printf("Warning, gettimeofday failed, error %d\n", errno);
         return 0;
-        }
+    }
 
     return tv.tv_sec * 1000000000ULL + tv.tv_usec * 1000;
 }
-
-#define xnarch_timer_irq_p()  1
 
 #endif /* !_XENO_ASM_SIM_BITS_POD_H */

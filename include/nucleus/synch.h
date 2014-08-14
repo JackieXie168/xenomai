@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2001,2002,2003 Philippe Gerum <rpm@xenomai.org>.
+ * @note Copyright (C) 2001,2002,2003 Philippe Gerum <rpm@xenomai.org>.
  *
  * Xenomai is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published
@@ -15,6 +15,8 @@
  * along with Xenomai; if not, write to the Free Software
  * Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
  * 02111-1307, USA.
+ *
+ * \ingroup synch
  */
 
 #ifndef _XENO_NUCLEUS_SYNCH_H
@@ -70,12 +72,13 @@ typedef struct xnsynch {
 
 } xnsynch_t;
 
-#define xnsynch_test_flags(synch,flags)  testbits((synch)->status,flags)
-#define xnsynch_set_flags(synch,flags)   setbits((synch)->status,flags)
-#define xnsynch_clear_flags(synch,flags) clrbits((synch)->status,flags)
-#define xnsynch_wait_queue(synch)        (&((synch)->pendq))
-#define xnsynch_nsleepers(synch)         countpq(&((synch)->pendq))
-#define xnsynch_owner(synch)             ((synch)->owner)
+#define xnsynch_test_flags(synch,flags)	testbits((synch)->status,flags)
+#define xnsynch_set_flags(synch,flags)	setbits((synch)->status,flags)
+#define xnsynch_clear_flags(synch,flags)	clrbits((synch)->status,flags)
+#define xnsynch_wait_queue(synch)		(&((synch)->pendq))
+#define xnsynch_nsleepers(synch)		countpq(&((synch)->pendq))
+#define xnsynch_pended_p(synch)		(!emptypq_p(&((synch)->pendq)))
+#define xnsynch_owner(synch)		((synch)->owner)
 
 #ifdef __cplusplus
 extern "C" {
@@ -97,9 +100,12 @@ static inline void xnsynch_register_cleanup (xnsynch_t *synch, void (*handler)(x
 }
 
 void xnsynch_sleep_on(xnsynch_t *synch,
-		      xnticks_t timeout);
+		      xnticks_t timeout,
+		      xntmode_t timeout_mode);
 
 struct xnthread *xnsynch_wakeup_one_sleeper(xnsynch_t *synch);
+
+struct xnthread *xnsynch_peek_pendq(xnsynch_t *synch);
 
 xnpholder_t *xnsynch_wakeup_this_sleeper(xnsynch_t *synch,
 					 xnpholder_t *holder);

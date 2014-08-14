@@ -35,7 +35,6 @@
 #include <nucleus/synch.h>
 #include <nucleus/thread.h>
 #include <nucleus/module.h>
-#include <nucleus/ltt.h>
 
 /*! 
  * \fn void xnsynch_init(xnsynch_t *synch, xnflags_t flags);
@@ -95,7 +94,7 @@ void xnsynch_init(xnsynch_t *synch, xnflags_t flags)
 	synch->status = flags & ~XNSYNCH_CLAIMED;
 	synch->owner = NULL;
 	synch->cleanup = NULL;	/* Only works for PIP-enabled objects. */
-	initpq(&synch->pendq, xnpod_get_qdir(nkpod));
+	initpq(&synch->pendq);
 	xnarch_init_display_context(synch);
 }
 
@@ -106,7 +105,7 @@ void xnsynch_init(xnsynch_t *synch, xnflags_t flags)
  * end of its priority group.
  */
 
-static void xnsynch_renice_thread(xnthread_t *thread, int prio)
+static inline void xnsynch_renice_thread(xnthread_t *thread, int prio)
 {
 	thread->cprio = prio;
 
@@ -119,14 +118,16 @@ static void xnsynch_renice_thread(xnthread_t *thread, int prio)
 		   threads but the running one. */
 		xnpod_resume_thread(thread, 0);
 
-#if defined(__KERNEL__) && defined(CONFIG_XENO_OPT_PERVASIVE)
+#ifdef CONFIG_XENO_OPT_PERVASIVE
 	if (xnthread_test_state(thread, XNRELAX))
 		xnshadow_renice(thread);
-#endif /* __KERNEL__ && CONFIG_XENO_OPT_PERVASIVE */
+#endif /* CONFIG_XENO_OPT_PERVASIVE */
 }
 
 /*! 
- * \fn void xnsynch_sleep_on(xnsynch_t *synch,xnticks_t timeout)
+ * \fn void xnsynch_sleep_on(xnsynch_t *synch, xnticks_t timeout,
+ *                           xntmode_t timeout_mode)
+ *
  * \brief Sleep on a synchronization object.
  *
  * Makes the calling thread sleep on the specified synchronization
@@ -139,9 +140,15 @@ static void xnsynch_renice_thread(xnthread_t *thread, int prio)
  * to sleep on.
  *
  * @param timeout The timeout which may be used to limit the time the
- * thread pends on the resource. This value is a count of ticks (see
- * note).  Passing XN_INFINITE specifies an unbounded wait. All other
- * values are used to initialize a nucleus watchdog timer.
+ * thread pends on the resource. This value is a wait time given in
+ * ticks (see note). It can either be relative, absolute monotonic, or
+ * absolute adjustable depending on @a timeout_mode. Passing XN_INFINITE
+ * @b and setting @a mode to XN_RELATIVE specifies an unbounded wait. All
+ * other values are used to initialize a watchdog timer.
+ *
+ * @param timeout_mode The mode of the @a timeout parameter. It can
+ * either be set to XN_RELATIVE, XN_ABSOLUTE, or XN_REALTIME (see also
+ * xntimer_start()).
  *
  * Environments:
  *
@@ -153,30 +160,32 @@ static void xnsynch_renice_thread(xnthread_t *thread, int prio)
  *
  * Rescheduling: always.
  *
- * @note This service is sensitive to the current operation mode of
- * the system timer, as defined by the xnpod_start_timer() service. In
- * periodic mode, clock ticks are interpreted as periodic jiffies. In
- * oneshot mode, clock ticks are interpreted as nanoseconds.
+ * @note The @a timeout value will be interpreted as jiffies if the
+ * current thread is bound to a periodic time base (see
+ * xnpod_init_thread), or nanoseconds otherwise.
  */
 
-void xnsynch_sleep_on(xnsynch_t *synch, xnticks_t timeout)
+void xnsynch_sleep_on(xnsynch_t *synch, xnticks_t timeout,
+		      xntmode_t timeout_mode)
 {
 	xnthread_t *thread = xnpod_current_thread(), *owner;
 	spl_t s;
 
 	xnlock_get_irqsave(&nklock, s);
 
-	xnltt_log_event(xeno_ev_sleepon, thread->name, synch);
+	trace_mark(xn_nucleus_synch_sleepon,
+		   "thread %p thread_name %s sync %p",
+		   thread, xnthread_name(thread), synch);
 
 	if (!testbits(synch->status, XNSYNCH_PRIO)) { /* i.e. FIFO */
 		appendpq(&synch->pendq, &thread->plink);
-		xnpod_suspend_thread(thread, XNPEND, timeout, synch);
+		xnpod_suspend_thread(thread, XNPEND, timeout, timeout_mode, synch);
 		goto unlock_and_exit;
 	}
 
 	if (!testbits(synch->status, XNSYNCH_PIP)) { /* i.e. no ownership */
 		insertpqf(&synch->pendq, &thread->plink, thread->cprio);
-		xnpod_suspend_thread(thread, XNPEND, timeout, synch);
+		xnpod_suspend_thread(thread, XNPEND, timeout, timeout_mode, synch);
 		goto unlock_and_exit;
 	}
 
@@ -189,8 +198,9 @@ redo:
 		goto unlock_and_exit;
 	}
 
-	if (xnpod_compare_prio(thread->cprio, owner->cprio) > 0) {
- 		if (xnthread_test_info(owner, XNWAKEN) && owner->wwake == synch) {
+	if (thread->cprio > owner->cprio) {
+
+		if (xnthread_test_info(owner, XNWAKEN)) {
 			/* Ownership is still pending, steal the resource. */
 			synch->owner = thread;
 			xnthread_clear_info(thread, XNRMID | XNTIMEO | XNBREAK);
@@ -214,7 +224,7 @@ redo:
 	} else
 		insertpqf(&synch->pendq, &thread->plink, thread->cprio);
 
-	xnpod_suspend_thread(thread, XNPEND, timeout, synch);
+	xnpod_suspend_thread(thread, XNPEND, timeout, timeout_mode, synch);
 
 	if (xnthread_test_info(thread, XNRMID | XNTIMEO | XNBREAK))
 		goto unlock_and_exit;
@@ -223,7 +233,7 @@ redo:
 		/* Somebody stole us the ownership while we were ready
 		   to run, waiting for the CPU: we need to wait again
 		   for the resource. */
-		if (timeout == XN_INFINITE)
+		if (timeout_mode != XN_RELATIVE || timeout == XN_INFINITE)
 			goto redo;
 		timeout = xnthread_timeout(thread);
 		if (timeout > 1) /* Otherwise, it's too late. */
@@ -233,7 +243,6 @@ redo:
 
       unlock_and_exit:
 
-	thread->wwake = NULL;
 	xnthread_clear_info(thread, XNWAKEN);
 
 	xnlock_put_irqrestore(&nklock, s);
@@ -270,7 +279,7 @@ static void xnsynch_clear_boost(xnsynch_t *synch, xnthread_t *lastowner)
 		/* Find the highest priority needed to enforce the PIP. */
 		int rprio = getheadpq(&lastowner->claimq)->prio;
 
-		if (xnpod_compare_prio(rprio, downprio) > 0)
+		if (rprio > downprio)
 			downprio = rprio;
 	}
 
@@ -303,7 +312,7 @@ void xnsynch_renice_sleeper(xnthread_t *thread)
 	insertpqf(&synch->pendq, &thread->plink, thread->cprio);
 	owner = synch->owner;
 
-	if (owner != NULL && xnpod_compare_prio(thread->cprio, owner->cprio) > 0) {
+	if (owner != NULL && thread->cprio > owner->cprio) {
 		/* The new priority of the sleeping thread is higher
 		 * than the priority of the current owner of the
 		 * resource: we need to update the PI state. */
@@ -366,21 +375,23 @@ void xnsynch_renice_sleeper(xnthread_t *thread)
 
 xnthread_t *xnsynch_wakeup_one_sleeper(xnsynch_t *synch)
 {
-	xnthread_t *thread = NULL, *lastowner = synch->owner;
+	xnthread_t *thread = NULL, *lastowner;
 	xnpholder_t *holder;
 	spl_t s;
 
 	xnlock_get_irqsave(&nklock, s);
 
+	lastowner = synch->owner;
 	holder = getpq(&synch->pendq);
 
 	if (holder) {
 		thread = link2thread(holder, plink);
 		thread->wchan = NULL;
-		thread->wwake = synch;
 		synch->owner = thread;
 		xnthread_set_info(thread, XNWAKEN);
-		xnltt_log_event(xeno_ev_wakeup1, thread->name, synch);
+		trace_mark(xn_nucleus_synch_wakeup_one,
+			   "thread %p thread_name %s sync %p",
+			   thread, xnthread_name(thread), synch);
 		xnpod_resume_thread(thread, XNPEND);
 	} else
 		synch->owner = NULL;
@@ -391,6 +402,44 @@ xnthread_t *xnsynch_wakeup_one_sleeper(xnsynch_t *synch)
 	xnlock_put_irqrestore(&nklock, s);
 
 	xnarch_post_graph_if(synch, 0, emptypq_p(&synch->pendq));
+
+	return thread;
+}
+
+/*! 
+ * \fn xnthread_t *xnsynch_peek_pendq(xnsynch_t *synch);
+ * \brief Access the thread leading a synch object wait queue.
+ *
+ * This services returns the descriptor address of to the thread leading a
+ * synchronization object wait queue.
+ *
+ * @param synch The descriptor address of the target synchronization object.
+ *
+ * @return The descriptor address of the unblocked thread.
+ *
+ * Environments:
+ *
+ * This service can be called from:
+ *
+ * - Kernel module initialization/cleanup code
+ * - Interrupt service routine
+ * - Kernel-based task
+ * - User-space task
+ *
+ * Rescheduling: never.
+ */
+xnthread_t *xnsynch_peek_pendq(xnsynch_t *synch)
+{
+	xnthread_t *thread = NULL;
+	xnpholder_t *holder;
+	spl_t s;
+
+	xnlock_get_irqsave(&nklock, s);
+
+	holder = getheadpq(&synch->pendq);
+	if (holder)
+		thread = link2thread(holder, plink);
+	xnlock_put_irqrestore(&nklock, s);
 
 	return thread;
 }
@@ -440,19 +489,22 @@ xnthread_t *xnsynch_wakeup_one_sleeper(xnsynch_t *synch)
 
 xnpholder_t *xnsynch_wakeup_this_sleeper(xnsynch_t *synch, xnpholder_t *holder)
 {
-	xnthread_t *thread, *lastowner = synch->owner;
+	xnthread_t *thread, *lastowner;
 	xnpholder_t *nholder;
 	spl_t s;
 
 	xnlock_get_irqsave(&nklock, s);
 
+	lastowner = synch->owner;
 	nholder = poppq(&synch->pendq, holder);
+
 	thread = link2thread(holder, plink);
 	thread->wchan = NULL;
-	thread->wwake = synch;
 	synch->owner = thread;
 	xnthread_set_info(thread, XNWAKEN);
-	xnltt_log_event(xeno_ev_wakeupx, thread->name, synch);
+	trace_mark(xn_nucleus_synch_wakeup_all,
+		   "thread %p thread_name %s synch %p",
+		   thread, xnthread_name(thread), synch);
 	xnpod_resume_thread(thread, XNPEND);
 
 	if (testbits(synch->status, XNSYNCH_CLAIMED))
@@ -522,7 +574,8 @@ int xnsynch_flush(xnsynch_t *synch, xnflags_t reason)
 
 	xnlock_get_irqsave(&nklock, s);
 
-	xnltt_log_event(xeno_ev_syncflush, synch, reason);
+	trace_mark(xn_nucleus_synch_flush, "synch %p reason %lu",
+		   synch, reason);
 
 	status = emptypq_p(&synch->pendq) ? XNSYNCH_DONE : XNSYNCH_RESCHED;
 
@@ -568,7 +621,9 @@ void xnsynch_forget_sleeper(xnthread_t *thread)
 {
 	xnsynch_t *synch = thread->wchan;
 
-	xnltt_log_event(xeno_ev_syncforget, thread->name, synch);
+	trace_mark(xn_nucleus_synch_forget,
+		   "thread %p thread_name %s synch %p",
+		   thread, xnthread_name(thread), synch);
 
 	xnthread_clear_state(thread, XNPEND);
 	thread->wchan = NULL;
@@ -594,7 +649,7 @@ void xnsynch_forget_sleeper(xnthread_t *thread)
 
 			rprio = getheadpq(&owner->claimq)->prio;
 
-			if (xnpod_compare_prio(rprio, owner->cprio) < 0)
+			if (rprio < owner->cprio)
 				xnsynch_renice_thread(owner, rprio);
 		}
 	}
@@ -643,3 +698,4 @@ EXPORT_SYMBOL(xnsynch_renice_sleeper);
 EXPORT_SYMBOL(xnsynch_sleep_on);
 EXPORT_SYMBOL(xnsynch_wakeup_one_sleeper);
 EXPORT_SYMBOL(xnsynch_wakeup_this_sleeper);
+EXPORT_SYMBOL(xnsynch_peek_pendq);

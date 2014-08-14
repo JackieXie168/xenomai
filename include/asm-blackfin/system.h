@@ -27,12 +27,6 @@
 #include <asm/system.h>
 #include <asm/processor.h>
 
-#define XNARCH_DEFAULT_TICK     1000000 /* ns, i.e. 1ms */
-/* The I-pipe frees the Blackfin core timer for us, therefore we don't
-   need any host tick relay service since the regular Linux time
-   source is still ticking in parallel at the normal pace through
-   TIMER0. */
-#define XNARCH_HOST_TICK        0
 #define XNARCH_THREAD_STACKSZ   8192
 
 #define xnarch_stack_size(tcb)  ((tcb)->stacksize)
@@ -89,17 +83,25 @@ typedef struct xnarch_fltinfo {
 extern "C" {
 #endif
 
-static inline void *xnarch_sysalloc (u_long bytes)
+static inline void *xnarch_alloc_host_mem (u_long bytes)
 
 {
     return kmalloc(bytes,GFP_KERNEL);
 }
 
-static inline void xnarch_sysfree (void *chunk, u_long bytes)
+static inline void xnarch_free_host_mem (void *chunk, u_long bytes)
 
 {
     kfree(chunk);
 }
+
+#define __xnarch_hisyscall_entry()	\
+  do	{				\
+	  if (xnsched_resched_p())	\
+		  xnpod_schedule();	\
+  } while(0)
+
+#define xnarch_hisyscall_entry	__xnarch_hisyscall_entry
 
 #ifdef __cplusplus
 }

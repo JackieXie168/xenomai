@@ -24,7 +24,7 @@
 
 void ui_timer(void)
 {
-	xnpod_announce_tick(&nkclock);
+	xntbase_tick(vrtx_tbase);
 }
 
 void sc_gclock(struct timespec *timep, unsigned long *nsp, int *errp)
@@ -32,8 +32,8 @@ void sc_gclock(struct timespec *timep, unsigned long *nsp, int *errp)
 	unsigned long remain;
 	xnticks_t now;
 
-	*nsp = xnpod_get_tickval();
-	now = xnpod_get_time();
+	*nsp = xntbase_get_tickval(vrtx_tbase);
+	now = xntbase_get_time(vrtx_tbase);
 	timep->seconds = xnarch_uldivrem(now, 1000000000, &remain);
 	timep->nanoseconds = remain;
 	*errp = RET_OK;
@@ -41,32 +41,42 @@ void sc_gclock(struct timespec *timep, unsigned long *nsp, int *errp)
 
 void sc_sclock(struct timespec time, unsigned long ns, int *errp)
 {
-	if ((ns > 1000000000) ||
-	    ((time.nanoseconds < 0) || (time.nanoseconds > 999999999))) {
+ 	spl_t s;
+ 
+	if (ns > 1000000000 ||
+	    time.nanoseconds < 0 || time.nanoseconds > 999999999) {
 		*errp = ER_IIP;
 		return;
 	}
 
-	if ((ns != xnpod_get_tickval())) {
-		xnpod_stop_timer();
+	if (ns != xntbase_get_tickval(vrtx_tbase)) {
+		xntbase_switch("vrtx", ns, &vrtx_tbase);
 
 		if (ns != 0)
-			xnpod_start_timer(ns, &xnpod_announce_tick);
+			xntbase_start(vrtx_tbase);
 	}
 
-	xnpod_set_time(time.seconds * TEN_POW_9 + time.nanoseconds);
+	xnlock_get_irqsave(&nklock, s);
+	xntbase_adjust_time(&nktbase,
+			    time.seconds * TEN_POW_9 + time.nanoseconds -
+			    xntbase_get_time(&nktbase));
+	xnlock_put_irqrestore(&nklock, s);
 
 	*errp = RET_OK;
 }
 
 unsigned long sc_gtime(void)
 {
-	return (unsigned long)xnpod_get_time();
+	return (unsigned long)xntbase_get_time(vrtx_tbase);
 }
 
 void sc_stime(unsigned long time)
 {
-	xnpod_set_time(time);
+	spl_t s;
+
+	xnlock_get_irqsave(&nklock, s);
+	xntbase_adjust_time(vrtx_tbase, time - sc_gtime());
+	xnlock_put_irqrestore(&nklock, s);
 }
 
 void sc_delay(long ticks)
@@ -91,7 +101,7 @@ void sc_adelay(struct timespec time, int *errp)
 	}
 
 	etime = time.seconds * TEN_POW_9 + time.nanoseconds;
-	now = xnpod_get_time();
+	now = xntbase_get_time(vrtx_tbase);
 	*errp = RET_OK;
 
 	if (etime > now) {

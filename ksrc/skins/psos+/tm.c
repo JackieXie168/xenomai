@@ -21,8 +21,6 @@
 #include <psos+/task.h>
 #include <psos+/tm.h>
 
-static xnqueue_t psostimerq;
-
 static const u_long tm_secbyday = 24 * 60 * 60;
 
 static const u_long tm_secbyhour = 60 * 60;
@@ -31,30 +29,27 @@ static const u_long tm_secbymin = 60;
 
 void psostm_init(void)
 {
-	initq(&psostimerq);
 }
 
 void psostm_cleanup(void)
 {
-
-	xnholder_t *holder;
-
-	while ((holder = getheadq(&psostimerq)) != NULL)
-		tm_destroy_internal(link2psostm(holder));
 }
 
 void tm_destroy_internal(psostm_t *tm)
 {
 	spl_t s;
 
+	/* Internal timers are automatically removed by exiting tasks,
+	 * so we don't need any resource cleanup handling here. */
+
 	xnlock_get_irqsave(&nklock, s);
 	removegq(&tm->owner->alarmq, tm);
 	xntimer_destroy(&tm->timerbase);
 #ifdef CONFIG_XENO_OPT_REGISTRY
-	xnregistry_remove(tm->handle);
+	if (tm->handle)
+		xnregistry_remove(tm->handle);
 #endif /* CONFIG_XENO_OPT_REGISTRY */
 	psos_mark_deleted(tm);
-	removeq(&psostimerq, &tm->link);
 	xnlock_put_irqrestore(&nklock, s);
 
 	xnfree(tm);
@@ -64,7 +59,7 @@ static void tm_evpost_handler(xntimer_t *timer)
 {
 	psostm_t *tm = container_of(timer, psostm_t, timerbase);
 
-	ev_send((u_long)tm->owner, tm->events);
+	ev_send((u_long)tm->owner, tm->data);
 
 	if (xntimer_interval(&tm->timerbase) == XN_INFINITE)
 		tm_destroy_internal(tm);
@@ -82,15 +77,14 @@ static u_long tm_start_event_timer(u_long ticks,
 		return ERR_NOSEG;
 
 	inith(&tm->link);
-	tm->events = events;
+	tm->data = events;
 	tm->owner = psos_current_task();
 	*tmid = (u_long)tm;
 
-	xntimer_init(&tm->timerbase, tm_evpost_handler);
+	xntimer_init(&tm->timerbase, psos_tbase, tm_evpost_handler);
 	tm->magic = PSOS_TM_MAGIC;
 
 	xnlock_get_irqsave(&nklock, s);
-	appendq(&psostimerq, &tm->link);
 	appendgq(&tm->owner->alarmq, tm);
 	xnlock_put_irqrestore(&nklock, s);
 
@@ -99,7 +93,7 @@ static u_long tm_start_event_timer(u_long ticks,
 		static unsigned long tm_ids;
 		u_long err;
 
-		sprintf(tm->name, "anon%lu", tm_ids++);
+		sprintf(tm->name, "anon_evtm%lu", tm_ids++);
 
 		err = xnregistry_enter(tm->name, tm, &tm->handle, 0);
 
@@ -112,11 +106,67 @@ static u_long tm_start_event_timer(u_long ticks,
 #endif /* CONFIG_XENO_OPT_REGISTRY */
 
 	xnlock_get_irqsave(&nklock, s);
-	xntimer_start(&tm->timerbase, ticks, interval);
+	xntimer_start(&tm->timerbase, ticks, interval, XN_RELATIVE);
 	xnlock_put_irqrestore(&nklock, s);
 
 	return SUCCESS;
 }
+
+#ifdef CONFIG_XENO_OPT_PERVASIVE
+
+static void tm_sigpost_handler(xntimer_t *timer)
+{
+	psostm_t *tm = container_of(timer, psostm_t, timerbase);
+
+	xnshadow_send_sig(&tm->owner->threadbase, tm->data, 1);
+
+	if (xntimer_interval(&tm->timerbase) == XN_INFINITE)
+		tm_destroy_internal(tm);
+}
+
+u_long tm_start_signal_timer(u_long ticks,
+			     u_long interval, int signo, u_long *tmid)
+{
+	static unsigned long tm_ids;
+	psostm_t *tm;
+	u_long err;
+	spl_t s;
+
+	tm = (psostm_t *)xnmalloc(sizeof(*tm));
+
+	if (!tm)
+		return ERR_NOSEG;
+
+	inith(&tm->link);
+	tm->data = signo;
+	tm->owner = psos_current_task();
+	*tmid = (u_long)tm;
+
+	xntimer_init(&tm->timerbase, psos_tbase, tm_sigpost_handler);
+	tm->magic = PSOS_TM_MAGIC;
+
+	xnlock_get_irqsave(&nklock, s);
+	appendgq(&tm->owner->alarmq, tm);
+	xnlock_put_irqrestore(&nklock, s);
+
+	sprintf(tm->name, "anon_sigtm%lu", tm_ids++);
+
+	err = xnregistry_enter(tm->name, tm, &tm->handle, 0);
+
+	if (err) {
+		tm->handle = XN_NO_HANDLE;
+		tm_cancel((u_long)tm);
+		return err;
+	}
+
+	xnlock_get_irqsave(&nklock, s);
+	xntimer_start(&tm->timerbase, ticks, interval, XN_RELATIVE);
+	xnlock_put_irqrestore(&nklock, s);
+
+	return SUCCESS;
+}
+
+#endif /* CONFIG_XENO_OPT_PERVASIVE */
 
 static const int tm_month_sizes[] = {
 	31, 28, 31, 30, 31, 30,
@@ -144,7 +194,7 @@ static u_long tm_date_to_ticks(u_long date,
 	if (hour > 23 || min > 59 || sec > 59)
 		return ERR_ILLTIME;
 
-	if (ticks >= xnpod_get_ticks2sec())
+	if (ticks >= xntbase_get_ticks2sec(psos_tbase))
 		return ERR_ILLTICKS;
 
 	for (n = 0; n < year; n++)
@@ -154,8 +204,8 @@ static u_long tm_date_to_ticks(u_long date,
 		/* Add one day for leap year after February. */
 		*count += 1;
 
-	for (n = month - 1; n > 0; n--)
-		*count += tm_month_sizes[n];
+	for (n = month - 1; month > 0; month--)
+		*count += tm_month_sizes[month - 1];
 
 	*count += day - 1;
 	*count *= 24;
@@ -164,7 +214,7 @@ static u_long tm_date_to_ticks(u_long date,
 	*count += min;
 	*count *= 60;
 	*count += sec;
-	*count *= xnpod_get_ticks2sec();
+	*count *= xntbase_get_ticks2sec(psos_tbase);
 	*count += ticks;
 
 	return SUCCESS;
@@ -175,7 +225,7 @@ static void tm_ticks_to_date(u_long *date,
 {
 	u_long year, month, day, hour, min, sec, allsecs, rem;
 
-	allsecs = (u_long)xnarch_ulldiv(count, xnpod_get_ticks2sec(), &rem);
+	allsecs = (u_long)xnarch_ulldiv(count, xntbase_get_ticks2sec(psos_tbase), &rem);
 
 	year = 0;
 
@@ -218,7 +268,7 @@ static void tm_ticks_to_date(u_long *date,
 
 	*date = (year << 16) | (month << 8) | day;
 	*time = (hour << 16) | (min << 8) | sec;
-	*ticks = xnarch_ullmod(count, xnpod_get_ticks2sec(), &rem);
+	*ticks = xnarch_ullmod(count, xntbase_get_ticks2sec(psos_tbase), &rem);
 }
 
 u_long tm_wkafter(u_long ticks)
@@ -229,7 +279,7 @@ u_long tm_wkafter(u_long ticks)
 	if (ticks > 0) {
 		xnpod_delay(ticks);
 		if (xnthread_test_info(&psos_current_task()->threadbase, XNBREAK))
-		    return -EINTR;
+			return -EINTR;
 	}
 	else
 		xnpod_yield();	/* Perform manual round-robin */
@@ -270,7 +320,7 @@ u_long tm_cancel(u_long tmid)
 
 	tm_destroy_internal(tm);
 
-      unlock_and_exit:
+unlock_and_exit:
 
 	xnlock_put_irqrestore(&nklock, s);
 
@@ -279,8 +329,7 @@ u_long tm_cancel(u_long tmid)
 
 u_long tm_tick(void)
 {
-
-	xnpod_announce_tick(&nkclock);
+	xntbase_tick(psos_tbase);
 	return SUCCESS;
 }
 
@@ -293,7 +342,7 @@ u_long tm_evwhen(u_long date,
 	if (!xnpod_primary_p())
 		return -EPERM;
 
-	if (!xnpod_timeset_p())
+	if (!xntbase_timeset_p(psos_tbase))
 		return ERR_NOTIME;	/* Must call tm_set() first. */
 
 	err = tm_date_to_ticks(date, time, ticks, &when);
@@ -301,7 +350,7 @@ u_long tm_evwhen(u_long date,
 	if (err != SUCCESS)
 		return err;
 
-	now = xnpod_get_time();
+	now = xntbase_get_time(psos_tbase);
 
 	if (when <= now)
 		return ERR_TOOLATE;
@@ -317,7 +366,7 @@ u_long tm_wkwhen(u_long date, u_long time, u_long ticks)
 	if (xnpod_unblockable_p())
 		return -EPERM;
 
-	if (!xnpod_timeset_p())
+	if (!xntbase_timeset_p(psos_tbase))
 		return ERR_NOTIME;	/* Must call tm_set() first. */
 
 	err = tm_date_to_ticks(date, time, ticks, &when);
@@ -325,7 +374,7 @@ u_long tm_wkwhen(u_long date, u_long time, u_long ticks)
 	if (err != SUCCESS)
 		return err;
 
-	now = xnpod_get_time();
+	now = xntbase_get_time(psos_tbase);
 
 	if (when <= now)
 		return ERR_TOOLATE;
@@ -333,17 +382,17 @@ u_long tm_wkwhen(u_long date, u_long time, u_long ticks)
 	xnpod_delay(when - now);
 
 	if (xnthread_test_info(&psos_current_task()->threadbase, XNBREAK))
-	    return -EINTR;
+		return -EINTR;
 
 	return SUCCESS;
 }
 
 u_long tm_get(u_long *date, u_long *time, u_long *ticks)
 {
-	if (!xnpod_timeset_p())
+	if (!xntbase_timeset_p(psos_tbase))
 		return ERR_NOTIME;	/* Must call tm_set() first. */
 
-	tm_ticks_to_date(date, time, ticks, xnpod_get_time());
+	tm_ticks_to_date(date, time, ticks, xntbase_get_time(psos_tbase));
 
 	return SUCCESS;
 }
@@ -352,13 +401,18 @@ u_long tm_set(u_long date, u_long time, u_long ticks)
 {
 	xnticks_t when;
 	u_long err;
+	spl_t s;
 
 	err = tm_date_to_ticks(date, time, ticks, &when);
 
-	if (err == SUCCESS)
-		nkpod->svctable.settime(when);
+	if (err != SUCCESS)
+		return err;
 
-	return err;
+	xnlock_get_irqsave(&nklock, s);
+	xntbase_adjust_time(psos_tbase, when - xntbase_get_time(psos_tbase));
+	xnlock_put_irqrestore(&nklock, s);
+
+	return SUCCESS;
 }
 
 /*

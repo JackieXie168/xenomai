@@ -94,9 +94,9 @@ static void pse51_shm_init(pse51_shm_t * shm)
 static void pse51_free_heap_extent(xnheap_t *heap,
 				   void *extent, u_long size, void *cookie)
 {
-	xnarch_sysfree(extent, size);
+	xnarch_free_host_mem(extent, size);
 }
-#endif /* CONFIG_XENO_OPT_PERVASIVE */
+#endif /* !CONFIG_XENO_OPT_PERVASIVE */
 
 /* Must be called nklock locked, irq off. */
 static void pse51_shm_destroy(pse51_shm_t * shm, int force)
@@ -125,8 +125,9 @@ static void pse51_shm_destroy(pse51_shm_t * shm, int force)
 		xnholder_t *holder;
 
 		while ((holder = getq(&shm->mappings))) {
-			pse51_shm_map_t *mapping = link2map(holder);
-			xnfree(mapping);
+			up(&shm->maplock);
+			xnfree(link2map(holder));
+			down(&shm->maplock);
 		}
 	}
 
@@ -168,11 +169,11 @@ static void pse51_shm_put(pse51_shm_t * shm, unsigned dec)
 		pse51_node_put(&shm->nodebase);
 
 	if (pse51_node_removed_p(&shm->nodebase)) {
+		xnlock_put_irqrestore(&nklock, s);
 		pse51_shm_destroy(shm, 0);
 		xnfree(shm);
-	}
-
-	xnlock_put_irqrestore(&nklock, s);
+	} else
+		xnlock_put_irqrestore(&nklock, s);
 }
 
 /**
@@ -247,38 +248,51 @@ int shm_open(const char *name, int oflags, mode_t mode)
 	}
 
 	xnlock_get_irqsave(&nklock, s);
-
 	err = pse51_node_get(&node, name, PSE51_SHM_MAGIC, oflags);
+	xnlock_put_irqrestore(&nklock, s);
 	if (err)
 		goto error;
 
-	if (!node) {
-		/* We must create the shared memory object, not yet allocated. */
-		shm = (pse51_shm_t *) xnmalloc(sizeof(*shm));
-
-		if (!shm) {
-			err = ENOSPC;
-			goto error;
-		}
-
-		err = pse51_node_add(&shm->nodebase, name, PSE51_SHM_MAGIC);
-		if (err) {
-			xnfree(shm);
-			goto error;
-		}
-
-		pse51_shm_init(shm);
-	} else
+	if (node) {
 		shm = node2shm(node);
+		goto got_shm;
+	}
 
-	err = pse51_desc_create(&desc, &shm->nodebase);
+	/* We must create the shared memory object, not yet allocated. */
+	shm = (pse51_shm_t *) xnmalloc(sizeof(*shm));
+	if (!shm) {
+		err = ENOSPC;
+		goto error;
+	}
+
+	xnlock_get_irqsave(&nklock, s);
+	err = pse51_node_add(&shm->nodebase, name, PSE51_SHM_MAGIC);
+	if (err && err != EEXIST)
+		goto err_unlock;
+
+	if (err == EEXIST) {
+		/* same shm was created in the mean time, rollback. */
+		err = pse51_node_get(&node, name, PSE51_SHM_MAGIC, oflags);
+	  err_unlock:
+		xnlock_put_irqrestore(&nklock, s);
+		xnfree(shm);
+		if (err)
+			goto error;
+
+		shm = node2shm(node);
+		goto got_shm;
+	}
+
+	pse51_shm_init(shm);
+	xnlock_put_irqrestore(&nklock, s);
+
+  got_shm:
+	err = pse51_desc_create(&desc, &shm->nodebase,
+				oflags & PSE51_PERMS_MASK);
 	if (err)
 		goto err_shm_put;
 
-	pse51_desc_setflags(desc, oflags & PSE51_PERMS_MASK);
-
 	fd = pse51_desc_fd(desc);
-	xnlock_put_irqrestore(&nklock, s);
 
 	if ((oflags & O_TRUNC) && ftruncate(fd, 0)) {
 		close(fd);
@@ -287,11 +301,9 @@ int shm_open(const char *name, int oflags, mode_t mode)
 
 	return fd;
 
-      err_shm_put:
+  err_shm_put:
 	pse51_shm_put(shm, 1);
-
-      error:
-	xnlock_put_irqrestore(&nklock, s);
+  error:
 	thread_set_errno(err);
 	return -1;
 }
@@ -337,25 +349,26 @@ int close(int fd)
 
 	if (IS_ERR(shm)) {
 		err = -PTR_ERR(shm);
-		goto error;
+		goto err_put;
 	}
 
 	if (xnpod_interrupt_p() || !xnpod_root_p()) {
 		err = EPERM;
-		goto error;
+		goto err_put;
 	}
-
-	err = pse51_desc_destroy(desc);
-
-	if (err)
-		goto error;
 
 	pse51_shm_put(shm, 1);
 	xnlock_put_irqrestore(&nklock, s);
+
+	err = pse51_desc_destroy(desc);
+	if (err)
+		goto error;
+
 	return 0;
 
-      error:
+  err_put:
 	xnlock_put_irqrestore(&nklock, s);
+  error:
 	thread_set_errno(err);
 	return -1;
 }
@@ -494,11 +507,6 @@ int ftruncate(int fd, off_t len)
 		goto err_shm_put;
 	}
 
-	/* Allocate one more page for alignment (the address returned by mmap
-	   must be aligned on a page boundary). */
-	if (len)
-		len = xnheap_rounded_size(len + PAGE_SIZE, PAGE_SIZE);
-
 	err = 0;
 	if (emptyq_p(&shm->mappings)) {
 		/* Temporary storage, in order to preserve the memory contents upon
@@ -508,7 +516,7 @@ int ftruncate(int fd, off_t len)
 
 		if (shm->addr) {
 			size = shm->size;
-			addr = xnarch_sysalloc(size);
+			addr = xnarch_alloc_host_mem(size);
 			if (!addr) {
 				err = ENOMEM;
 				goto err_up;
@@ -530,17 +538,23 @@ int ftruncate(int fd, off_t len)
 
 		if (len) {
 #ifdef CONFIG_XENO_OPT_PERVASIVE
-			int flags = len <= 128 * 1024 ? GFP_USER : 0;
+			int flags;
+			len = xnheap_rounded_size(len, PAGE_SIZE);
+			flags = len <= 128 * 1024 ? GFP_USER : 0;
 			err = -xnheap_init_mapped(&shm->heapbase, len, flags);
 #else /* !CONFIG_XENO_OPT_PERVASIVE. */
 			{
-				void *heapaddr = xnarch_sysalloc(len);
+				void *heapaddr;
+
+				len = xnheap_rounded_size(len, XNCORE_PAGE_SIZE);
+
+				heapaddr = xnarch_alloc_host_mem(len);
 
 				if (heapaddr)
 					err =
 					    -xnheap_init(&shm->heapbase,
 							 heapaddr, len,
-							 PAGE_SIZE);
+							 XNCORE_PAGE_SIZE);
 				else
 					err = ENOMEM;
 
@@ -562,7 +576,7 @@ int ftruncate(int fd, off_t len)
 		}
 
 		if (addr)
-			xnarch_sysfree(addr, size);
+			xnarch_free_host_mem(addr, size);
 	} else if (len != xnheap_extentsize(&shm->heapbase))
 		err = EBUSY;
 
@@ -691,21 +705,21 @@ void *mmap(void *addr, size_t len, int prot, int flags, int fd, off_t off)
 		goto err_shm_put;
 	}
 
+	map = (pse51_shm_map_t *) xnmalloc(sizeof(*map));
+	if (!map) {
+		err = EAGAIN;
+		goto err_shm_put;
+	}
+
 	if (down_interruptible(&shm->maplock)) {
 		err = EINTR;
-		goto err_shm_put;
+		goto err_free_map;
 	}
 
 	if (!shm->addr || off + len > shm->size) {
 		err = ENXIO;
-		goto err_put_lock;
-	}
-
-	map = (pse51_shm_map_t *) xnmalloc(sizeof(*map));
-
-	if (!map) {
-		err = EAGAIN;
-		goto err_put_lock;
+		up(&shm->maplock);
+		goto err_free_map;
 	}
 
 	/* Align the heap address on a page boundary. */
@@ -718,11 +732,11 @@ void *mmap(void *addr, size_t len, int prot, int flags, int fd, off_t off)
 
 	return result;
 
-      err_put_lock:
-	up(&shm->maplock);
-      err_shm_put:
+  err_free_map:
+	xnfree(map);
+  err_shm_put:
 	pse51_shm_put(shm, 1);
-      error:
+  error:
 	thread_set_errno(err);
 	return MAP_FAILED;
 }
@@ -863,7 +877,7 @@ int munmap(void *addr, size_t len)
 	return -1;
 }
 
-#if defined(__KERNEL__) && defined(CONFIG_XENO_OPT_PERVASIVE)
+#ifdef CONFIG_XENO_OPT_PERVASIVE
 int pse51_xnheap_get(xnheap_t **pheap, void *addr)
 {
 	pse51_shm_t *shm;
@@ -909,7 +923,7 @@ void pse51_shm_umaps_cleanup(pse51_queues_t *q)
 	pse51_assocq_destroy(&q->umaps, &umap_cleanup);
 }
 
-#endif /* __KERNEL__ && CONFIG_XENO_OPT_PERVASIVE */
+#endif /* CONFIG_XENO_OPT_PERVASIVE */
 
 int pse51_shm_pkg_init(void)
 {

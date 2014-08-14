@@ -54,10 +54,15 @@ static pthread_mutexattr_t default_attr;
 static void pse51_mutex_destroy_internal(pse51_mutex_t *mutex,
 					 pse51_kqueues_t *q)
 {
+	spl_t s;
+
+	xnlock_get_irqsave(&nklock, s);
 	removeq(&q->mutexq, &mutex->link);
 	/* synchbase wait queue may not be empty only when this function is called
 	   from pse51_mutex_pkg_cleanup, hence the absence of xnpod_schedule(). */
 	xnsynch_destroy(&mutex->synchbase);
+	xnlock_put_irqrestore(&nklock, s);
+
 	xnfree(mutex);
 }
 
@@ -65,7 +70,7 @@ static void pse51_mutex_destroy_internal(pse51_mutex_t *mutex,
  * Initialize a mutex.
  *
  * This services initializes the mutex @a mx, using the mutex attributes object
- * @a attr. If @a attr is @a NULL default attributes are used (see
+ * @a attr. If @a attr is @a NULL, default attributes are used (see
  * pthread_mutexattr_init()).
  *
  * @param mx the mutex to be initialized;
@@ -92,15 +97,20 @@ int pthread_mutex_init(pthread_mutex_t * mx, const pthread_mutexattr_t * attr)
 	pse51_mutex_t *mutex;
 	xnqueue_t *mutexq;
 	spl_t s;
+	int err;
 
 	if (!attr)
 		attr = &default_attr;
 
+	mutex = (pse51_mutex_t *) xnmalloc(sizeof(*mutex));
+	if (!mutex)
+		return ENOMEM;
+
 	xnlock_get_irqsave(&nklock, s);
 
 	if (attr->magic != PSE51_MUTEX_ATTR_MAGIC) {
-		xnlock_put_irqrestore(&nklock, s);
-		return EINVAL;
+		err = EINVAL;
+		goto error;
 	}
 
 	mutexq = &pse51_kqueues(attr->pshared)->mutexq;
@@ -111,15 +121,9 @@ int pthread_mutex_init(pthread_mutex_t * mx, const pthread_mutexattr_t * attr)
 		     holder = nextq(mutexq, holder))
 			if (holder == &shadow->mutex->link) {
 				/* mutex is already in the queue. */
-				xnlock_put_irqrestore(&nklock, s);
-				return EBUSY;
+				err = EBUSY;
+				goto error;
 			}
-	}
-
-	mutex = (pse51_mutex_t *) xnmalloc(sizeof(*mutex));
-	if (!mutex) {
-		xnlock_put_irqrestore(&nklock, s);
-		return ENOMEM;
 	}
 
 	shadow->magic = PSE51_MUTEX_MAGIC;
@@ -133,12 +137,18 @@ int pthread_mutex_init(pthread_mutex_t * mx, const pthread_mutexattr_t * attr)
 	mutex->attr = *attr;
 	mutex->count = 0;
 	mutex->condvars = 0;
+	mutex->owningq = pse51_kqueues(attr->pshared);
 
 	appendq(mutexq, &mutex->link);
 
 	xnlock_put_irqrestore(&nklock, s);
 
 	return 0;
+
+  error:
+	xnlock_put_irqrestore(&nklock, s);
+	xnfree(mutex);
+	return err;
 }
 
 /**
@@ -153,6 +163,8 @@ int pthread_mutex_init(pthread_mutex_t * mx, const pthread_mutexattr_t * attr)
  * @return 0 on success,
  * @return an error number if:
  * - EINVAL, the mutex @a mx is invalid;
+ * - EPERM, the mutex is not process-shared and does not belong to the current
+ *   process;
  * - EBUSY, the mutex is locked, or used by a condition variable.
  *
  * @see
@@ -175,6 +187,10 @@ int pthread_mutex_destroy(pthread_mutex_t * mx)
 	}
 
 	mutex = shadow->mutex;
+	if (pse51_kqueues(mutex->attr.pshared) != mutex->owningq) {
+		xnlock_put_irqrestore(&nklock, s);
+		return EPERM;
+	}
 
 	if (mutex->count || mutex->condvars) {
 		xnlock_put_irqrestore(&nklock, s);
@@ -182,14 +198,15 @@ int pthread_mutex_destroy(pthread_mutex_t * mx)
 	}
 
 	pse51_mark_deleted(shadow);
-	pse51_mutex_destroy_internal(mutex, pse51_kqueues(mutex->attr.pshared));
-
 	xnlock_put_irqrestore(&nklock, s);
 
+	pse51_mutex_destroy_internal(mutex, pse51_kqueues(mutex->attr.pshared));
+	
 	return 0;
 }
 
-int pse51_mutex_timedlock_break(struct __shadow_mutex *shadow, xnticks_t abs_to)
+int pse51_mutex_timedlock_break(struct __shadow_mutex *shadow,
+				int timed, xnticks_t abs_to)
 {
 	xnthread_t *cur = xnpod_current_thread();
 	pse51_mutex_t *mutex;
@@ -198,59 +215,56 @@ int pse51_mutex_timedlock_break(struct __shadow_mutex *shadow, xnticks_t abs_to)
 
 	xnlock_get_irqsave(&nklock, s);
 
-	err = pse51_mutex_timedlock_internal(cur, shadow, 1, abs_to);
+	err = pse51_mutex_timedlock_internal(cur, shadow, 1, timed, abs_to);
+	if (err != EBUSY)
+		goto unlock_and_return;
 
-	if (err == EBUSY) {
-		mutex = shadow->mutex;
+	mutex = shadow->mutex;
 
-		switch (mutex->attr.type) {
-		case PTHREAD_MUTEX_NORMAL:
-			/* Attempting to relock a normal mutex, deadlock. */
-			for (;;) {
-				xnticks_t to = abs_to;
+	switch (mutex->attr.type) {
+	case PTHREAD_MUTEX_NORMAL:
+		/* Attempting to relock a normal mutex, deadlock. */
+		for (;;) {
+			if (timed)
+				xnsynch_sleep_on(&mutex->synchbase,
+						 abs_to, XN_REALTIME);
+			else
+				xnsynch_sleep_on(&mutex->synchbase,
+						 XN_INFINITE, XN_RELATIVE);
 
-				err = clock_adjust_timeout(&to, CLOCK_REALTIME);
-
-				if (err)
-					break;
-
-				xnsynch_sleep_on(&mutex->synchbase, to);
-
-				if (xnthread_test_info(cur, XNBREAK)) {
-					err = EINTR;
-					break;
-				}
-
-				if (xnthread_test_info(cur, XNTIMEO)) {
-					err = ETIMEDOUT;
-					break;
-				}
-
-				if (xnthread_test_info(cur, XNRMID)) {
-					err = EINVAL;
-					break;
-				}
-			}
-
-			break;
-
-		case PTHREAD_MUTEX_ERRORCHECK:
-
-			err = EDEADLK;
-			break;
-
-		case PTHREAD_MUTEX_RECURSIVE:
-
-			if (mutex->count == UINT_MAX) {
-				err = EAGAIN;
+			if (xnthread_test_info(cur, XNBREAK)) {
+				err = EINTR;
 				break;
 			}
 
-			++mutex->count;
-			err = 0;
+			if (xnthread_test_info(cur, XNTIMEO)) {
+				err = ETIMEDOUT;
+				break;
+			}
+
+			if (xnthread_test_info(cur, XNRMID)) {
+				err = EINVAL;
+				break;
+			}
 		}
+
+		break;
+
+	case PTHREAD_MUTEX_ERRORCHECK:
+		err = EDEADLK;
+		break;
+
+	case PTHREAD_MUTEX_RECURSIVE:
+		if (mutex->count == UINT_MAX) {
+			err = EAGAIN;
+			break;
+		}
+
+		++mutex->count;
+		err = 0;
 	}
 
+  unlock_and_return:
 	xnlock_put_irqrestore(&nklock, s);
 
 	return err;
@@ -269,6 +283,8 @@ int pse51_mutex_timedlock_break(struct __shadow_mutex *shadow, xnticks_t abs_to)
  * @return an error number if:
  * - EPERM, the caller context is invalid;
  * - EINVAL, the mutex is invalid;
+ * - EPERM, the mutex is not process-shared and does not belong to the current
+ *   process;
  * - EBUSY, the mutex was locked by another thread than the current one;
  * - EAGAIN, the mutex is recursive, and the maximum number of recursive locks
  *   has been exceeded.
@@ -333,8 +349,10 @@ int pthread_mutex_trylock(pthread_mutex_t * mx)
  * @return an error number if:
  * - EPERM, the caller context is invalid;
  * - EINVAL, the mutex @a mx is invalid;
- * - EDEADLK, the mutex is of the @a PTHREAD_MUTEX_ERRORCHECK type and the mutex
- *   was already locked by the current thread;
+ * - EPERM, the mutex is not process-shared and does not belong to the current
+ *   process;
+ * - EDEADLK, the mutex is of the @a PTHREAD_MUTEX_ERRORCHECK type and was
+ *   already locked by the current thread;
  * - EAGAIN, the mutex is of the @a PTHREAD_MUTEX_RECURSIVE type and the maximum
  *   number of recursive locks has been exceeded.
  *
@@ -354,7 +372,7 @@ int pthread_mutex_lock(pthread_mutex_t * mx)
 	int err;
 
 	do {
-		err = pse51_mutex_timedlock_break(shadow, XN_INFINITE);
+		err = pse51_mutex_timedlock_break(shadow, 0, XN_INFINITE);
 	} while (err == EINTR);
 
 	return err;
@@ -376,6 +394,8 @@ int pthread_mutex_lock(pthread_mutex_t * mx)
  * @return an error number if:
  * - EPERM, the caller context is invalid;
  * - EINVAL, the mutex @a mx is invalid;
+ * - EPERM, the mutex is not process-shared and does not belong to the current
+ *   process;
  * - ETIMEDOUT, the mutex could not be locked and the specified timeout
  *   expired;
  * - EDEADLK, the mutex is of the @a PTHREAD_MUTEX_ERRORCHECK type and the mutex
@@ -399,8 +419,8 @@ int pthread_mutex_timedlock(pthread_mutex_t * mx, const struct timespec *to)
 	int err;
 
 	do {
-		err =
-		    pse51_mutex_timedlock_break(shadow, ts2ticks_ceil(to) + 1);
+		err = pse51_mutex_timedlock_break(shadow, 1,
+						  ts2ticks_ceil(to) + 1);
 	} while (err == EINTR);
 
 	return err;
@@ -502,8 +522,8 @@ void pse51_mutexq_cleanup(pse51_kqueues_t *q)
 	xnlock_get_irqsave(&nklock, s);
 
 	while ((holder = getheadq(&q->mutexq)) != NULL) {
-		pse51_mutex_destroy_internal(link2mutex(holder), q);
 		xnlock_put_irqrestore(&nklock, s);
+		pse51_mutex_destroy_internal(link2mutex(holder), q);
 #if XENO_DEBUG(POSIX)
 		xnprintf("Posix: destroying mutex %p.\n", link2mutex(holder));
 #endif /* XENO_DEBUG(POSIX) */

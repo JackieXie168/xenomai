@@ -42,8 +42,11 @@
  *
  *@{*/
 
+/** @example mutex.c */
+
 #include <nucleus/pod.h>
 #include <nucleus/registry.h>
+#include <nucleus/heap.h>
 #include <native/task.h>
 #include <native/mutex.h>
 
@@ -60,13 +63,13 @@ static int __mutex_read_proc(char *page,
 
 	xnlock_get_irqsave(&nklock, s);
 
-	if (mutex->owner) {
+	if (xnsynch_owner(&mutex->synch_base) != NULL) {
 		xnpholder_t *holder;
 
 		/* Locked mutex -- dump owner and waiters, if any. */
 
 		p += sprintf(p, "=locked by %s depth=%d\n",
-			     xnthread_name(&mutex->owner->thread_base),
+			     xnthread_name(xnsynch_owner(&mutex->synch_base)),
 			     mutex->lockcnt);
 
 		holder = getheadpq(xnsynch_wait_queue(&mutex->synch_base));
@@ -162,6 +165,7 @@ static xnpnode_t __mutex_pnode = {
 int rt_mutex_create(RT_MUTEX *mutex, const char *name)
 {
 	int err = 0;
+	spl_t s;
 
 	if (xnpod_asynch_p())
 		return -EPERM;
@@ -169,13 +173,17 @@ int rt_mutex_create(RT_MUTEX *mutex, const char *name)
 	xnsynch_init(&mutex->synch_base, XNSYNCH_PRIO | XNSYNCH_PIP);
 	mutex->handle = 0;	/* i.e. (still) unregistered mutex. */
 	mutex->magic = XENO_MUTEX_MAGIC;
-	mutex->owner = NULL;
 	mutex->lockcnt = 0;
 	xnobject_copy_name(mutex->name, name);
+	inith(&mutex->rlink);
+	mutex->rqueue = &xeno_get_rholder()->mutexq;
+	xnlock_get_irqsave(&nklock, s);
+	appendq(mutex->rqueue, &mutex->rlink);
+	xnlock_put_irqrestore(&nklock, s);
 
-#if defined(__KERNEL__) && defined(CONFIG_XENO_OPT_PERVASIVE)
+#ifdef CONFIG_XENO_OPT_PERVASIVE
 	mutex->cpid = 0;
-#endif /* __KERNEL__ && CONFIG_XENO_OPT_PERVASIVE */
+#endif /* CONFIG_XENO_OPT_PERVASIVE */
 
 #ifdef CONFIG_XENO_OPT_REGISTRY
 	/* <!> Since xnregister_enter() may reschedule, only register
@@ -253,6 +261,8 @@ int rt_mutex_delete(RT_MUTEX *mutex)
 		err = xeno_handle_error(mutex, XENO_MUTEX_MAGIC, RT_MUTEX);
 		goto unlock_and_exit;
 	}
+
+	removeq(mutex->rqueue, &mutex->rlink);
 
 	rc = xnsynch_destroy(&mutex->synch_base);
 
@@ -333,16 +343,14 @@ int rt_mutex_delete(RT_MUTEX *mutex)
  * blocked, the current owner's priority might be temporarily raised
  * as a consequence of the priority inheritance protocol.
  *
- * @note This service is sensitive to the current operation mode of
- * the system timer, as defined by the CONFIG_XENO_OPT_TIMING_PERIOD
- * parameter. In periodic mode, clock ticks are interpreted as
- * periodic jiffies. In oneshot mode, clock ticks are interpreted as
- * nanoseconds.
+ * @note The @a timeout value will be interpreted as jiffies if the
+ * native skin is bound to a periodic time base (see
+ * CONFIG_XENO_OPT_NATIVE_PERIOD), or nanoseconds otherwise.
  */
 
 int rt_mutex_acquire(RT_MUTEX *mutex, RTIME timeout)
 {
-	RT_TASK *task;
+	xnthread_t *thread;
 	int err = 0;
 	spl_t s;
 
@@ -358,14 +366,14 @@ int rt_mutex_acquire(RT_MUTEX *mutex, RTIME timeout)
 		goto unlock_and_exit;
 	}
 
-	task = xeno_current_task();
+	thread = xnpod_current_thread();
 
-	if (mutex->owner == NULL) {
-		xnsynch_set_owner(&mutex->synch_base, &task->thread_base);
+	if (xnsynch_owner(&mutex->synch_base) == NULL) {
+		xnsynch_set_owner(&mutex->synch_base, thread);
 		goto grab_mutex;
 	}
 
-	if (mutex->owner == task) {
+	if (xnsynch_owner(&mutex->synch_base) == thread) {
 		mutex->lockcnt++;
 		goto unlock_and_exit;
 	}
@@ -375,19 +383,18 @@ int rt_mutex_acquire(RT_MUTEX *mutex, RTIME timeout)
 		goto unlock_and_exit;
 	}
 
-	xnsynch_sleep_on(&mutex->synch_base, timeout);
+	xnsynch_sleep_on(&mutex->synch_base, timeout, XN_RELATIVE);
 
-	if (xnthread_test_info(&task->thread_base, XNRMID))
+	if (xnthread_test_info(thread, XNRMID))
 		err = -EIDRM;	/* Mutex deleted while pending. */
-	else if (xnthread_test_info(&task->thread_base, XNTIMEO))
+	else if (xnthread_test_info(thread, XNTIMEO))
 		err = -ETIMEDOUT;	/* Timeout. */
-	else if (xnthread_test_info(&task->thread_base, XNBREAK))
+	else if (xnthread_test_info(thread, XNBREAK))
 		err = -EINTR;	/* Unblocked. */
 	else {
 	      grab_mutex:
-		/* xnsynch_sleep_on() might have stolen the resource, so we
-		   need to put our internal data in sync. */
-		mutex->owner = task;
+		/* xnsynch_sleep_on() might have stolen the resource,
+		   so we need to put our internal data in sync. */
 		mutex->lockcnt = 1;
 	}
 
@@ -435,8 +442,7 @@ int rt_mutex_release(RT_MUTEX *mutex)
 	int err = 0;
 	spl_t s;
 
-	if (xnpod_asynch_p()
-	    || xnthread_test_state(xnpod_current_thread(), XNROOT))
+	if (xnpod_unblockable_p())
 		return -EPERM;
 
 	xnlock_get_irqsave(&nklock, s);
@@ -448,7 +454,7 @@ int rt_mutex_release(RT_MUTEX *mutex)
 		goto unlock_and_exit;
 	}
 
-	if (xeno_current_task() != mutex->owner) {
+	if (xnpod_current_thread() != xnsynch_owner(&mutex->synch_base)) {
 		err = -EPERM;
 		goto unlock_and_exit;
 	}
@@ -456,10 +462,7 @@ int rt_mutex_release(RT_MUTEX *mutex)
 	if (--mutex->lockcnt > 0)
 		goto unlock_and_exit;
 
-	mutex->owner =
-	    thread2rtask(xnsynch_wakeup_one_sleeper(&mutex->synch_base));
-
-	if (mutex->owner != NULL) {
+	if (xnsynch_wakeup_one_sleeper(&mutex->synch_base)) {
 		mutex->lockcnt = 1;
 		xnpod_schedule();
 	}
@@ -577,11 +580,9 @@ int rt_mutex_inquire(RT_MUTEX *mutex, RT_MUTEX_INFO *info)
  * Rescheduling: always unless the request is immediately satisfied or
  * @a timeout specifies a non-blocking operation.
  *
- * @note This service is sensitive to the current operation mode of
- * the system timer, as defined by the CONFIG_XENO_OPT_TIMING_PERIOD
- * parameter. In periodic mode, clock ticks are interpreted as
- * periodic jiffies. In oneshot mode, clock ticks are interpreted as
- * nanoseconds.
+ * @note The @a timeout value will be interpreted as jiffies if the
+ * native skin is bound to a periodic time base (see
+ * CONFIG_XENO_OPT_NATIVE_PERIOD), or nanoseconds otherwise.
  */
 
 /**
@@ -610,6 +611,7 @@ int __native_mutex_pkg_init(void)
 
 void __native_mutex_pkg_cleanup(void)
 {
+	__native_mutex_flush_rq(&__native_global_rholder.mutexq);
 }
 
 /*@}*/

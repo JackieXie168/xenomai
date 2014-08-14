@@ -41,6 +41,9 @@
  * Feel free to report bugs and comments on this profile to the "Socketcan"
  * mailing list (Socketcan-core@lists.berlios.de) or directly to the authors
  * (wg@grandegger.com or Sebastian.Smolorz@stud.uni-hannover.de).
+ *
+ * @b Profile @b Revision: 2
+ * @n
  * @n
  * @par Device Characteristics
  * @n
@@ -75,8 +78,8 @@
  * @n
  * @n
  * @b IOCTL @n
- * Mandatory Environments: see @ref IOCTLs "below" @n
- * Specific return values: see @ref IOCTLs "below" @n
+ * Mandatory Environments: see @ref CANIOCTLs "below" @n
+ * Specific return values: see @ref CANIOCTLs "below" @n
  * @n
  * @n
  * @anchor Bind
@@ -117,7 +120,7 @@
  * @n
  * Supported Levels and Options:
  * @n
- * - Level @b SOL_CAN_RAW : CAN RAW protocol (see @ref CAN_PROTO_RAW)
+ * - Level @b SOL_CAN_RAW : CAN RAW protocol (see @ref CAN_RAW)
  *   - Option @ref CAN_RAW_FILTER : CAN filter list
  *   - Option @ref CAN_RAW_ERR_FILTER : CAN error mask
  *   - Option @ref CAN_RAW_LOOPBACK : CAN TX loopback to local sockets
@@ -233,21 +236,21 @@
 #ifndef _RTCAN_H
 #define _RTCAN_H
 
-
 #ifdef __KERNEL__
 
 #include <linux/net.h>
 #include <linux/socket.h>
 #include <linux/if.h>
 
-#else  /* !__KERNEL__ */
+#else /* !__KERNEL__ */
 
 #include <net/if.h>
 
 #endif /* !__KERNEL__ */
 
-
 #include <rtdm/rtdm.h>
+
+#define RTCAN_PROFILE_VER  2
 
 #ifndef AF_CAN
 
@@ -259,17 +262,11 @@
 
 #endif
 
-/** Particular CAN protocols
- *
- *  Currently only the RAW protocol is supported.
- */
-#define CAN_RAW  0
-
 /** CAN socket levels
  *
  *  Used for @ref Sockopts for the particular protocols.
  */
-#define SOL_CAN_RAW 103
+#define SOL_CAN_RAW  103
 
 /** Type of CAN id (see @ref CAN_xxx_MASK and @ref CAN_xxx_FLAG) */
 typedef uint32_t can_id_t;
@@ -291,27 +288,29 @@ typedef can_id_t can_err_mask_t;
 
 /** @} */
 
-
 /*!
  * @anchor CAN_xxx_FLAG @name CAN ID flags
  * Flags within a CAN ID indicating special CAN frame attributes
  * @{ */
-#define CAN_EFF_FLAG  0x80000000 /**< extended frame           */
-#define CAN_RTR_FLAG  0x40000000 /**< remote transmission flag */
-#define CAN_ERR_FLAG  0x20000000 /**< error frame (see @ref Errors) */
+/** Extended frame */
+#define CAN_EFF_FLAG  0x80000000
+/** Remote transmission frame */
+#define CAN_RTR_FLAG  0x40000000
+/** Error frame (see @ref Errors), not valid in struct can_filter */
+#define CAN_ERR_FLAG  0x20000000
+/** Invert CAN filter definition, only valid in struct can_filter */
+#define CAN_INV_FILTER CAN_ERR_FLAG
+
 /** @} */
 
-
 /*!
- * @anchor CAN_PROTO @name CAN protocols
- * Possible protocols for PF_CAN protocol family
+ * @anchor CAN_PROTO @name Particular CAN protocols
+ * Possible protocols for the PF_CAN protocol family
+ *
+ * Currently only the RAW protocol is supported.
  * @{ */
-enum CAN_PROTO {
-    /** Raw protocol of @c PF_CAN, applicable to socket 
-	type @c SOCK_RAW */
-    CAN_PROTO_RAW,
-    CAN_PROTO_MAX
-};
+/** Raw protocol of @c PF_CAN, applicable to socket type @c SOCK_RAW */
+#define CAN_RAW  1
 /** @} */
 
 #define CAN_BAUDRATE_UNKNOWN       ((uint32_t)-1)
@@ -322,17 +321,15 @@ enum CAN_PROTO {
  */
 typedef uint32_t can_baudrate_t;
 
-
 /** 
  * Supported CAN bit-time types
  */
 enum CAN_BITTIME_TYPE {
-    /** Standard bit-time definition according to Bosch */
-    CAN_BITTIME_STD,  
-    /** Hardware-specific BTR bit-time definition */
-    CAN_BITTIME_BTR
+	/** Standard bit-time definition according to Bosch */
+	CAN_BITTIME_STD,
+	/** Hardware-specific BTR bit-time definition */
+	CAN_BITTIME_BTR
 };
-
 
 /**
  * See @ref CAN_BITTIME_TYPE
@@ -343,12 +340,12 @@ typedef enum CAN_BITTIME_TYPE can_bittime_type_t;
  * Standard bit-time parameters according to Bosch
  */
 struct can_bittime_std {
-    uint32_t brp;        /**< Baud rate prescaler */
-    uint8_t  prop_seg;   /**< from 1 to 8 */
-    uint8_t  phase_seg1; /**< from 1 to 8 */
-    uint8_t  phase_seg2; /**< from 1 to 8 */
-    uint8_t  sjw:7;      /**< from 1 to 4 */
-    uint8_t  sam:1;      /**< 1 - enable triple sampling */
+	uint32_t brp;		/**< Baud rate prescaler */
+	uint8_t prop_seg;	/**< from 1 to 8 */
+	uint8_t phase_seg1;	/**< from 1 to 8 */
+	uint8_t phase_seg2;	/**< from 1 to 8 */
+	uint8_t sjw:7;		/**< from 1 to 4 */
+	uint8_t sam:1;		/**< 1 - enable triple sampling */
 };
 
 /**
@@ -356,23 +353,23 @@ struct can_bittime_std {
  */
 struct can_bittime_btr {
 
-    uint8_t  btr0;       /**< Bus timing register 0 */
-    uint8_t  btr1;       /**< Bus timing register 1 */
+	uint8_t btr0;		/**< Bus timing register 0 */
+	uint8_t btr1;		/**< Bus timing register 1 */
 };
-
 
 /**
  * Custom CAN bit-time definition
  */
 struct can_bittime {
-    /** Type of bit-time definition */
-    can_bittime_type_t type;
-    union {
-	/** Standard bit-time */
-        struct can_bittime_std std;
-	/** Hardware-spcific BTR bit-time */
-        struct can_bittime_btr btr;
-    };
+	/** Type of bit-time definition */
+	can_bittime_type_t type;
+
+	union {
+		/** Standard bit-time */
+		struct can_bittime_std std;
+		/** Hardware-spcific BTR bit-time */
+		struct can_bittime_btr btr;
+	};
 };
 
 /*!
@@ -380,22 +377,21 @@ struct can_bittime {
  * Modes into which CAN controllers can be set
  * @{ */
 enum CAN_MODE {
+	/*! Set controller in Stop mode (no reception / transmission possible) */
+	CAN_MODE_STOP = 0,
 
-    /** Set controller in Stop mode (no reception / transmission possible) */
-    CAN_MODE_STOP = 0,
+	/*! Set controller into normal operation. @n
+	 *  Coming from stopped mode or bus off, the controller begins with no
+	 *  errors in @ref CAN_STATE_ACTIVE. */
+	CAN_MODE_START,
 
-    /*! Set controller into normal operation. @n
-     *  Coming from stopped mode or bus off, the controller begins with no
-     *  errors in @ref CAN_STATE_ACTIVE. */
-    CAN_MODE_START,
-
-   /*! Set controller into Sleep mode. @n
-    *  This is only possible if the controller is not stopped or bus-off. @n
-    *  Notice that sleep mode will only be entered when there is no bus
-    *  activity. If the controller detects bus activity while "sleeping"
-    *  it will go into operating mode again. @n
-    *  To actively leave sleep mode again trigger @c CAN_MODE_START. */
-    CAN_MODE_SLEEP
+	/*! Set controller into Sleep mode. @n
+	 *  This is only possible if the controller is not stopped or bus-off. @n
+	 *  Notice that sleep mode will only be entered when there is no bus
+	 *  activity. If the controller detects bus activity while "sleeping"
+	 *  it will go into operating mode again. @n
+	 *  To actively leave sleep mode again trigger @c CAN_MODE_START. */
+	CAN_MODE_SLEEP
 };
 /** @} */
 
@@ -405,11 +401,27 @@ typedef enum CAN_MODE can_mode_t;
 /*!
  * @anchor CAN_CTRLMODE @name CAN controller modes
  * Special CAN controllers modes, which can be or'ed together.
+ *
+ * @note These modes are hardware-dependent. Please consult the hardware
+ * manual of the CAN controller for more detailed information.
+ *
  * @{ */
-/** Listen-Only mode */
+
+/*! Listen-Only mode
+ *
+ *  In this mode the CAN controller would give no acknowledge to the CAN-bus,
+ *  even if a message is received successfully and messages would not be
+ *  transmitted. This mode might be useful for bus-monitoring, hot-plugging
+ *  or throughput analysis. */
 #define CAN_CTRLMODE_LISTENONLY 0x1
-/** Loopback mode */
+
+/*! Loopback mode
+ *
+ * In this mode the CAN controller does an internal loop-back, a message is
+ * transmitted and simultaneously received. That mode can be used for self
+ * test operation. */
 #define CAN_CTRLMODE_LOOPBACK   0x2
+
 /** @} */
 
 /** See @ref CAN_CTRLMODE */
@@ -420,26 +432,26 @@ typedef int can_ctrlmode_t;
  * States a CAN controller can be in.
  * @{ */
 enum CAN_STATE {
-    /** CAN controller is error active */
-    CAN_STATE_ACTIVE = 0,
+	/** CAN controller is error active */
+	CAN_STATE_ACTIVE = 0,
 
-    /** CAN controller is error active, warning level is reached */
-    CAN_STATE_BUS_WARNING,
+	/** CAN controller is error active, warning level is reached */
+	CAN_STATE_BUS_WARNING,
 
-    /** CAN controller is error passive */
-    CAN_STATE_BUS_PASSIVE,
+	/** CAN controller is error passive */
+	CAN_STATE_BUS_PASSIVE,
 
-    /** CAN controller went into Bus Off */
-    CAN_STATE_BUS_OFF,
+	/** CAN controller went into Bus Off */
+	CAN_STATE_BUS_OFF,
 
-    /** CAN controller is scanning to get the baudrate */
-    CAN_STATE_SCANNING_BAUDRATE,
+	/** CAN controller is scanning to get the baudrate */
+	CAN_STATE_SCANNING_BAUDRATE,
 
-    /** CAN controller is in stopped mode */
-    CAN_STATE_STOPPED,
+	/** CAN controller is in stopped mode */
+	CAN_STATE_STOPPED,
 
-    /** CAN controller is in Sleep mode */
-    CAN_STATE_SLEEPING,
+	/** CAN controller is in Sleep mode */
+	CAN_STATE_SLEEPING,
 };
 /** @} */
 
@@ -453,41 +465,46 @@ typedef enum CAN_STATE can_state_t;
  *
  * This filter works as follows:
  * A received CAN ID is AND'ed bitwise with @c can_mask and then compared to
- * @c can_id. If this comparison is true the message will be received by the
- * socket.
+ * @c can_id. This also includes the @ref CAN_EFF_FLAG and @ref CAN_RTR_FLAG
+ * of @ref CAN_xxx_FLAG. If this comparison is true, the message will be
+ * received by the socket. The logic can be inverted with the @c can_id flag
+ * @ref CAN_INV_FILTER :
  *
- * Multiple filters can be arranged in a filter list and set with 
- * @ref Sockopts. If one of these filters matches a CAN ID upon reception 
+ * @code
+ * if (can_id & CAN_INV_FILTER) {
+ *    if ((received_can_id & can_mask) != (can_id & ~CAN_INV_FILTER))
+ *       accept-message;
+ * } else {
+ *    if ((received_can_id & can_mask) == can_id)
+ *       accept-message;
+ * }
+ * @endcode
+ *
+ * Multiple filters can be arranged in a filter list and set with
+ * @ref Sockopts. If one of these filters matches a CAN ID upon reception
  * of a CAN frame, this frame is accepted.
  *
- * @note Only @ref CAN_EFF_FLAG of @ref CAN_xxx_FLAG "CAN ID flags" is
- * valid for @c can_id and none for @c can_mask. This means that the RTR bit
- * is not taken into account while filtering messages.
- *
- * Extended IDs are received only if @ref CAN_EFF_FLAG is set in
- * @c can_id. If it is cleared only standard IDs are accepted.
  */
 typedef struct can_filter {
+	/** CAN ID which must match with incoming IDs after passing the mask.
+	 *  The filter logic can be inverted with the flag @ref CAN_INV_FILTER. */
+	uint32_t can_id;
 
-    /** CAN ID which must match with incoming IDs after passing the mask */
-    uint32_t    can_id;
-
-    /** Mask which is applied to incoming IDs. See @ref CAN_xxx_MASK
-     *  "CAN ID masks" if exactly one CAN ID should come through. */
-    uint32_t    can_mask;
+	/** Mask which is applied to incoming IDs. See @ref CAN_xxx_MASK
+	 *  "CAN ID masks" if exactly one CAN ID should come through. */
+	uint32_t can_mask;
 } can_filter_t;
-
 
 /**
  * Socket address structure for the CAN address family
  */
 struct sockaddr_can {
-    /** CAN address family, must be @c AF_CAN */    
-    sa_family_t  can_family;
-    /** Interface index of CAN controller. See @ref SIOCGIFINDEX. */
-    int          can_ifindex;
-};
+	/** CAN address family, must be @c AF_CAN */
+	sa_family_t can_family;
 
+	/** Interface index of CAN controller. See @ref SIOCGIFINDEX. */
+	int can_ifindex;
+};
 
 /**
  * Raw CAN frame
@@ -495,33 +512,28 @@ struct sockaddr_can {
  * Central structure for receiving and sending CAN frames.
  */
 typedef struct can_frame {
+	/** CAN ID of the frame
+	 *
+	 *  See @ref CAN_xxx_FLAG "CAN ID flags" for special bits.
+	 */
+	can_id_t can_id;
 
-    /** CAN ID of the frame
-     *
-     *  See @ref CAN_xxx_FLAG "CAN ID flags" for special bits.
-     */
-    can_id_t     can_id;
+	/** Size of the payload in bytes */
+	uint8_t can_dlc;
 
-    /** Size of the payload in bytes */
-    uint8_t      can_dlc;
-
-    /** Payload data bytes */
-    uint8_t      data[8] __attribute__ ((aligned(8)));
+	/** Payload data bytes */
+	uint8_t data[8] __attribute__ ((aligned(8)));
 } can_frame_t;
-
-
 
 /*!
  * @anchor RTCAN_TIMESTAMPS   @name Timestamp switches
  * Arguments to pass to @ref RTCAN_RTIOC_TAKE_TIMESTAMP
  * @{ */
-#define RTCAN_TAKE_NO_TIMESTAMPS    0   /**< Switch off taking timestamps */
-#define RTCAN_TAKE_TIMESTAMPS       1   /**< Do take timestamps */
+#define RTCAN_TAKE_NO_TIMESTAMPS	0  /**< Switch off taking timestamps */
+#define RTCAN_TAKE_TIMESTAMPS		1  /**< Do take timestamps */
 /** @} */
 
-
-#define RTIOC_TYPE_CAN              RTDM_CLASS_CAN
-
+#define RTIOC_TYPE_CAN  RTDM_CLASS_CAN
 
 /*!
  * @anchor Rawsockopts @name RAW socket options
@@ -561,21 +573,21 @@ typedef struct can_frame {
  *            parameters)
  * .
  */
-#define CAN_RAW_FILTER      0x1
+#define CAN_RAW_FILTER		0x1
 
 /**
  * CAN error mask
  *
- * A CAN error mask (see @ref Errors) can be set with @c setsockopt. This 
- * mask is then used to decided if error frames are send to this socket 
- * in case of error condidtions. The error frames are marked with the 
- * @ref CAN_ERR_FLAG of @ref CAN_xxx_FLAG and must be handled by the 
- * application properly. A detailed description of the error can be
- * found in the @c can_id and the @c data fields of struct can_frame 
- * (see @ref Errors for futher details). 
+ * A CAN error mask (see @ref Errors) can be set with @c setsockopt. This
+ * mask is then used to decide if error frames are delivered to this socket
+ * in case of error condidtions. The error frames are marked with the
+ * @ref CAN_ERR_FLAG of @ref CAN_xxx_FLAG and must be handled by the
+ * application properly. A detailed description of the errors can be
+ * found in the @c can_id and the @c data fields of struct can_frame
+ * (see @ref Errors for futher details).
  *
  * @n
- * @param [in] level @b SOL_CAN_RAW 
+ * @param [in] level @b SOL_CAN_RAW
  *
  * @param [in] optname @b CAN_RAW_ERR_FILTER
  *
@@ -591,7 +603,7 @@ typedef struct can_frame {
  * - -EINVAL (Invalid length "optlen")
  * .
  */
-#define CAN_RAW_ERR_FILTER  0x2
+#define CAN_RAW_ERR_FILTER	0x2
 
 /**
  * CAN TX loopback
@@ -619,8 +631,7 @@ typedef struct can_frame {
  * - -EINVAL (Invalid length "optlen")
  * - -EOPNOTSUPP (not supported, check RT-Socket-CAN kernel parameters).
  */
-#define CAN_RAW_LOOPBACK     0x3
-#define CAN_RAW_TX_LOOPBACK  CAN_RAW_LOOPBACK /* for backward-compatibility */
+#define CAN_RAW_LOOPBACK	0x3
 
 /**
  * CAN receive own messages
@@ -633,7 +644,7 @@ typedef struct can_frame {
 /** @} */
 
 /*!
- * @anchor IOCTLs @name IOCTLs
+ * @anchor CANIOCTLs @name IOCTLs
  * CAN device IOCTLs
  * @{ */
 
@@ -662,9 +673,8 @@ typedef struct can_frame {
  * Rescheduling: never.
  *
  */
-#ifndef SIOCGIFINDEX
-#define SIOCGIFINDEX \
-            _IOWR(RTIOC_TYPE_CAN, 0x00, struct ifreq)
+#ifdef DOXYGEN_CPP /* For Doxygen only, already defined by kernel headers */
+#define SIOCGIFINDEX defined_by_kernel_header_file
 #endif
 
 /**
@@ -701,8 +711,7 @@ typedef struct can_frame {
  *
  * Rescheduling: possible.
  */
-#define SIOCSCANBAUDRATE \
-            _IOW(RTIOC_TYPE_CAN, 0x01, struct ifreq)
+#define SIOCSCANBAUDRATE	_IOW(RTIOC_TYPE_CAN, 0x01, struct ifreq)
 
 /**
  * Get baud rate
@@ -729,8 +738,7 @@ typedef struct can_frame {
  *
  * Rescheduling: never.
  */
-#define SIOCGCANBAUDRATE \
-            _IOWR(RTIOC_TYPE_CAN, 0x02, struct ifreq)
+#define SIOCGCANBAUDRATE	_IOWR(RTIOC_TYPE_CAN, 0x02, struct ifreq)
 
 /**
  * Set custom bit time parameter
@@ -764,8 +772,7 @@ typedef struct can_frame {
  *
  * Rescheduling: possible.
  */
-#define SIOCSCANCUSTOMBITTIME \
-            _IOW(RTIOC_TYPE_CAN, 0x03, struct ifreq)
+#define SIOCSCANCUSTOMBITTIME	_IOW(RTIOC_TYPE_CAN, 0x03, struct ifreq)
 
 /**
  * Get custum bit-time parameters
@@ -792,9 +799,7 @@ typedef struct can_frame {
  *
  * Rescheduling: never.
  */
-#define SIOCGCANCUSTOMBITTIME \
-            _IOWR(RTIOC_TYPE_CAN, 0x04, struct ifreq)
-
+#define SIOCGCANCUSTOMBITTIME	_IOWR(RTIOC_TYPE_CAN, 0x04, struct ifreq)
 
 /**
  * Set operation mode of CAN controller
@@ -837,8 +842,7 @@ typedef struct can_frame {
  *
  * Rescheduling: possible.
  */
-#define SIOCSCANMODE \
-            _IOW(RTIOC_TYPE_CAN, 0x05, struct ifreq)
+#define SIOCSCANMODE		_IOW(RTIOC_TYPE_CAN, 0x05, struct ifreq)
 
 /**
  * Get current state of CAN controller
@@ -872,9 +876,7 @@ typedef struct can_frame {
  *
  * Rescheduling: possible.
  */
-#define SIOCGCANSTATE           \
-            _IOWR(RTIOC_TYPE_CAN, 0x06, struct ifreq)
-
+#define SIOCGCANSTATE		_IOWR(RTIOC_TYPE_CAN, 0x06, struct ifreq)
 
 /**
  * Set special controller modes
@@ -903,13 +905,12 @@ typedef struct can_frame {
  * - Kernel-based task
  * - User-space task (RT, non-RT)
  *
- * @note Setting specia controlelr modes is a configuration task. It should
+ * @note Setting special controller modes is a configuration task. It should
  * be done deliberately or otherwise CAN messages will likely be lost.
  *
  * Rescheduling: possible.
  */
-#define SIOCSCANCTRLMODE \
-            _IOW(RTIOC_TYPE_CAN, 0x07, struct ifreq)
+#define SIOCSCANCTRLMODE	_IOW(RTIOC_TYPE_CAN, 0x07, struct ifreq)
 
 /**
  * Get special controller modes
@@ -937,8 +938,7 @@ typedef struct can_frame {
  *
  * Rescheduling: possible.
  */
-#define SIOCGCANCTRLMODE        \
-            _IOWR(RTIOC_TYPE_CAN, 0x08, struct ifreq)
+#define SIOCGCANCTRLMODE	_IOWR(RTIOC_TYPE_CAN, 0x08, struct ifreq)
 
 /**
  * Enable or disable storing a high precision timestamp upon reception of
@@ -965,7 +965,7 @@ typedef struct can_frame {
  *
  * Rescheduling: never.
  */
-#define RTCAN_RTIOC_TAKE_TIMESTAMP      _IOW(RTIOC_TYPE_CAN, 0x09, int)
+#define RTCAN_RTIOC_TAKE_TIMESTAMP _IOW(RTIOC_TYPE_CAN, 0x09, int)
 
 /**
  * Specify a reception timeout for a socket
@@ -998,7 +998,7 @@ typedef struct can_frame {
  *
  * Rescheduling: never.
  */
-#define RTCAN_RTIOC_RCV_TIMEOUT     _IOW(RTIOC_TYPE_CAN, 0x0A, nanosecs_rel_t)
+#define RTCAN_RTIOC_RCV_TIMEOUT	_IOW(RTIOC_TYPE_CAN, 0x0A, nanosecs_rel_t)
 
 /**
  * Specify a transmission timeout for a socket
@@ -1031,49 +1031,61 @@ typedef struct can_frame {
  *
  * Rescheduling: never.
  */
-#define RTCAN_RTIOC_SND_TIMEOUT     _IOW(RTIOC_TYPE_CAN, 0x0B, nanosecs_rel_t)
+#define RTCAN_RTIOC_SND_TIMEOUT	_IOW(RTIOC_TYPE_CAN, 0x0B, nanosecs_rel_t)
 /** @} */
 
-#define CAN_ERR_DLC 8 /* dlc for error frames */
-
+#define CAN_ERR_DLC  8	/* dlc for error frames */
 
 /*!
  * @anchor Errors @name Error mask
  * Error class (mask) in @c can_id field of struct can_frame to
- * be used with @ref CAN_RAW_ERR_FILTER. 
+ * be used with @ref CAN_RAW_ERR_FILTER.
+ *
+ * @b Note: Error reporting is hardware dependent and most CAN controllers
+ * report less detailed error conditions than the SJA1000.
+ *
+ * @b Note: In case of a bus-off error condition (@ref CAN_ERR_BUSOFF), the
+ * CAN controller is @b not restarted automatically. It is the application's
+ * responsibility to react appropriately, e.g. calling @ref CAN_MODE_START.
+ *
+ * @b Note: Bus error interrupts (@ref CAN_ERR_BUSERROR) are enabled when an
+ * application is calling a @ref Recv function on a socket listening
+ * on bus errors (using @ref CAN_RAW_ERR_FILTER). After one bus error has
+ * occured, the interrupt will be disabled to allow the application time for
+ * error processing and to efficiently avoid bus error interrupt flooding.
  * @{ */
 
 /** TX timeout (netdevice driver) */
-#define CAN_ERR_TX_TIMEOUT   0x00000001U
+#define CAN_ERR_TX_TIMEOUT	0x00000001U
 
 /** Lost arbitration (see @ref Error0 "data[0]") */
-#define CAN_ERR_LOSTARB      0x00000002U
+#define CAN_ERR_LOSTARB		0x00000002U
 
 /** Controller problems (see @ref Error1 "data[1]") */
-#define CAN_ERR_CRTL         0x00000004U
+#define CAN_ERR_CRTL		0x00000004U
 
-/** Protocol violations (see @ref Error2 "data[2]", 
+/** Protocol violations (see @ref Error2 "data[2]",
                              @ref Error3 "data[3]") */
-#define CAN_ERR_PROT         0x00000008U
+#define CAN_ERR_PROT		0x00000008U
 
 /** Transceiver status (see @ref Error4 "data[4]")    */
-#define CAN_ERR_TRX          0x00000010U
+#define CAN_ERR_TRX		0x00000010U
 
 /** Received no ACK on transmission */
-#define CAN_ERR_ACK          0x00000020U
+#define CAN_ERR_ACK		0x00000020U
 
 /** Bus off */
-#define CAN_ERR_BUSOFF       0x00000040U
+#define CAN_ERR_BUSOFF		0x00000040U
 
 /** Bus error (may flood!) */
-#define CAN_ERR_BUSERROR     0x00000080U 
+#define CAN_ERR_BUSERROR	0x00000080U
 
 /** Controller restarted */
-#define CAN_ERR_RESTARTED    0x00000100U
+#define CAN_ERR_RESTARTED	0x00000100U
 
 /** Omit EFF, RTR, ERR flags */
-#define CAN_ERR_MASK         0x1FFFFFFFU
- 
+#define CAN_ERR_MASK		0x1FFFFFFFU
+
 /** @} */
 
 /*!
@@ -1081,8 +1093,8 @@ typedef struct can_frame {
  * Error in the data[0] field of struct can_frame.
  * @{ */
 /* arbitration lost in bit ... / data[0] */
-#define CAN_ERR_LOSTARB_UNSPEC   0x00 /**< unspecified */
-                                      /**< else bit number in bitstream */
+#define CAN_ERR_LOSTARB_UNSPEC	0x00 /**< unspecified */
+				     /**< else bit number in bitstream */
 /** @} */
 
 /*!
@@ -1090,30 +1102,29 @@ typedef struct can_frame {
  * Error in the data[1] field of struct can_frame.
  * @{ */
 /* error status of CAN-controller / data[1] */
-#define CAN_ERR_CRTL_UNSPEC      0x00 /**< unspecified */
+#define CAN_ERR_CRTL_UNSPEC	 0x00 /**< unspecified */
 #define CAN_ERR_CRTL_RX_OVERFLOW 0x01 /**< RX buffer overflow */
 #define CAN_ERR_CRTL_TX_OVERFLOW 0x02 /**< TX buffer overflow */
-#define CAN_ERR_CRTL_RX_WARNING  0x04 /**< reached warning level for RX errors */
-#define CAN_ERR_CRTL_TX_WARNING  0x08 /**< reached warning level for TX errors */
-#define CAN_ERR_CRTL_RX_PASSIVE  0x10 /**< reached passive level for RX errors */
-#define CAN_ERR_CRTL_TX_PASSIVE  0x20 /**< reached passive level for TX errors */
+#define CAN_ERR_CRTL_RX_WARNING	 0x04 /**< reached warning level for RX errors */
+#define CAN_ERR_CRTL_TX_WARNING	 0x08 /**< reached warning level for TX errors */
+#define CAN_ERR_CRTL_RX_PASSIVE	 0x10 /**< reached passive level for RX errors */
+#define CAN_ERR_CRTL_TX_PASSIVE	 0x20 /**< reached passive level for TX errors */
 /** @} */
-
 
 /*!
  * @anchor Error2 @name Protocol error type
  * Error in the data[2] field of struct can_frame.
  * @{ */
 /* error in CAN protocol (type) / data[2] */
-#define CAN_ERR_PROT_UNSPEC      0x00 /**< unspecified */
-#define CAN_ERR_PROT_BIT         0x01 /**< single bit error */
-#define CAN_ERR_PROT_FORM        0x02 /**< frame format error */
-#define CAN_ERR_PROT_STUFF       0x04 /**< bit stuffing error */
-#define CAN_ERR_PROT_BIT0        0x08 /**< unable to send dominant bit */
-#define CAN_ERR_PROT_BIT1        0x10 /**< unable to send recessive bit */
-#define CAN_ERR_PROT_OVERLOAD    0x20 /**< bus overload */
-#define CAN_ERR_PROT_ACTIVE      0x40 /**< active error announcement */
-#define CAN_ERR_PROT_TX          0x80 /**< error occured on transmission */
+#define CAN_ERR_PROT_UNSPEC	0x00 /**< unspecified */
+#define CAN_ERR_PROT_BIT	0x01 /**< single bit error */
+#define CAN_ERR_PROT_FORM	0x02 /**< frame format error */
+#define CAN_ERR_PROT_STUFF	0x04 /**< bit stuffing error */
+#define CAN_ERR_PROT_BIT0	0x08 /**< unable to send dominant bit */
+#define CAN_ERR_PROT_BIT1	0x10 /**< unable to send recessive bit */
+#define CAN_ERR_PROT_OVERLOAD	0x20 /**< bus overload */
+#define CAN_ERR_PROT_ACTIVE	0x40 /**< active error announcement */
+#define CAN_ERR_PROT_TX		0x80 /**< error occured on transmission */
 /** @} */
 
 /*!
@@ -1121,26 +1132,26 @@ typedef struct can_frame {
  * Error in the data[3] field of struct can_frame.
  * @{ */
 /* error in CAN protocol (location) / data[3] */
-#define CAN_ERR_PROT_LOC_UNSPEC  0x00 /**< unspecified */
-#define CAN_ERR_PROT_LOC_SOF     0x03 /**< start of frame */
+#define CAN_ERR_PROT_LOC_UNSPEC	 0x00 /**< unspecified */
+#define CAN_ERR_PROT_LOC_SOF	 0x03 /**< start of frame */
 #define CAN_ERR_PROT_LOC_ID28_21 0x02 /**< ID bits 28 - 21 (SFF: 10 - 3) */
 #define CAN_ERR_PROT_LOC_ID20_18 0x06 /**< ID bits 20 - 18 (SFF: 2 - 0 )*/
-#define CAN_ERR_PROT_LOC_SRTR    0x04 /**< substitute RTR (SFF: RTR) */
-#define CAN_ERR_PROT_LOC_IDE     0x05 /**< identifier extension */
+#define CAN_ERR_PROT_LOC_SRTR	 0x04 /**< substitute RTR (SFF: RTR) */
+#define CAN_ERR_PROT_LOC_IDE	 0x05 /**< identifier extension */
 #define CAN_ERR_PROT_LOC_ID17_13 0x07 /**< ID bits 17-13 */
 #define CAN_ERR_PROT_LOC_ID12_05 0x0F /**< ID bits 12-5 */
 #define CAN_ERR_PROT_LOC_ID04_00 0x0E /**< ID bits 4-0 */
-#define CAN_ERR_PROT_LOC_RTR     0x0C /**< RTR */
-#define CAN_ERR_PROT_LOC_RES1    0x0D /**< reserved bit 1 */
-#define CAN_ERR_PROT_LOC_RES0    0x09 /**< reserved bit 0 */
-#define CAN_ERR_PROT_LOC_DLC     0x0B /**< data length code */
-#define CAN_ERR_PROT_LOC_DATA    0x0A /**< data section */
+#define CAN_ERR_PROT_LOC_RTR	 0x0C /**< RTR */
+#define CAN_ERR_PROT_LOC_RES1	 0x0D /**< reserved bit 1 */
+#define CAN_ERR_PROT_LOC_RES0	 0x09 /**< reserved bit 0 */
+#define CAN_ERR_PROT_LOC_DLC	 0x0B /**< data length code */
+#define CAN_ERR_PROT_LOC_DATA	 0x0A /**< data section */
 #define CAN_ERR_PROT_LOC_CRC_SEQ 0x08 /**< CRC sequence */
 #define CAN_ERR_PROT_LOC_CRC_DEL 0x18 /**< CRC delimiter */
-#define CAN_ERR_PROT_LOC_ACK     0x19 /**< ACK slot */
+#define CAN_ERR_PROT_LOC_ACK	 0x19 /**< ACK slot */
 #define CAN_ERR_PROT_LOC_ACK_DEL 0x1B /**< ACK delimiter */
-#define CAN_ERR_PROT_LOC_EOF     0x1A /**< end of frame */
-#define CAN_ERR_PROT_LOC_INTERM  0x12 /**< intermission */
+#define CAN_ERR_PROT_LOC_EOF	 0x1A /**< end of frame */
+#define CAN_ERR_PROT_LOC_INTERM	 0x12 /**< intermission */
 /** @} */
 
 /*!
@@ -1149,23 +1160,31 @@ typedef struct can_frame {
  * @{ */
 /* error status of CAN-transceiver / data[4] */
 /*                                               CANH CANL */
-#define CAN_ERR_TRX_UNSPEC             0x00 /**< 0000 0000 */
-#define CAN_ERR_TRX_CANH_NO_WIRE       0x04 /**< 0000 0100 */
-#define CAN_ERR_TRX_CANH_SHORT_TO_BAT  0x05 /**< 0000 0101 */
-#define CAN_ERR_TRX_CANH_SHORT_TO_VCC  0x06 /**< 0000 0110 */
-#define CAN_ERR_TRX_CANH_SHORT_TO_GND  0x07 /**< 0000 0111 */
-#define CAN_ERR_TRX_CANL_NO_WIRE       0x40 /**< 0100 0000 */
-#define CAN_ERR_TRX_CANL_SHORT_TO_BAT  0x50 /**< 0101 0000 */
-#define CAN_ERR_TRX_CANL_SHORT_TO_VCC  0x60 /**< 0110 0000 */
-#define CAN_ERR_TRX_CANL_SHORT_TO_GND  0x70 /**< 0111 0000 */
-#define CAN_ERR_TRX_CANL_SHORT_TO_CANH 0x80 /**< 1000 0000 */
+#define CAN_ERR_TRX_UNSPEC		0x00 /**< 0000 0000 */
+#define CAN_ERR_TRX_CANH_NO_WIRE	0x04 /**< 0000 0100 */
+#define CAN_ERR_TRX_CANH_SHORT_TO_BAT	0x05 /**< 0000 0101 */
+#define CAN_ERR_TRX_CANH_SHORT_TO_VCC	0x06 /**< 0000 0110 */
+#define CAN_ERR_TRX_CANH_SHORT_TO_GND	0x07 /**< 0000 0111 */
+#define CAN_ERR_TRX_CANL_NO_WIRE	0x40 /**< 0100 0000 */
+#define CAN_ERR_TRX_CANL_SHORT_TO_BAT	0x50 /**< 0101 0000 */
+#define CAN_ERR_TRX_CANL_SHORT_TO_VCC	0x60 /**< 0110 0000 */
+#define CAN_ERR_TRX_CANL_SHORT_TO_GND	0x70 /**< 0111 0000 */
+#define CAN_ERR_TRX_CANL_SHORT_TO_CANH	0x80 /**< 1000 0000 */
 /** @} */
 
 /* controller specific additional information / data[5..7] */
 
 /** @} */
 
+/*!
+ * @anchor CANutils @name CAN example and utility programs
+ * @{ */
+/** @example rtcanconfig.c */
+/** @example rtcansend.c */
+/** @example rtcanrecv.c */
+/** @example rtcan_rtt.c */
 /** @} */
 
+/** @} */
 
 #endif /* _RTCAN_H */

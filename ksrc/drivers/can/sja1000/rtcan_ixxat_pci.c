@@ -176,11 +176,7 @@ static int rtcan_ixxat_pci_add_chan(struct pci_dev *pdev,
     outb(intcsr, board->conf_addr + IXXAT_INTCSR_OFFSET);
 
     /* Register and setup interrupt handling */
-#ifdef CONFIG_XENO_OPT_SHIRQ_LEVEL
     chip->irq_flags = RTDM_IRQTYPE_SHARED;
-#else
-    chip->irq_flags = 0;
-#endif
     chip->irq_num = pdev->irq;
 
     RTCAN_DBG("%s: base_addr=0x%p conf_addr=%#x irq=%d ocr=%#x cdr=%#x\n",
@@ -190,7 +186,7 @@ static int rtcan_ixxat_pci_add_chan(struct pci_dev *pdev,
     /* Register SJA1000 device */
     ret = rtcan_sja1000_register(dev);
     if (ret) {
-	printk(KERN_ERR "ERROR %d while trying to register SJA1000 device!\n",
+	printk(KERN_ERR "ERROR while trying to register SJA1000 device %d!\n",
 	       ret);
 	goto failure;
     }
@@ -258,11 +254,15 @@ static int __devinit ixxat_pci_init_one (struct pci_dev *pdev,
 	goto failure_iounmap;
 
     if (channel != CHANNEL_SINGLE) {
+#ifdef CONFIG_XENO_OPT_SHIRQ_LEVEL
 	channel = CHANNEL_SLAVE;
 	if ((ret = rtcan_ixxat_pci_add_chan(pdev, channel,
 					    &master_dev, conf_addr,
 					    base_addr + CHANNEL_OFFSET)))
 	    goto failure_iounmap;
+#else
+	printk("Shared interrupts not enabled, using single channel!\n");
+#endif
     }
 
     pci_set_drvdata(pdev, master_dev);
@@ -303,7 +303,7 @@ static struct pci_driver rtcan_ixxat_pci_driver = {
 
 static int __init rtcan_ixxat_pci_init(void)
 {
-    return pci_module_init(&rtcan_ixxat_pci_driver);
+    return pci_register_driver(&rtcan_ixxat_pci_driver);
 }
 
 

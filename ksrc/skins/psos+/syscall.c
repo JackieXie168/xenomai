@@ -28,6 +28,7 @@
 #include <psos+/sem.h>
 #include <psos+/tm.h>
 #include <psos+/rn.h>
+#include <psos+/pt.h>
 
 /*
  * By convention, error codes are passed back through the syscall
@@ -41,7 +42,7 @@
  * though the registry for obtaining safe identifiers.
  */
 
-static int __muxid;
+int __psos_muxid;
 
 static psostask_t *__psos_task_current(struct task_struct *curr)
 {
@@ -54,7 +55,7 @@ static psostask_t *__psos_task_current(struct task_struct *curr)
 }
 
 /*
- * int __t_create(char name[4],
+ * int __t_create(const char *name,
  *                u_long prio,
  *                u_long flags,
  *                u_long *tid_r,
@@ -65,10 +66,10 @@ static int __t_create(struct task_struct *curr, struct pt_regs *regs)
 {
 	xncompletion_t __user *u_completion;
 	u_long prio, flags, tid, err;
+	char name[XNOBJECT_NAME_LEN];
 	psostask_t *task;
-	char name[5];
 
-	if (!__xn_access_ok(curr, VERIFY_READ, __xn_reg_arg1(regs), sizeof(name)))
+	if (!__xn_access_ok(curr, VERIFY_READ, __xn_reg_arg1(regs), 4))
 		return -EFAULT;
 
 	/* Get task name. */
@@ -100,7 +101,7 @@ static int __t_create(struct task_struct *curr, struct pt_regs *regs)
 		tid = xnthread_handle(&task->threadbase);
 		__xn_copy_to_user(curr, (void __user *)__xn_reg_arg4(regs), &tid,
 				  sizeof(tid));
-		err = xnshadow_map(&task->threadbase, u_completion);
+		err = xnshadow_map(&task->threadbase, u_completion); /* May be NULL */
 	} else {
 		/* Unblock and pass back error code. */
 
@@ -208,17 +209,17 @@ static int __t_resume(struct task_struct *curr, struct pt_regs *regs)
 }
 
 /*
- * int __t_ident(char name[4], u_long *tid_r)
+ * int __t_ident(const char *name, u_long *tid_r)
  */
 
 static int __t_ident(struct task_struct *curr, struct pt_regs *regs)
 {
-	char name[4], *namep;
+	char name[XNOBJECT_NAME_LEN], *namep;
 	u_long err, tid;
 	spl_t s;
 
 	if (__xn_reg_arg1(regs)) {
-		if (!__xn_access_ok(curr, VERIFY_READ, __xn_reg_arg1(regs), sizeof(name)))
+		if (!__xn_access_ok(curr, VERIFY_READ, __xn_reg_arg1(regs), 4))
 			return -EFAULT;
 
 		/* Get task name. */
@@ -356,16 +357,16 @@ static int __ev_receive(struct task_struct *curr, struct pt_regs *regs)
 }
 
 /*
- * int __q_create(char name[4], u_long maxnum, u_long flags, u_long *qid_r)
+ * int __q_create(const char *name, u_long maxnum, u_long flags, u_long *qid_r)
  */
 
 static int __q_create(struct task_struct *curr, struct pt_regs *regs)
 {
 	u_long maxnum, flags, qid, err;
+	char name[XNOBJECT_NAME_LEN];
 	psosqueue_t *queue;
-	char name[5];
 
-	if (!__xn_access_ok(curr, VERIFY_READ, __xn_reg_arg1(regs), sizeof(name)))
+	if (!__xn_access_ok(curr, VERIFY_READ, __xn_reg_arg1(regs), 4))
 		return -EFAULT;
 
 	/* Get queue name. */
@@ -413,16 +414,16 @@ static int __q_delete(struct task_struct *curr, struct pt_regs *regs)
 }
 
 /*
- * int __q_ident(char name[4], u_long *qid_r)
+ * int __q_ident(const char *name, u_long *qid_r)
  */
 
 static int __q_ident(struct task_struct *curr, struct pt_regs *regs)
 {
+	char name[XNOBJECT_NAME_LEN];
 	u_long err, qid;
-	char name[4];
 	spl_t s;
 
-	if (!__xn_access_ok(curr, VERIFY_READ, __xn_reg_arg1(regs), sizeof(name)))
+	if (!__xn_access_ok(curr, VERIFY_READ, __xn_reg_arg1(regs), 4))
 		return -EFAULT;
 
 	/* Get queue name. */
@@ -568,16 +569,16 @@ static int __q_broadcast(struct task_struct *curr, struct pt_regs *regs)
 }
 
 /*
- * int __q_vcreate(char name[4], u_long maxnum, u_long maxlen, u_long flags, u_long *qid_r)
+ * int __q_vcreate(const char *name, u_long maxnum, u_long maxlen, u_long flags, u_long *qid_r)
  */
 
 static int __q_vcreate(struct task_struct *curr, struct pt_regs *regs)
 {
 	u_long maxnum, maxlen, flags, qid, err;
+	char name[XNOBJECT_NAME_LEN];
 	psosqueue_t *queue;
-	char name[5];
 
-	if (!__xn_access_ok(curr, VERIFY_READ, __xn_reg_arg1(regs), sizeof(name)))
+	if (!__xn_access_ok(curr, VERIFY_READ, __xn_reg_arg1(regs), 4))
 		return -EFAULT;
 
 	/* Get queue name. */
@@ -627,16 +628,16 @@ static int __q_vdelete(struct task_struct *curr, struct pt_regs *regs)
 }
 
 /*
- * int __q_vident(char name[4], u_long *qid_r)
+ * int __q_vident(const char *name, u_long *qid_r)
  */
 
 static int __q_vident(struct task_struct *curr, struct pt_regs *regs)
 {
+	char name[XNOBJECT_NAME_LEN];
 	u_long err, qid;
-	char name[4];
 	spl_t s;
 
-	if (!__xn_access_ok(curr, VERIFY_READ, __xn_reg_arg1(regs), sizeof(name)))
+	if (!__xn_access_ok(curr, VERIFY_READ, __xn_reg_arg1(regs), 4))
 		return -EFAULT;
 
 	/* Get queue name. */
@@ -864,16 +865,16 @@ static int __q_vbroadcast(struct task_struct *curr, struct pt_regs *regs)
 }
 
 /*
- * int __sm_create(char name[4], u_long icount, u_long flags, u_long *smid_r)
+ * int __sm_create(const char *name, u_long icount, u_long flags, u_long *smid_r)
  */
 
 static int __sm_create(struct task_struct *curr, struct pt_regs *regs)
 {
 	u_long icount, flags, smid, err;
+	char name[XNOBJECT_NAME_LEN];
 	psossem_t *sem;
-	char name[5];
 
-	if (!__xn_access_ok(curr, VERIFY_READ, __xn_reg_arg1(regs), sizeof(name)))
+	if (!__xn_access_ok(curr, VERIFY_READ, __xn_reg_arg1(regs), 4))
 		return -EFAULT;
 
 	/* Get queue name. */
@@ -1050,12 +1051,84 @@ static int __tm_get(struct task_struct *curr, struct pt_regs *regs)
 }
 
 /*
+ * u_long tm_getm(u_long_long *ns_r)
+ */
+
+static int __tm_getm(struct task_struct *curr, struct pt_regs *regs)
+{
+	xnticks_t ns;
+
+	if (!__xn_access_ok
+	    (curr, VERIFY_WRITE, __xn_reg_arg1(regs), sizeof(ns)))
+		return -EFAULT;
+
+	ns = xntbase_get_jiffies(&nktbase); /* TSC converted to nanoseconds */
+
+	__xn_copy_to_user(curr, (void __user *)__xn_reg_arg1(regs), &ns,
+			  sizeof(ns));
+
+	return 0;
+}
+
+/*
+ * u_long tm_getc(u_long_long *ticks_r)
+ */
+
+static int __tm_getc(struct task_struct *curr, struct pt_regs *regs)
+{
+	xnticks_t ticks;
+
+	if (!__xn_access_ok
+	    (curr, VERIFY_WRITE, __xn_reg_arg1(regs), sizeof(ticks)))
+		return -EFAULT;
+
+	ticks = xntbase_get_jiffies(psos_tbase);
+
+	__xn_copy_to_user(curr, (void __user *)__xn_reg_arg1(regs), &ticks,
+			  sizeof(ticks));
+
+	return 0;
+}
+
+/*
+ * u_long tm_signal(u_long value, u_long interval, int signo, u_long *tmid_r)
+ */
+
+static int __tm_signal(struct task_struct *curr, struct pt_regs *regs)
+{
+	u_long value = __xn_reg_arg1(regs);
+	u_long interval = __xn_reg_arg2(regs);
+	int signo = __xn_reg_arg3(regs);
+	u_long err, tmid;
+	psostm_t *tm;
+
+	if (!__xn_access_ok
+	    (curr, VERIFY_WRITE, __xn_reg_arg4(regs), sizeof(tmid)))
+		return -EFAULT;
+
+	if (value == 0)
+		return 0;
+
+	err = tm_start_signal_timer(value, interval, signo, &tmid);
+
+	if (err == SUCCESS) {
+		tm = (psostm_t *)tmid;
+		/* Copy back the registry handle. */
+		tmid = tm->handle;
+		__xn_copy_to_user(curr, (void __user *)__xn_reg_arg4(regs), &tmid,
+				  sizeof(tmid));
+	}
+
+	return err;
+}
+
+/*
  * u_long tm_set(u_long date, u_long time, u_long ticks)
  */
 
 static int __tm_set(struct task_struct *curr, struct pt_regs *regs)
 {
-	u_long	date, time, ticks;
+	u_long date, time, ticks;
 
 	date = __xn_reg_arg1(regs);
 	time = __xn_reg_arg2(regs);
@@ -1138,11 +1211,12 @@ static int __tm_evevery(struct task_struct *curr, struct pt_regs *regs)
 }
 
 /*
- * u_long rn_create(char name[4], struct sizeopt *szp, struct rninfo *rnip)
+ * u_long rn_create(const char *name, struct sizeopt *szp, struct rninfo *rnip)
  */
 
 static int __rn_create(struct task_struct *curr, struct pt_regs *regs)
 {
+	char name[XNOBJECT_NAME_LEN];
 	struct {
 		u_long rnsize;
 		u_long usize;
@@ -1155,10 +1229,9 @@ static int __rn_create(struct task_struct *curr, struct pt_regs *regs)
 		u_long mapsize;
 	} rninfo;
 	psosrn_t *rn;
-	char name[5];
 	u_long err;
 
-	if (!__xn_access_ok(curr, VERIFY_READ, __xn_reg_arg1(regs), sizeof(name)))
+	if (!__xn_access_ok(curr, VERIFY_READ, __xn_reg_arg1(regs), 4))
 		return -EFAULT;
 
 	/* Get region name. */
@@ -1213,16 +1286,16 @@ static int __rn_delete(struct task_struct *curr, struct pt_regs *regs)
 }
 
 /*
- * int __rn_ident(char name[4], u_long *rnid_r)
+ * int __rn_ident(const char *name, u_long *rnid_r)
  */
 
 static int __rn_ident(struct task_struct *curr, struct pt_regs *regs)
 {
+	char name[XNOBJECT_NAME_LEN];
 	u_long err, rnid;
-	char name[4];
 	spl_t s;
 
-	if (!__xn_access_ok(curr, VERIFY_READ, __xn_reg_arg1(regs), sizeof(name)))
+	if (!__xn_access_ok(curr, VERIFY_READ, __xn_reg_arg1(regs), 4))
 		return -EFAULT;
 
 	/* Get region name. */
@@ -1349,6 +1422,61 @@ static int __rn_bind(struct task_struct *curr, struct pt_regs *regs)
 	return err;
 }
 
+/*
+ * u_long __as_send(u_long tid, u_long signals)
+ */
+
+static int __as_send(struct task_struct *curr, struct pt_regs *regs)
+{
+	xnhandle_t handle = __xn_reg_arg1(regs);
+	u_long signals = __xn_reg_arg2(regs);
+	psostask_t *task;
+
+	if (handle)
+		task = (psostask_t *)xnregistry_fetch(handle);
+	else
+		task = __psos_task_current(curr);
+
+	if (!task)
+		return ERR_OBJID;
+
+	return as_send((u_long)task, signals);
+}
+
+static void *psos_shadow_eventcb(int event, void *data)
+{
+	struct psos_resource_holder *rh;
+	switch(event) {
+
+	case XNSHADOW_CLIENT_ATTACH:
+
+		rh = (struct psos_resource_holder *) xnarch_alloc_host_mem(sizeof(*rh));
+		if (!rh)
+			return ERR_PTR(-ENOMEM);
+
+		initq(&rh->smq);
+		initq(&rh->qq);
+		initq(&rh->ptq);
+		initq(&rh->rnq);
+
+		return &rh->ppd;
+
+	case XNSHADOW_CLIENT_DETACH:
+
+		rh = ppd2rholder((xnshadow_ppd_t *) data);
+		psos_sem_flush_rq(&rh->smq);
+		psos_queue_flush_rq(&rh->qq);
+		psos_pt_flush_rq(&rh->ptq);
+		psos_rn_flush_rq(&rh->rnq);
+
+		xnarch_free_host_mem(rh, sizeof(*rh));
+
+		return NULL;
+	}
+
+	return ERR_PTR(-EINVAL);
+}
+
 static xnsysent_t __systab[] = {
 	[__psos_t_create] = {&__t_create, __xn_exec_init},
 	[__psos_t_start] = {&__t_start, __xn_exec_any},
@@ -1392,6 +1520,22 @@ static xnsysent_t __systab[] = {
 	[__psos_tm_evwhen] = {&__tm_evwhen, __xn_exec_primary},
 	[__psos_tm_wkwhen] = {&__tm_wkwhen, __xn_exec_primary},
 	[__psos_tm_evevery] = {&__tm_evevery, __xn_exec_primary},
+	[__psos_tm_getm] = {&__tm_getm, __xn_exec_any},
+	[__psos_tm_signal] = {&__tm_signal, __xn_exec_primary},
+	[__psos_as_send] = {&__as_send, __xn_exec_conforming},
+	[__psos_tm_getc] = {&__tm_getc, __xn_exec_any},
+};
+
+extern xntbase_t *psos_tbase;
+
+static struct xnskin_props __props = {
+	.name = "psos",
+	.magic = PSOS_SKIN_MAGIC,
+	.nrcalls = sizeof(__systab) / sizeof(__systab[0]),
+	.systab = __systab,
+	.eventcb = &psos_shadow_eventcb,
+	.timebasep = &psos_tbase,
+	.module = THIS_MODULE
 };
 
 static void __shadow_delete_hook(xnthread_t *thread)
@@ -1403,12 +1547,9 @@ static void __shadow_delete_hook(xnthread_t *thread)
 
 int psos_syscall_init(void)
 {
-	__muxid =
-	    xnshadow_register_interface("psos",
-					PSOS_SKIN_MAGIC,
-					sizeof(__systab) / sizeof(__systab[0]),
-					__systab, NULL, THIS_MODULE);
-	if (__muxid < 0)
+	__psos_muxid = xnshadow_register_interface(&__props);
+
+	if (__psos_muxid < 0)
 		return -ENOSYS;
 
 	xnpod_add_hook(XNHOOK_THREAD_DELETE, &__shadow_delete_hook);
@@ -1419,5 +1560,5 @@ int psos_syscall_init(void)
 void psos_syscall_cleanup(void)
 {
 	xnpod_remove_hook(XNHOOK_THREAD_DELETE, &__shadow_delete_hook);
-	xnshadow_unregister_interface(__muxid);
+	xnshadow_unregister_interface(__psos_muxid);
 }

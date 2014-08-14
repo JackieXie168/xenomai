@@ -4,7 +4,9 @@ SUDO=sudo
 
 SUBDIRS = src include config @XENO_MAYBE_DOCDIR@ scripts
 
-EXTRA_DIST = CREDITS README.INSTALL TROUBLESHOOTING ksrc examples
+EXTRA_DIST = CREDITS README.INSTALL TROUBLESHOOTING ksrc examples \
+            debian/changelog debian/control debian/copyright debian/rules \
+            debian/prepare-patch.sh debian/xenomai.postinst debian/xenomai.postrm
 
 dist-hook:
 	rm -fr `find $(distdir) -name '.svn' -o -name CVS  -o -name '.#*' \
@@ -12,11 +14,13 @@ dist-hook:
 	test -e $(srcdir)/doc || rm -rf $(distdir)/doc
 
 dev devices:
+        $(mkinstalldirs) $(DESTDIR)/dev ; \
 	@if test x`id -u` = x0; then \
            sudo= ; \
         else if test \! "x`type $(SUDO)`" = x ; then \
            echo "sudo found (sudo is $(SUDO)), testing it..." ; \
-           $(SUDO) true && sudo="$(SUDO)" || { \
+           $(SUDO) sh -c "( mknod $(DESTDIR)/dev/dummy c 150 0 && rm -f $(DESTDIR)/dev/dummy )" && \
+           sudo="$(SUDO)" || { \
 echo '*** Warning: you are not super-user and sudo does not work, real-time\
 devices' ; \
 echo '*** nodes will not be created.' ; \
@@ -36,7 +40,6 @@ echo '*** privileges.' ; \
            $$sudo sh -c "( echo ; cat $$f ) >> $(DESTDIR)/etc/udev/udev.rules" ; \
            done ; \
 	fi ; \
-        $(mkinstalldirs) $(DESTDIR)/dev ; \
 	for n in `seq 0 31` ; do \
            f="$(DESTDIR)/dev/rtp$$n" ; \
            if test \! -c $$f ; then \
@@ -58,28 +61,28 @@ linux/%: linux/.xenomai-prepared FORCE
 	$(top_srcdir)/scripts/prepare-kernel.sh \
              --adeos="$(ADEOS_PATCH)" --linux=linux \
 	     --arch=$(XENO_LINUX_ARCH) && \
-	cross=`expr $(CC) : '\(.*\)gcc' || :` && \
+	cross=`expr "$(CC)" : '\(.*\)gcc' || :` && \
 	cd linux && $(MAKE) $* \
-		ARCH=$(XENO_LINUX_ARCH) CC=$(CC) CROSS_COMPILE=$$cross
+		ARCH=$(XENO_LINUX_ARCH) CC="$(CC)" CROSS_COMPILE=$$cross
 
 linux/all: linux/.xenomai-prepared FORCE
 	$(top_srcdir)/scripts/prepare-kernel.sh \
              --adeos="$(ADEOS_PATCH)" --linux=linux \
 	     --arch=$(XENO_LINUX_ARCH) && \
-	cross=`expr $(CC) : '\(.*\)gcc' || :` && \
+	cross=`expr "$(CC)" : '\(.*\)gcc' || :` && \
 	cd linux && $(MAKE) $(XENO_LINUX_ALL_TARGETS) \
-		ARCH=$(XENO_LINUX_ARCH) CC=$(CC) CROSS_COMPILE=$$cross
+		ARCH=$(XENO_LINUX_ARCH) CC="$(CC)" CROSS_COMPILE=$$cross
 
 else
 linux/%: linux/.xenomai-prepared FORCE
-	cross=`expr $(CC) : '\(.*\)gcc' || :` && \
+	cross=`expr "$(CC)" : '\(.*\)gcc' || :` && \
 	cd linux && $(MAKE) $* \
-		ARCH=$(XENO_LINUX_ARCH) CC=$(CC) CROSS_COMPILE=$$cross
+		ARCH=$(XENO_LINUX_ARCH) CC="$(CC)" CROSS_COMPILE=$$cross
 
 linux/all: linux/.xenomai-prepared FORCE
-	cross=`expr $(CC) : '\(.*\)gcc' || :` && \
+	cross=`expr "$(CC)" : '\(.*\)gcc' || :` && \
 	cd linux && $(MAKE) $(XENO_LINUX_ALL_TARGETS) \
-		ARCH=$(XENO_LINUX_ARCH) CC=$(CC) CROSS_COMPILE=$$cross
+		ARCH=$(XENO_LINUX_ARCH) CC="$(CC)" CROSS_COMPILE=$$cross
 endif
 
 linux/.xenomai-prepared: config.status
@@ -93,9 +96,9 @@ linux/install: linux/all
 	$(SUDO) true ; then sudo=$(SUDO) ; targets="$$targets install" ; fi && \
 	$(mkinstalldirs) $(DESTDIR) && \
 	$$sudo $(mkinstalldirs) $(DESTDIR)/boot && \
-	cross=`expr $(CC) : '\(.*\)gcc' || :` && \
+	cross=`expr "$(CC)" : '\(.*\)gcc' || :` && \
 	cd linux && $$sudo $(MAKE) $$targets \
-           ARCH=$(XENO_LINUX_ARCH) CC=$(CC) CROSS_COMPILE=$$cross \
+           ARCH=$(XENO_LINUX_ARCH) CC="$(CC)" CROSS_COMPILE=$$cross \
            INSTALL_PATH=$(DESTDIR)/boot \
            INSTALL_MOD_PATH=$(DESTDIR)
 
@@ -106,9 +109,9 @@ linux/install_image: linux/all
 	$(SUDO) true ; then sudo=$(SUDO) ; fi && \
 	$(mkinstalldirs) $(DESTDIR) && \
 	$$sudo $(mkinstalldirs) $(DESTDIR)/boot && \
-	cross=`expr $(CC) : '\(.*\)gcc' || :` && \
+	cross=`expr "$(CC)" : '\(.*\)gcc' || :` && \
 	cd linux && $$sudo $(MAKE) modules_install \
-           ARCH=$(XENO_LINUX_ARCH) CC=$(CC) CROSS_COMPILE=$$cross \
+           ARCH=$(XENO_LINUX_ARCH) CC="$(CC)" CROSS_COMPILE=$$cross \
            INSTALL_MOD_PATH=$(DESTDIR) && \
 	$$sudo cp $(XENO_LINUX_IMAGE) System.map $(DESTDIR)/boot
 

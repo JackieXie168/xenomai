@@ -71,6 +71,8 @@ typedef struct rt_queue_placeholder {
 
 #if defined(__KERNEL__) || defined(__XENO_SIM__)
 
+#include <native/ppd.h>
+
 #define XENO_QUEUE_MAGIC 0x55550707
 
 typedef struct rt_queue {
@@ -91,9 +93,15 @@ typedef struct rt_queue {
 
     char name[XNOBJECT_NAME_LEN]; /* !< Symbolic name. */
 
-#if defined(__KERNEL__) && defined(CONFIG_XENO_OPT_PERVASIVE)
+#ifdef CONFIG_XENO_OPT_PERVASIVE
     pid_t cpid;			/* !< Creator's pid. */
-#endif /* __KERNEL__ && CONFIG_XENO_OPT_PERVASIVE */
+#endif /* CONFIG_XENO_OPT_PERVASIVE */
+
+    xnholder_t rlink;		/* !< Link in resource queue. */
+
+#define rlink2queue(ln)	container_of(ln, RT_QUEUE, rlink)
+
+    xnqueue_t *rqueue;		/* !< Backpointer to resource queue. */
 
 } RT_QUEUE;
 
@@ -113,9 +121,24 @@ typedef struct rt_queue_msg {
 extern "C" {
 #endif
 
+#ifdef CONFIG_XENO_OPT_NATIVE_QUEUE
+
 int __native_queue_pkg_init(void);
 
 void __native_queue_pkg_cleanup(void);
+
+static inline void __native_queue_flush_rq(xnqueue_t *rq)
+{
+	xeno_flush_rq(RT_QUEUE, rq, queue);
+}
+
+#else /* !CONFIG_XENO_OPT_NATIVE_QUEUE */
+
+#define __native_queue_pkg_init()		({ 0; })
+#define __native_queue_pkg_cleanup()		do { } while(0)
+#define __native_queue_flush_rq(rq)		do { } while(0)
+
+#endif /* !CONFIG_XENO_OPT_NATIVE_QUEUE */
 
 #ifdef __cplusplus
 }

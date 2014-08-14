@@ -22,8 +22,6 @@
 #ifndef _XENO_ALARM_H
 #define _XENO_ALARM_H
 
-#include <nucleus/timer.h>
-#include <nucleus/synch.h>
 #include <native/types.h>
 
 typedef struct rt_alarm_info {
@@ -42,6 +40,10 @@ typedef struct rt_alarm_placeholder {
 
 #if defined(__KERNEL__) || defined(__XENO_SIM__)
 
+#include <nucleus/timer.h>
+#include <nucleus/synch.h>
+#include <native/ppd.h>
+
 #define XENO_ALARM_MAGIC 0x55550909
 
 typedef struct rt_alarm {
@@ -58,13 +60,17 @@ typedef struct rt_alarm {
 
     unsigned long expiries;	/* !< Number of expiries. */
 
-#if defined(__KERNEL__) && defined(CONFIG_XENO_OPT_PERVASIVE)
-
+#ifdef CONFIG_XENO_OPT_PERVASIVE
     pid_t cpid;			/* !< Creator's pid. */
 
     xnsynch_t synch_base;	/* !< Synch. base for user-space tasks. */
+#endif /* CONFIG_XENO_OPT_PERVASIVE */
 
-#endif /* __KERNEL__ && CONFIG_XENO_OPT_PERVASIVE */
+    xnholder_t rlink;		/* !< Link in resource queue. */
+
+#define rlink2alarm(ln)	container_of(ln, RT_ALARM, rlink)
+
+    xnqueue_t *rqueue;		/* !< Backpointer to resource queue. */
 
     char name[XNOBJECT_NAME_LEN]; /* !< Symbolic name. */
 
@@ -74,9 +80,24 @@ typedef struct rt_alarm {
 extern "C" {
 #endif
 
+#ifdef CONFIG_XENO_OPT_NATIVE_ALARM
+
 int __native_alarm_pkg_init(void);
 
 void __native_alarm_pkg_cleanup(void);
+
+static inline void __native_alarm_flush_rq(xnqueue_t *rq)
+{
+	xeno_flush_rq(RT_ALARM, rq, alarm);
+}
+
+#else /* !CONFIG_XENO_OPT_NATIVE_ALARM */
+
+#define __native_alarm_pkg_init()		({ 0; })
+#define __native_alarm_pkg_cleanup()		do { } while(0)
+#define __native_alarm_flush_rq(rq)		do { } while(0)
+
+#endif /* !CONFIG_XENO_OPT_NATIVE_ALARM */
 
 int rt_alarm_create(RT_ALARM *alarm,
 		    const char *name,

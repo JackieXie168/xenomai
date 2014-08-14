@@ -23,6 +23,7 @@
 
 #include <nucleus/xenomai.h>
 #include <nucleus/registry.h>
+#include <nucleus/map.h>
 #include <vrtx/vrtx.h>
 
 /* Those should be ^2s and even multiples of BITS_PER_LONG when
@@ -30,15 +31,15 @@
 #define VRTX_MAX_EVENTS  256
 #define VRTX_MAX_HEAPS   256
 #define VRTX_MAX_MUTEXES 256
-#define VRTX_MAX_PTS     256
+#define VRTX_MAX_PTS     512
 #define VRTX_MAX_SEMS    256
-#define VRTX_MAX_QUEUES  256
+#define VRTX_MAX_QUEUES  512
 #define VRTX_MAX_NTASKS  512	/* Named tasks -- anonymous ones aside. */
 
 #define VRTX_MAX_IDS     512 /* # of available ids per object type. */
 
-#if BITS_PER_LONG * BITS_PER_LONG < VRTX_MAX_IDS
-#error "Internal bitmap cannot hold so many priority levels"
+#if XNMAP_MAX_KEYS < VRTX_MAX_IDS
+#error "Internal map cannot hold so many identifiers"
 #endif
 
 #define vrtx_h2obj_active(h,m,t) \
@@ -46,60 +47,22 @@
 
 #define vrtx_mark_deleted(t) ((t)->magic = ~(t)->magic)
 
-#define __IDMAP_LONGS ((VRTX_MAX_IDS+BITS_PER_LONG-1)/BITS_PER_LONG)
+/* The following macros return normalized or native VRTX priority
+   values. The core pod uses an ascending [0-257] priority scale
+   (include/nucleus/core.h), whilst the VRTX personality exhibits a
+   decreasing scale [255-0]; normalization is done in the [1-256]
+   range so that priority 0 is kept for non-realtime shadows. */
 
-typedef struct vrtxidmap {
+#define vrtx_normalized_prio(prio)  \
+  ({ int __p = (prio) ? XNCORE_MAX_PRIO - (prio) - 1 : 0; __p; })
+#define vrtx_denormalized_prio(prio) \
+  ({ int __p = (prio) ? 256 - (prio) : 0; __p; })
 
-    int maxids;
-    int usedids;
-    unsigned long himask;
-    unsigned long himap;
-    unsigned long lomap[__IDMAP_LONGS];
-    void *objarray[1];
-
-} vrtxidmap_t;
-
-#undef __IDMAP_LONGS
-
-/* The following macros return normalized or native priority values
-   for the underlying pod. The core pod providing user-space support
-   uses an ascending [0-257] priority scale (include/nucleus/core.h),
-   whilst the VRTX personality exhibits a decreasing scale
-   [255-0]. Normalization is not needed when the underlying pod
-   supporting the VRTX skin is standalone, i.e. pure kernel, or
-   simulation modes. */
-
-#if defined(__KERNEL__) && defined(CONFIG_XENO_OPT_PERVASIVE)
-#define vrtx_normalized_prio(prio)	(XNCORE_MAX_PRIO - (prio) - 1)
-#define vrtx_denormalized_prio(prio)	(256 - (prio))
-#else /* !(__KERNEL__ && CONFIG_XENO_OPT_PERVASIVE) */
-#define vrtx_normalized_prio(prio)	prio
-#define vrtx_denormalized_prio(prio)	prio
-#endif /* __KERNEL__ && CONFIG_XENO_OPT_PERVASIVE */
+extern xntbase_t *vrtx_tbase;
 
 #ifdef __cplusplus
 extern "C" {
 #endif
-
-vrtxidmap_t *vrtx_alloc_idmap(int maxids,
-			      int reserve);
-
-void vrtx_free_idmap(vrtxidmap_t *map);
-
-int vrtx_get_id(vrtxidmap_t *map,
-		int id,
-		void *objaddr);
-
-void vrtx_put_id(vrtxidmap_t *map,
-		 int id);
-
-static inline void *vrtx_get_object(vrtxidmap_t *map, int id)
-{
-    if (id < 0 || id >= map->maxids)
-	return NULL;
-
-    return map->objarray[id];
-}
 
 struct vrtxtask;
 

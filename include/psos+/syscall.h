@@ -16,8 +16,8 @@
  * Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  */
 
-#ifndef _XENO_PSOS_SYSCALL_H
-#define _XENO_PSOS_SYSCALL_H
+#ifndef _PSOS_SYSCALL_H
+#define _PSOS_SYSCALL_H
 
 #ifndef __XENO_SIM__
 #include <asm/xenomai/syscall.h>
@@ -66,6 +66,13 @@
 #define __psos_tm_evwhen    40
 #define __psos_tm_wkwhen    41
 #define __psos_tm_evevery   42
+/* Xenomai extension: get monotonic time (ns) */
+#define __psos_tm_getm      43
+/* Xenomai extension: send a Linux signal after a specified time */
+#define __psos_tm_signal    44
+#define __psos_as_send      45
+/* Xenomai extension: get raw count of jiffies */
+#define __psos_tm_getc      46
 
 #ifdef __KERNEL__
 
@@ -83,4 +90,4 @@ void psos_syscall_cleanup(void);
 
 #endif /* __KERNEL__ */
 
-#endif /* _XENO_PSOS_SYSCALL_H */
+#endif /* _PSOS_SYSCALL_H */
