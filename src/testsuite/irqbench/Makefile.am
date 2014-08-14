@@ -19,7 +19,7 @@ irqloop_LDFLAGS = \
 	$(XENO_USER_LDFLAGS)
 
 irqloop_LDADD = \
-	../../skins/posix/.libs/libpthread_rt.a -lpthread
+	../../skins/posix/libpthread_rt.la -lpthread -lrt
 
 
 irqbench_SOURCES = irqbench.c
@@ -34,7 +34,7 @@ irqbench_LDFLAGS = $(XENO_USER_LDFLAGS)
 install-data-local:
 	$(mkinstalldirs) $(DESTDIR)$(testdir)
 	$(INSTALL_DATA) $(srcdir)/runinfo $(DESTDIR)$(testdir)/.runinfo
-	@echo "\$${DESTDIR}$(prefix)/bin/xeno-load \$$*" > $(DESTDIR)$(testdir)/run
+	@echo "\$${DESTDIR}$(exec_prefix)/bin/xeno-load \$$*" > $(DESTDIR)$(testdir)/run
 	@chmod +x $(DESTDIR)$(testdir)/run
 
 uninstall-local:

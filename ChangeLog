@@ -1,3 +1,113 @@
+2006-10-16  Philippe Gerum  <rpm@xenomai.org>
+
+ 	* RELEASE: Xenomai 2.2.4 (Headless Horseman)
+
+2006-10-15  Philippe Gerum  <rpm@xenomai.org>
+
+	* ksrc/arch/powerpc/patches: Upgrade to 2.6.14-ppc-1.5-00.
+
+	* ksrc/arch/blackfin/patches: Upgrade to
+	2.6.16-bf53x-CVS-20061008.
+
+	* include/asm-*/syscall.h (__xn_copy_from_user,
+	__xn_copy_to_user): Make sure the local variable used to
+	temporarily store the return value won't match any copy
+	argument. This bug used to cause weird return values from Xenomai
+	syscalls using "err" as a copy argument to user-space.
+
+2006-10-14  Philippe Gerum  <rpm@xenomai.org>
+
+	* ksrc/arch/i386/patches: Upgrade to 2.4.33-1.3-01 and
+	2.6.17-1.5-00.
+
+	* ksrc/arch/powerpc/patches: Upgrade to 2.6.18-ppc-1.4-01.
+	
+2006-10-10  Philippe Gerum  <rpm@xenomai.org>
+
+	* ksrc/nucleus/pod.c (xnpod_start_timer): Set up the watchdog
+	after the timer hardware has been initialized.
+
+	* ksrc/nucleus/module.c (timer_read_proc): Export watchdog status.
+
+	* ksrc/arch/blackfin, include/asm-blackfin/hal.h: Use
+	kernel-defined accessors for reading/writing MMIO registers.
+
+2006-10-08  Gilles Chanteperdrix  <gilles.chanteperdrix@laposte.net>
+
+	* src/testsuite/*/Makefile.am: Link with libtool libraries, in
+	order to have configure --(enable|disable)-(static|shared) options
+	working correctly.
+
+2006-10-08  Jan Kiszka  <jan.kiszka@web.de>
+
+	* include/rtdm/rtdm_driver.h (rtdm_copy_to/from_user): Fix
+	return code.
+
+	* ksrc/skins/rtdm/drvlib.c (rtdm_strncpy_from_user): Adapt doc to
+	actual success return code, the string length.
+
+2006-10-03  Gilles Chanteperdrix  <gilles.chanteperdrix@laposte.net>
+
+	* src/skins/posix/wrappers.c (__real_pthread_getschedparam): Add
+	missing wrapper.
+
+2006-10-02  Wolfgang Grandegger  <wg@grandegger.com>
+
+	* include/asm-powerpc/atomic.h: Wrap atomic_xchg() for kernel
+	versions earlier than 2.6.15.
+	
+2006-10-01  Philippe Gerum  <rpm@xenomai.org>
+
+	* ksrc/skins/uvm/syscall.c (__vm_thread_activate): Iron interrupt
+	mask handling and deeply rework context switch emulation to
+	prevent spurious wakeups upon Linux signals.
+
+	* ksrc/skins/psos+/task.c (t_mode): Reschedule after mode change.
+
+2006-09-28  Philippe Gerum  <rpm@xenomai.org>
+
+	* ksrc/nucleus/pod.c (xnpod_watchdog_handler): Rework the watchdog
+	support so that it does _not_ depend on xnpod_announce_tick()
+	being called: the latter does not happen whenever host ticks are
+	attached to another IRQ channel than the nucleus timer one
+	(e.g. x86 + CONFIG_X86_LOCAL_APIC enabled). Also kill the runaway
+	thread, instead of just disabling it, since it could be awaken by
+	a Linux signal otherwise, and start spinning anew.
+	(xnpod_set_thread_periodic): Add LART to catch periods shorter
+	than the declared scheduling latency value.
+
+2006-09-25  Niklaus Giger <niklaus.giger@member.fsf.org>
+
+	* ksrc/arch/powerpc/hal.c (rthal_set_cpu_timers_unsafe): Fix
+	computation of periodic tick value to prevent 32bit arithmetic
+	overflow.
+
+2006-09-24  Philippe Gerum  <rpm@xenomai.org>
+
+	* ksrc/nucleus/shadow.c (xnshadow_signal_completion,
+	xnshadow_sys_completion): Copy to/from user the whole completion
+	struct (basically to work around a Blackfin issue).
+	(do_sigwake_event): Raise XNBREAK when resuming a forcibly
+	suspended thread upon Linux signal receipt, to give a chance to
+	the interrupted Xenomai syscall to check this situation properly.
+
+2006-09-21  Philippe Gerum  <rpm@xenomai.org>
+
+	* include/asm-blackfin/syscall.h: Assume mlockall() and
+	munlockall() are now being defined by uClibc. Add placeholder for
+	pthread_atfork().
+
+	* ksrc/arch/arm/patches: Upgrade to 2.6.1{4,5}-1.5-01.
+
+2006-09-20  Gilles Chanteperdrix  <gilles.chanteperdrix@laposte.net>
+
+	* include/asm-i386/system.h:
+	Partially revert #1595 to fix FPU management regression issues.
+
+2006-09-18  Thomas Necker <thomas.necker@marconi.com>
+
+	* ksrc/skins/psos/queue.c: Fix sizeof(msgbuf) expr.
+
 2006-09-17  Philippe Gerum  <rpm@xenomai.org>
 
  	* RELEASE: Xenomai 2.2.3 (Memories)

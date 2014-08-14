@@ -59,9 +59,9 @@
    have checked for bad range before using the copy macros, so we
    should not have to care about the result. */
 #define __xn_copy_from_user(task,dstP,srcP,n)  \
-    ({ int err = __copy_from_user_inatomic(dstP,srcP,n); err; })
+    ({ int __err__ = __copy_from_user_inatomic(dstP,srcP,n); __err__; })
 #define __xn_copy_to_user(task,dstP,srcP,n)  \
-    ({ int err = __copy_to_user_inatomic(dstP,srcP,n); err; })
+    ({ int __err__ = __copy_to_user_inatomic(dstP,srcP,n); __err__; })
 #define __xn_put_user(task,src,dstP)           __put_user(src,dstP)
 #define __xn_get_user(task,dst,srcP)           __get_user(dst,srcP)
 #define __xn_strncpy_from_user(task,dstP,srcP,n)    strncpy_from_user(dstP,srcP,n)
@@ -255,18 +255,14 @@ static inline unsigned long long __xn_rdtsc (void)
     return u.t;
 }
 
-/* uClibc does not provide any dummy mlockall() call for this arch;
-   provide it here. Note: let the compiler decides whether it wants to
-   actually inline this routine, i.e. do not force always_inline. */
-inline __attribute__((weak)) int mlockall (int flags)
+/* uClibc does not provide pthread_atfork() for this arch; provide it
+   here. Note: let the compiler decides whether it wants to actually
+   inline this routine, i.e. do not force always_inline. */
+inline __attribute__((weak)) int pthread_atfork(void (*prepare)(void),
+						void (*parent)(void),
+						void (*child)(void))
 {
-    return 0;
-}
-
-/* The same goes with munlockall(). */
-inline __attribute__((weak)) int munlockall (void)
-{
-    return 0;
+	return 0;
 }
 
 #endif /* __KERNEL__ */
