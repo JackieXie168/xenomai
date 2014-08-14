@@ -1,5 +1,0 @@
-#
-# Xenomai configuration for Linux v2.4
-#
-
-dep_tristate 'Timer benchmark driver' CONFIG_XENO_DRIVERS_TIMERBENCH $CONFIG_XENO_SKIN_RTDM

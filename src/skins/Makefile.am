@@ -1,6 +1,6 @@
 
 if CONFIG_XENO_UVM
-OPTDIRS = uvm psos+ uitron vrtx vxworks
+OPTDIRS = uvm
 endif
 
-SUBDIRS = native posix rtdm rtai $(OPTDIRS)
+SUBDIRS = native posix rtdm vxworks vrtx rtai $(OPTDIRS)

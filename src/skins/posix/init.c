@@ -28,62 +28,46 @@
 #include <rtdm/syscall.h>
 
 int __pse51_muxid = -1;
-int __rtdm_muxid  = -1;
+int __rtdm_muxid = -1;
 int __rtdm_fd_start = INT_MAX;
 
-static __attribute__((constructor)) void __init_posix_interface(void)
+int __wrap_pthread_setschedparam(pthread_t, int, const struct sched_param *);
 
+static __attribute__ ((constructor))
+void __init_posix_interface(void)
 {
-    xnfeatinfo_t finfo;
-    int muxid;
+	struct sched_param parm;
+	int muxid, err;
 
-    muxid = XENOMAI_SYSBIND(PSE51_SKIN_MAGIC,
-			    XENOMAI_FEAT_DEP,
-			    XENOMAI_ABI_REV,
-			    &finfo);
-    switch (muxid)
-	{
-	case -EINVAL:
+	__pse51_muxid =
+	    xeno_user_skin_init(PSE51_SKIN_MAGIC, "POSIX", "xeno_posix");
 
-	    fprintf(stderr,"Xenomai: incompatible feature set\n");
-	    fprintf(stderr,"(required=\"%s\", present=\"%s\", missing=\"%s\").\n",
-		    finfo.feat_man_s,finfo.feat_all_s,finfo.feat_mis_s);
-	    exit(1);
-
-	case -ENOEXEC:
-
-	    fprintf(stderr,"Xenomai: incompatible ABI revision level\n");
-	    fprintf(stderr,"(needed=%lu, current=%lu).\n",
-		    XENOMAI_ABI_REV,finfo.abirev);
-	    exit(1);
-
-	case -ENOSYS:
-	case -ESRCH:
-
-	    fprintf(stderr,"Xenomai: POSIX skin or CONFIG_XENO_OPT_PERVASIVE disabled.\n");
-	    fprintf(stderr,"(modprobe xeno_posix?)\n");
-	    exit(1);
-
-	default:
-
-	    if (muxid < 0)
-		{
-		fprintf(stderr,"Xenomai: binding failed: %s.\n",strerror(-muxid));
-		exit(1);
-		}
-
-	    __pse51_muxid = muxid;
-	    break;
+	muxid = XENOMAI_SYSBIND(RTDM_SKIN_MAGIC,
+				XENOMAI_FEAT_DEP, XENOMAI_ABI_REV, NULL);
+	if (muxid > 0) {
+		__rtdm_muxid = muxid;
+		__rtdm_fd_start = FD_SETSIZE - XENOMAI_SKINCALL0(__rtdm_muxid,
+								 __rtdm_fdcount);
 	}
 
-    muxid = XENOMAI_SYSBIND(RTDM_SKIN_MAGIC,
-			    XENOMAI_FEAT_DEP,
-			    XENOMAI_ABI_REV,
-			    NULL);
-    if (muxid > 0)
-        {
-        __rtdm_muxid    = muxid;
-        __rtdm_fd_start = FD_SETSIZE - XENOMAI_SKINCALL0(__rtdm_muxid,
-                                                         __rtdm_fdcount);
-        }
+	/* Shadow the main thread. mlock the whole memory for the time of the
+	   syscall, in order to avoid the SIGXCPU signal. */
+	if (mlockall(MCL_CURRENT | MCL_FUTURE)) {
+		perror("Xenomai Posix skin init: mlockall");
+		exit(EXIT_FAILURE);
+	}
+
+	parm.sched_priority = 0;
+	if ((err =
+	     __wrap_pthread_setschedparam(pthread_self(), SCHED_OTHER,
+					  &parm))) {
+		fprintf(stderr, "Xenomai Posix skin init: "
+			"pthread_setschedparam: %s\n", strerror(err));
+		exit(EXIT_FAILURE);
+	}
+
+	if (munlockall()) {
+		perror("Xenomai Posix skin init: munlockall");
+		exit(EXIT_FAILURE);
+	}
 }

@@ -48,11 +48,12 @@ struct xnskentry {
     unsigned magic;
     int nrcalls;
     atomic_counter_t refcnt;
-    int (*eventcb)(int);
+    void *(*eventcb)(int, void *);
     xnsysent_t *systab;
 #ifdef CONFIG_PROC_FS
     struct proc_dir_entry *proc;
 #endif /* CONFIG_PROC_FS */
+    struct module *module;
 };
 
 int xnshadow_mount(void);
@@ -89,7 +90,8 @@ int xnshadow_register_interface(const char *name,
 				unsigned magic,
 				int nrcalls,
 				xnsysent_t *systab,
-				int (*eventcb)(int event));
+				void *(*eventcb)(int event, void *data),
+				struct module *module);
 
 int xnshadow_unregister_interface(int muxid);
 

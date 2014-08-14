@@ -138,15 +138,8 @@ static inline void xnarch_stop_timer (void)
 
 static inline void xnarch_leave_root (xnarchtcb_t *rootcb)
 {
-    rthal_declare_cpuid;
-
-    rthal_load_cpuid();
-
-    /* rthal_cpu_realtime is only tested for the current processor,
-       and always inside a critical section. */
-    __set_bit(cpuid,&rthal_cpu_realtime);
     /* Remember the preempted Linux task pointer. */
-    rootcb->user_task = rootcb->active_task = rthal_current_host_task(cpuid);
+    rootcb->user_task = rootcb->active_task = current;
     rootcb->tip = current->thread_info;
 #ifdef CONFIG_XENO_HW_FPU
     rootcb->user_fpu_owner = rthal_get_fpu_owner(rootcb->user_task);
@@ -157,8 +150,8 @@ static inline void xnarch_leave_root (xnarchtcb_t *rootcb)
 #endif /* CONFIG_XENO_HW_FPU */
 }
 
-static inline void xnarch_enter_root (xnarchtcb_t *rootcb) {
-    __clear_bit(xnarch_current_cpu(),&rthal_cpu_realtime);
+static inline void xnarch_enter_root (xnarchtcb_t *rootcb)
+{
 }
 
 static inline void xnarch_switch_to (xnarchtcb_t *out_tcb,
@@ -167,16 +160,21 @@ static inline void xnarch_switch_to (xnarchtcb_t *out_tcb,
     struct task_struct *prev = out_tcb->active_task;
     struct task_struct *next = in_tcb->user_task;
 
-    in_tcb->active_task = next ?: prev;
+    if (likely(next != NULL)) {
+		in_tcb->active_task = next;
+		rthal_clear_foreign_stack(&rthal_domain);
+	} else {
+		in_tcb->active_task = prev;
+		rthal_set_foreign_stack(&rthal_domain);
+	}
 
     if (next && next != prev) {
-        /* Switch to new user-space thread? */
-        struct mm_struct *oldmm = prev->active_mm;
-
-        if (next->active_mm)
-            switch_mm(oldmm, next->active_mm, next);
-        if (!next->mm)
-            enter_lazy_tlb(oldmm, next);
+		/* Switch to new user-space thread? */
+		struct mm_struct *oldmm = prev->active_mm;
+	    if (next->active_mm)
+		switch_mm(oldmm, next->active_mm, next);
+	    if (!next->mm)
+		enter_lazy_tlb(oldmm, next);
     }
 
     /* Kernel-to-kernel context switch. */
@@ -395,7 +393,7 @@ static inline void xnarch_grab_xirqs (rthal_irq_handler_t handler)
                              handler,
                              NULL,
                              NULL,
-                             IPIPE_DYNAMIC_MASK);
+                             IPIPE_HANDLE_MASK);
 }
 
 static inline void xnarch_lock_xirqs (rthal_pipeline_stage_t *ipd, int cpuid)
@@ -495,7 +493,8 @@ static inline int xnarch_local_syscall (struct pt_regs *regs)
 
 #ifdef XENO_TIMER_MODULE
 
-static inline void xnarch_program_timer_shot (unsigned long delay) {
+static inline void xnarch_program_timer_shot (unsigned long delay)
+{
     rthal_timer_program_shot(rthal_imuldiv(delay,RTHAL_TIMER_FREQ,RTHAL_CPU_FREQ));
 }
 
@@ -592,27 +591,15 @@ static inline int xnarch_init (void)
                          (rthal_irq_handler_t)&xnpod_schedule_handler,
                          NULL,
                          NULL,
-                         IPIPE_HANDLE_MASK);
+                         IPIPE_HANDLE_MASK | IPIPE_WIRED_MASK);
 
     xnarch_old_trap_handler = rthal_trap_catch(&xnarch_trap_fault);
 
-#ifdef CONFIG_XENO_OPT_PERVASIVE
-    err = xnshadow_mount();
-#endif /* CONFIG_XENO_OPT_PERVASIVE */
-
-    if (err) {
-        rthal_trap_catch(xnarch_old_trap_handler);
-        rthal_free_virq(xnarch_escalation_virq);
-    }
-
-    return err;
+    return 0;
 }
 
 static inline void xnarch_exit (void)
 {
-#ifdef CONFIG_XENO_OPT_PERVASIVE
-    xnshadow_cleanup();
-#endif /* CONFIG_XENO_OPT_PERVASIVE */
     rthal_trap_catch(xnarch_old_trap_handler);
     rthal_free_virq(xnarch_escalation_virq);
     rthal_exit();

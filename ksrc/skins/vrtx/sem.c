@@ -1,7 +1,7 @@
 /*
  * Copyright (C) 2001,2002 IDEALX (http://www.idealx.com/).
  * Written by Julien Pinon <jpinon@idealx.com>.
- * Copyright (C) 2003 Philippe Gerum <rpm@xenomai.org>.
+ * Copyright (C) 2003,2006 Philippe Gerum <rpm@xenomai.org>.
  *
  * Xenomai is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -18,261 +18,317 @@
  * Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  */
 
-#include "vrtx/task.h"
-#include "vrtx/sem.h"
+#include <vrtx/task.h>
+#include <vrtx/sem.h>
 
-static xnqueue_t vrtxsemq;
+static vrtxidmap_t *vrtx_sem_idmap;
 
-static int sem_destroy_internal(vrtxsem_t *sem);
+static xnqueue_t vrtx_sem_q;
 
-void vrtxsem_init (void) {
-    initq(&vrtxsemq);
-}
+#ifdef CONFIG_XENO_EXPORT_REGISTRY
 
-void vrtxsem_cleanup (void) {
-
-    xnholder_t *holder;
-
-    while ((holder = getheadq(&vrtxsemq)) != NULL)
-	sem_destroy_internal(link2vrtxsem(holder));
-}
-
-static int sem_destroy_internal (vrtxsem_t *sem)
-
+static int sem_read_proc(char *page,
+			 char **start,
+			 off_t off, int count, int *eof, void *data)
 {
-    spl_t s;
-    int rc;
+	vrtxsem_t *sem = (vrtxsem_t *)data;
+	char *p = page;
+	int len;
+	spl_t s;
 
-    xnlock_get_irqsave(&nklock,s);
-    removeq(&vrtxsemq,&sem->link);
-    vrtx_release_id(sem->semid);
-    rc = xnsynch_destroy(&sem->synchbase);
-    vrtx_mark_deleted(sem);
-    xnlock_put_irqrestore(&nklock,s);
+	xnlock_get_irqsave(&nklock, s);
 
-    xnfree(sem);
+	p += sprintf(p, "value=%lu\n", sem->count);
 
-    return rc;
-}
+	if (xnsynch_nsleepers(&sem->synchbase) == 0) {
+		xnpholder_t *holder;
 
-int sc_screate (unsigned initval, int opt, int *perr)
+		/* Pended semaphore -- dump waiters. */
 
-{
-    int bflags = 0, semid;
-    vrtxsem_t *sem;
-    spl_t s;
+		holder = getheadpq(xnsynch_wait_queue(&sem->synchbase));
 
-    xnpod_check_context(XNPOD_THREAD_CONTEXT);
-    if ((opt != 1) && (opt != 0))
-	{
-	*perr = ER_IIP;
-	return 0;
+		while (holder) {
+			xnthread_t *sleeper = link2thread(holder, plink);
+			p += sprintf(p, "+%s\n", xnthread_name(sleeper));
+			holder =
+			    nextpq(xnsynch_wait_queue(&sem->synchbase), holder);
+		}
 	}
 
-    sem = (vrtxsem_t *)xnmalloc(sizeof(*sem));
+	xnlock_put_irqrestore(&nklock, s);
 
-    if (!sem)
-	{
-	*perr = ER_NOCB;
-	return 0;
-	}
+	len = (p - page) - off;
+	if (len <= off + count)
+		*eof = 1;
+	*start = page + off;
+	if (len > count)
+		len = count;
+	if (len < 0)
+		len = 0;
 
-    semid = vrtx_alloc_id(sem);
+	return len;
+}
 
-    if (semid < 0)
-	{
-	*perr = ER_NOCB;
+extern xnptree_t __vrtx_ptree;
+
+static xnpnode_t __sem_pnode = {
+
+	.dir = NULL,
+	.type = "semaphores",
+	.entries = 0,
+	.read_proc = &sem_read_proc,
+	.write_proc = NULL,
+	.root = &__vrtx_ptree,
+};
+
+#elif defined(CONFIG_XENO_OPT_REGISTRY)
+
+static xnpnode_t __sem_pnode = {
+
+	.type = "semaphores"
+};
+
+#endif /* CONFIG_XENO_EXPORT_REGISTRY */
+
+static int sem_destroy_internal(vrtxsem_t *sem)
+{
+	int s;
+
+	removeq(&vrtx_sem_q, &sem->link);
+	vrtx_put_id(vrtx_sem_idmap, sem->semid);
+	s = xnsynch_destroy(&sem->synchbase);
+#ifdef CONFIG_XENO_OPT_REGISTRY
+	xnregistry_remove(sem->handle);
+#endif /* CONFIG_XENO_OPT_REGISTRY */
+	vrtx_mark_deleted(sem);
 	xnfree(sem);
-	return 0;
+
+	return s;
+}
+
+int vrtxsem_init(void)
+{
+	initq(&vrtx_sem_q);
+	vrtx_sem_idmap = vrtx_alloc_idmap(VRTX_MAX_SEMS, 0);
+	return vrtx_sem_idmap ? 0 : -ENOMEM;
+}
+
+void vrtxsem_cleanup(void)
+{
+
+	xnholder_t *holder;
+
+	while ((holder = getheadq(&vrtx_sem_q)) != NULL)
+		sem_destroy_internal(link2vrtxsem(holder));
+
+	vrtx_free_idmap(vrtx_sem_idmap);
+}
+
+int sc_screate(unsigned initval, int opt, int *errp)
+{
+	int bflags = 0, semid;
+	vrtxsem_t *sem;
+	spl_t s;
+
+	if (opt & ~1) {
+		*errp = ER_IIP;
+		return -1;
 	}
 
-    if (opt == 0)
-	bflags = XNSYNCH_PRIO;
-    else
-	bflags = XNSYNCH_FIFO;
+	sem = (vrtxsem_t *)xnmalloc(sizeof(*sem));
 
-    xnsynch_init(&sem->synchbase,bflags|XNSYNCH_DREORD);
-    inith(&sem->link);
-    sem->semid = semid;
-    sem->magic = VRTX_SEM_MAGIC;
-    sem->count = initval;
+	if (!sem) {
+		*errp = ER_NOCB;
+		return -1;
+	}
 
-    xnlock_get_irqsave(&nklock,s);
-    appendq(&vrtxsemq,&sem->link);
-    xnlock_put_irqrestore(&nklock,s);
+	semid = vrtx_get_id(vrtx_sem_idmap, -1, sem);
 
-    *perr = RET_OK;
+	if (semid < 0) {
+		*errp = ER_NOCB;
+		xnfree(sem);
+		return -1;
+	}
 
-    return semid;
+	if (opt == 0)
+		bflags = XNSYNCH_PRIO;
+	else
+		bflags = XNSYNCH_FIFO;
+
+	xnsynch_init(&sem->synchbase, bflags | XNSYNCH_DREORD);
+	inith(&sem->link);
+	sem->semid = semid;
+	sem->magic = VRTX_SEM_MAGIC;
+	sem->count = initval;
+
+	xnlock_get_irqsave(&nklock, s);
+	appendq(&vrtx_sem_q, &sem->link);
+	xnlock_put_irqrestore(&nklock, s);
+
+#ifdef CONFIG_XENO_OPT_REGISTRY
+	sprintf(sem->name, "sem%d", semid);
+	xnregistry_enter(sem->name, sem, &sem->handle, &__sem_pnode);
+#endif /* CONFIG_XENO_OPT_REGISTRY */
+
+	*errp = RET_OK;
+
+	return semid;
 }
 
 void sc_sdelete(int semid, int opt, int *errp)
 {
-    vrtxsem_t *sem;
-    spl_t s;
+	vrtxsem_t *sem;
+	spl_t s;
 
-    if ((opt != 0) && (opt != 1))
-	{
-	*errp = ER_IIP;
-	return;
+	if (opt & ~1) {
+		*errp = ER_IIP;
+		return;
 	}
 
-    xnlock_get_irqsave(&nklock,s);
+	xnlock_get_irqsave(&nklock, s);
 
-    sem = (vrtxsem_t *)vrtx_find_object_by_id(semid);
-    if (sem == NULL)
-	{
-	xnlock_put_irqrestore(&nklock,s);
-	*errp = ER_ID;
-	return;
+	sem = (vrtxsem_t *)vrtx_get_object(vrtx_sem_idmap, semid);
+
+	if (sem == NULL) {
+		*errp = ER_ID;
+		goto unlock_and_exit;
 	}
 
-    *errp = RET_OK;
-
-    if (opt == 0 && xnsynch_nsleepers(&sem->synchbase) > 0)
-	{
-	xnlock_put_irqrestore(&nklock,s);
-	*errp = ER_PND;
-	return;
+	if (opt == 0 && xnsynch_nsleepers(&sem->synchbase) > 0) {
+		*errp = ER_PND;
+		goto unlock_and_exit;
 	}
 
-    /* forcing delete or no task pending */
-    if (sem_destroy_internal(sem) == XNSYNCH_RESCHED)
-	xnpod_schedule();
+	/* forcing delete or no task pending */
+	if (sem_destroy_internal(sem) == XNSYNCH_RESCHED)
+		xnpod_schedule();
 
-    xnlock_put_irqrestore(&nklock,s);
-}    
+	*errp = RET_OK;
+
+      unlock_and_exit:
+
+	xnlock_put_irqrestore(&nklock, s);
+}
 
 void sc_spend(int semid, long timeout, int *errp)
 {
-    vrtxsem_t *sem;
-    vrtxtask_t *task;
-    spl_t s;
+	vrtxtask_t *task;
+	vrtxsem_t *sem;
+	spl_t s;
 
-    xnpod_check_context(XNPOD_THREAD_CONTEXT);
+	xnlock_get_irqsave(&nklock, s);
 
-    xnlock_get_irqsave(&nklock,s);
+	sem = (vrtxsem_t *)vrtx_get_object(vrtx_sem_idmap, semid);
 
-    sem = (vrtxsem_t *)vrtx_find_object_by_id(semid);
-    if (sem == NULL)
-	{
-	xnlock_put_irqrestore(&nklock,s);
-	*errp = ER_ID;
-	return;
+	if (sem == NULL) {
+		*errp = ER_ID;
+		goto unlock_and_exit;
 	}
 
-    *errp = RET_OK;
-    if (sem->count > 0)
-	sem->count--;
-    else
-	{
-	task = vrtx_current_task();
-	task->vrtxtcb.TCBSTAT = TBSSEMA;
-	if (timeout)
-	    task->vrtxtcb.TCBSTAT |= TBSDELAY;
-	xnsynch_sleep_on(&sem->synchbase,timeout);
+	*errp = RET_OK;
 
-	if (xnthread_test_flags(&task->threadbase, XNRMID))
-	    *errp = ER_DEL; /* Semaphore deleted while pending. */
-	else if (xnthread_test_flags(&task->threadbase, XNTIMEO))
-	    *errp = ER_TMO; /* Timeout.*/
+	if (sem->count > 0)
+		sem->count--;
+	else {
+		if (xnpod_unblockable_p()) {
+			*errp = -EPERM;
+			goto unlock_and_exit;
+		}
+
+		task = vrtx_current_task();
+
+		task->vrtxtcb.TCBSTAT = TBSSEMA;
+
+		if (timeout)
+			task->vrtxtcb.TCBSTAT |= TBSDELAY;
+
+		xnsynch_sleep_on(&sem->synchbase, timeout);
+
+		if (xnthread_test_flags(&task->threadbase, XNBREAK))
+			*errp = -EINTR;
+		else if (xnthread_test_flags(&task->threadbase, XNRMID))
+			*errp = ER_DEL;	/* Semaphore deleted while pending. */
+		else if (xnthread_test_flags(&task->threadbase, XNTIMEO))
+			*errp = ER_TMO;	/* Timeout. */
 	}
 
-    xnlock_put_irqrestore(&nklock,s);
+      unlock_and_exit:
+
+	xnlock_put_irqrestore(&nklock, s);
 }
 
 void sc_saccept(int semid, int *errp)
 {
-    vrtxsem_t *sem;
-    spl_t s;
+	vrtxsem_t *sem;
+	spl_t s;
 
-    xnlock_get_irqsave(&nklock,s);
+	xnlock_get_irqsave(&nklock, s);
 
-    sem = (vrtxsem_t *)vrtx_find_object_by_id(semid);
-    if (sem == NULL)
-	{
-	xnlock_put_irqrestore(&nklock,s);
-	*errp = ER_ID;
-	return;
+	sem = (vrtxsem_t *)vrtx_get_object(vrtx_sem_idmap, semid);
+
+	if (sem == NULL) {
+		*errp = ER_ID;
+		goto unlock_and_exit;
 	}
 
-    if (sem->count > 0)
-	{
-	sem->count--;
-	}
-    else
-	{
-	*errp = ER_NMP;
-	}
+	if (sem->count > 0) {
+		sem->count--;
+		*errp = RET_OK;
+	} else
+		*errp = ER_NMP;
 
-    xnlock_put_irqrestore(&nklock,s);
+      unlock_and_exit:
+
+	xnlock_put_irqrestore(&nklock, s);
 }
 
 void sc_spost(int semid, int *errp)
 {
-    xnthread_t *waiter;
-    vrtxsem_t *sem;
-    spl_t s;
+	vrtxsem_t *sem;
+	spl_t s;
 
-    xnlock_get_irqsave(&nklock,s);
-    sem = (vrtxsem_t *)vrtx_find_object_by_id(semid);
-    if (sem == NULL)
-	{
-	xnlock_put_irqrestore(&nklock,s);
-	*errp = ER_ID;
-	return;
+	xnlock_get_irqsave(&nklock, s);
+
+	sem = (vrtxsem_t *)vrtx_get_object(vrtx_sem_idmap, semid);
+
+	if (sem == NULL) {
+		*errp = ER_ID;
+		goto unlock_and_exit;
 	}
 
-    *errp = RET_OK;
+	*errp = RET_OK;
 
-    waiter = xnsynch_wakeup_one_sleeper(&sem->synchbase);
-
-    if (waiter)
-	{
-	xnpod_schedule();
-	}
-    else
-	{
-	if (sem->count == MAX_SEM_VALUE)
-	    {
-	    *errp = ER_OVF;
-	    }
+	if (xnsynch_wakeup_one_sleeper(&sem->synchbase))
+		xnpod_schedule();
+	else if (sem->count == MAX_SEM_VALUE)
+		*errp = ER_OVF;
 	else
-	    {
-	    sem->count++;
-	    }
-	}
+		sem->count++;
 
-    xnlock_put_irqrestore(&nklock,s);
+      unlock_and_exit:
+
+	xnlock_put_irqrestore(&nklock, s);
 }
 
-int sc_sinquiry (int semid, int *errp)
+int sc_sinquiry(int semid, int *errp)
 {
-    vrtxsem_t *sem;
-    int count;
-    spl_t s;
+	vrtxsem_t *sem;
+	int count;
+	spl_t s;
 
-    xnlock_get_irqsave(&nklock,s);
+	xnlock_get_irqsave(&nklock, s);
 
-    sem = (vrtxsem_t *)vrtx_find_object_by_id(semid);
-    if (sem == NULL)
-	{
-	*errp = ER_ID;
-	count = 0;
+	sem = (vrtxsem_t *)vrtx_get_object(vrtx_sem_idmap, semid);
+
+	if (sem == NULL) {
+		*errp = ER_ID;
+		count = 0;
+	} else {
+		*errp = RET_OK;
+		count = sem->count;
 	}
-    else
-	count = sem->count;
 
-    xnlock_put_irqrestore(&nklock,s);
+	xnlock_put_irqrestore(&nklock, s);
 
-    *errp = RET_OK;
-    
-    return count;
+	return count;
 }
-
-/*
- * IMPLEMENTATION NOTES:
- *
- * - Code executing on behalf of interrupt context is currently
- * allowed to scan the global vrtx semaphore queue (vrtxsemq).
- */

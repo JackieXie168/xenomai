@@ -62,10 +62,19 @@
 #endif /* !CONFIG_IPIPE */
 
 #define RTHAL_NR_CPUS		IPIPE_NR_CPUS
-#define RTHAL_ROOT_PRIO		IPIPE_ROOT_PRIO
 #define RTHAL_NR_FAULTS		IPIPE_NR_FAULTS
 #define RTHAL_NR_IRQS		IPIPE_NR_IRQS
 #define RTHAL_VIRQ_BASE		IPIPE_VIRQ_BASE
+
+/* I-pipe domain priorities. If the invariant pipeline head feature is
+   available from the I-pipe support and enabled for Xenomai, use
+   it. */
+#define RTHAL_ROOT_PRIO		IPIPE_ROOT_PRIO
+#if defined(CONFIG_XENO_OPT_PIPELINE_HEAD) && defined(IPIPE_HEAD_PRIORITY)
+#define RTHAL_XENO_PRIO		IPIPE_HEAD_PRIORITY
+#else /* !(CONFIG_XENO_OPT_PIPELINE_HEAD && IPIPE_HEAD_PRIORITY) */
+#define RTHAL_XENO_PRIO		(RTHAL_ROOT_PRIO + 100)
+#endif /* CONFIG_XENO_OPT_PIPELINE_HEAD && IPIPE_HEAD_PRIORITY */
 
 #define rthal_virtual_irq_p(irq)	((irq) >= RTHAL_VIRQ_BASE && \
 					(irq) < RTHAL_NR_IRQS)
@@ -106,13 +115,22 @@ typedef rwlock_t rthal_rwlock_t;
 
 #define rthal_cpudata_irq_hits(ipd,cpu,irq)	__ipipe_cpudata_irq_hits(ipd,cpu,irq)
 
+/* Obsolete Adeos patches do not support the invariant pipeline head
+   optimization, so we check for the presence of __ipipe_pipeline_head
+   to detect it. */
+#if defined(CONFIG_XENO_OPT_PIPELINE_HEAD) && defined(__ipipe_pipeline_head)
+#define rthal_local_irq_disable()	ipipe_stall_pipeline_head()
+#define rthal_local_irq_enable()	ipipe_unstall_pipeline_head()
+#define rthal_local_irq_save(x)		((x) = ipipe_test_and_stall_pipeline_head() & 1)
+#define rthal_local_irq_restore(x)	ipipe_restore_pipeline_head(x)
+#else /* !(CONFIG_XENO_OPT_PIPELINE_HEAD && __ipipe_pipeline_head) */
 #define rthal_local_irq_disable()	ipipe_stall_pipeline_from(&rthal_domain)
 #define rthal_local_irq_enable()	ipipe_unstall_pipeline_from(&rthal_domain)
-#define rthal_local_irq_save(x)		((x) = !!ipipe_test_and_stall_pipeline_from(&rthal_domain))
+#define rthal_local_irq_save(x)		((x) = ipipe_test_and_stall_pipeline_from(&rthal_domain) & 1)
 #define rthal_local_irq_restore(x)	ipipe_restore_pipeline_from(&rthal_domain,(x))
-#define rthal_local_irq_flags(x)	((x) = !!ipipe_test_pipeline_from(&rthal_domain))
-#define rthal_local_irq_test()		(!!ipipe_test_pipeline_from(&rthal_domain))
-#define rthal_local_irq_sync(x)		((x) = !!ipipe_test_and_unstall_pipeline_from(&rthal_domain))
+#endif /* CONFIG_XENO_OPT_PIPELINE_HEAD && __ipipe_pipeline_head */
+#define rthal_local_irq_flags(x)	((x) = ipipe_test_pipeline_from(&rthal_domain) & 1)
+#define rthal_local_irq_test()		ipipe_test_pipeline_from(&rthal_domain)
 #define rthal_stage_irq_enable(dom)	ipipe_unstall_pipeline_from(dom)
 #define rthal_local_irq_save_hw(x)	local_irq_save_hw(x)
 #define rthal_local_irq_restore_hw(x)	local_irq_restore_hw(x)
@@ -218,6 +236,14 @@ static int hdlr (unsigned event, struct ipipe_domain *ipd, void *data) \
     return RTHAL_EVENT_PROPAGATE; \
 }
 
+#define RTHAL_DECLARE_CLEANUP_EVENT(hdlr) \
+static int hdlr (unsigned event, struct ipipe_domain *ipd, void *data) \
+{ \
+    struct mm_struct *mm = (struct mm_struct *)data; \
+    do_##hdlr(mm);                                   \
+    return RTHAL_EVENT_PROPAGATE; \
+}
+
 #ifndef IPIPE_EVENT_SELF
 /* Some early I-pipe versions don't have this. */
 #define IPIPE_EVENT_SELF  0
@@ -232,6 +258,29 @@ static int hdlr (unsigned event, struct ipipe_domain *ipd, void *data) \
 #endif /* CONFIG_PREEMPT */
 #endif /* !TASK_ATOMICSWITCH */
 
+#ifndef IPIPE_WIRED_MASK
+/* In case wired interrupt support is not available. */
+#define IPIPE_WIRED_MASK  0
+#endif /* !IPIPE_WIRED_MASK */
+
+#ifndef IPIPE_NOSTACK_FLAG
+/* In case the foreign stack marker is absent. */
+#define IPIPE_NOSTACK_FLAG 2
+#define ipipe_set_foreign_stack(ipd)	do { } while(0)
+#define ipipe_clear_foreign_stack(ipd)	do { } while(0)
+#endif /* !IPIPE_NOSTACK_FLAG */
+
+#ifdef CONFIG_KGDB
+#define rthal_set_foreign_stack(ipd)	ipipe_set_foreign_stack(ipd)
+#define rthal_clear_foreign_stack(ipd)	ipipe_clear_foreign_stack(ipd)
+#else /* !CONFIG_KGDB */
+/* No need to track foreign stacks unless KGDB is active. */
+#define rthal_set_foreign_stack(ipd)	do { } while(0)
+#define rthal_clear_foreign_stack(ipd)	do { } while(0)
+#endif /* CONFIG_KGDB */
+
+#define rthal_catch_cleanup(hdlr)         \
+    ipipe_catch_event(ipipe_root_domain,IPIPE_EVENT_CLEANUP,hdlr)
 #define rthal_catch_taskexit(hdlr)	\
     ipipe_catch_event(ipipe_root_domain,IPIPE_EVENT_EXIT,hdlr)
 #define rthal_catch_sigwake(hdlr)	\
@@ -432,8 +481,6 @@ extern struct rthal_calibration_data rthal_tunables;
 
 extern volatile int rthal_sync_op;
 
-extern volatile unsigned long rthal_cpu_realtime;
-
 extern rthal_trap_handler_t rthal_trap_handler;
 
 extern int rthal_realtime_faults[RTHAL_NR_CPUS][RTHAL_NR_FAULTS];
@@ -541,6 +588,96 @@ struct proc_dir_entry *__rthal_add_proc_leaf (const char *name,
 					      void *data,
 					      struct proc_dir_entry *parent);
 #endif /* CONFIG_PROC_FS */
+
+#ifdef CONFIG_IPIPE_TRACE
+#include <linux/ipipe_trace.h>
+
+static inline int rthal_trace_max_begin(unsigned long v)
+{
+	ipipe_trace_begin(v);
+	return 0;
+}
+
+static inline int rthal_trace_max_end(unsigned long v)
+{
+	ipipe_trace_end(v);
+	return 0;
+}
+
+static inline int rthal_trace_max_reset(void)
+{
+	ipipe_trace_max_reset();
+	return 0;
+}
+
+static inline int rthal_trace_user_start(void)
+{
+	return ipipe_trace_frozen_reset();
+}
+
+static inline int rthal_trace_user_stop(unsigned long v)
+{
+	ipipe_trace_freeze(v);
+	return 0;
+}
+
+static inline int rthal_trace_user_freeze(unsigned long v, int once)
+{
+	int err = 0;
+
+	if (!once)
+		err = ipipe_trace_frozen_reset();
+	ipipe_trace_freeze(v);
+	return err;
+}
+
+static inline int rthal_trace_special(unsigned char id, unsigned long v)
+{
+	ipipe_trace_special(id, v);
+	return 0;
+}
+
+static inline int rthal_trace_special_u64(unsigned char id,
+					  unsigned long long v)
+{
+	ipipe_trace_special(id, (unsigned long)(v >> 32));
+	ipipe_trace_special(id, (unsigned long)(v & 0xFFFFFFFF));
+	return 0;
+}
+
+static inline int rthal_trace_pid(pid_t pid, short prio)
+{
+	ipipe_trace_pid(pid, prio);
+	return 0;
+}
+
+static inline int rthal_trace_panic_freeze(void)
+{
+	ipipe_trace_panic_freeze();
+	return 0;
+}
+
+static inline int rthal_trace_panic_dump(void)
+{
+	ipipe_trace_panic_dump();
+	return 0;
+}
+
+#else /* !CONFIG_IPIPE_TRACE */
+
+#define rthal_trace_max_begin(v)		({int err = -ENOSYS; err; })
+#define rthal_trace_max_end(v)		({int err = -ENOSYS; err; })
+#define rthal_trace_max_reset(v)		({int err = -ENOSYS; err; })
+#define rthal_trace_user_start()		({int err = -ENOSYS; err; })
+#define rthal_trace_user_stop(v)		({int err = -ENOSYS; err; })
+#define rthal_trace_user_freeze(v, once)	({int err = -ENOSYS; err; })
+#define rthal_trace_special(id, v)		({int err = -ENOSYS; err; })
+#define rthal_trace_special_u64(id, v)	({int err = -ENOSYS; err; })
+#define rthal_trace_pid(pid, prio)		({int err = -ENOSYS; err; })
+#define rthal_trace_panic_freeze()		({int err = -ENOSYS; err; })
+#define rthal_trace_panic_dump()		({int err = -ENOSYS; err; })
+
+#endif /* CONFIG_IPIPE_TRACE */
 
 #ifdef __cplusplus
 }

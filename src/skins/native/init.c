@@ -19,6 +19,7 @@
 #include <malloc.h>
 #include <stdio.h>
 #include <string.h>
+#include <signal.h>
 #include <stdlib.h>
 #include <pthread.h>
 #include <native/syscall.h>
@@ -28,63 +29,22 @@ pthread_key_t __native_tskey;
 
 int __native_muxid = -1;
 
-static void __flush_tsd (void *tsd)
-
+static void __flush_tsd(void *tsd)
 {
-    /* Free the task descriptor allocated by rt_task_self(). */
-    free(tsd);
+	/* Free the task descriptor allocated by rt_task_self(). */
+	free(tsd);
 }
 
-static __attribute__((constructor)) void __init_xeno_interface(void)
-
+static __attribute__ ((constructor))
+void __init_xeno_interface(void)
 {
-    xnfeatinfo_t finfo;
-    int muxid;
+	__native_muxid =
+	    xeno_user_skin_init(XENO_SKIN_MAGIC, "native", "xeno_native");
 
-    muxid = XENOMAI_SYSBIND(XENO_SKIN_MAGIC,
-			    XENOMAI_FEAT_DEP,
-			    XENOMAI_ABI_REV,
-			    &finfo);
-    switch (muxid)
-	{
-	case -EINVAL:
+	/* Allocate a TSD key for indexing self task pointers. */
 
-	    fprintf(stderr,"Xenomai: incompatible feature set\n");
-	    fprintf(stderr,"(required=\"%s\", present=\"%s\", missing=\"%s\").\n",
-		    finfo.feat_man_s,finfo.feat_all_s,finfo.feat_mis_s);
-	    exit(1);
-
-	case -ENOEXEC:
-
-	    fprintf(stderr,"Xenomai: incompatible ABI revision level\n");
-	    fprintf(stderr,"(needed=%lu, current=%lu).\n",
-		    XENOMAI_ABI_REV,finfo.abirev);
-	    exit(1);
-
-	case -ENOSYS:
-	case -ESRCH:
-
-	    fprintf(stderr,"Xenomai: native skin or CONFIG_XENO_OPT_PERVASIVE disabled.\n");
-	    fprintf(stderr,"(modprobe xeno_native?)\n");
-	    exit(1);
-
-	default:
-
-	    if (muxid < 0)
-		{
-		fprintf(stderr,"Xenomai: binding failed: %s.\n",strerror(-muxid));
+	if (pthread_key_create(&__native_tskey, &__flush_tsd) != 0) {
+		fprintf(stderr, "Xenomai: failed to allocate new TSD key?!\n");
 		exit(1);
-		}
-
-	    /* Allocate a TSD key for indexing self task pointers. */
-
-	    if (pthread_key_create(&__native_tskey,&__flush_tsd) != 0)
-		{
-		fprintf(stderr,"Xenomai: failed to allocate new TSD key?!\n");
-		exit(1);
-		}
-
-	    __native_muxid = muxid;
-	    break;
 	}
 }

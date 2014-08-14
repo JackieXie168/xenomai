@@ -97,17 +97,14 @@ struct pse51_thread {
 
 #define pse51_current_thread() thread2pthread(xnpod_current_thread())
 
-int *pse51_errno_location(void);
-
 static inline void thread_set_errno (int err)
 {
-    if(!xnpod_interrupt_p())
-        *pse51_errno_location() = err;
+    *xnthread_get_errno_location() = err;
 }
 
 static inline int thread_get_errno (void)
 {
-    return !xnpod_interrupt_p() ? *pse51_errno_location() : 0;
+    return *xnthread_get_errno_location();
 }
 
 #define thread_name(thread) ((thread)->attr.name)
@@ -147,14 +144,13 @@ static inline void thread_cancellation_point (xnthread_t *thread)
         pse51_thread_abort(cur, PTHREAD_CANCELED);
 }
 
+void pse51_threadq_cleanup(pse51_kqueues_t *q);
+
 void pse51_thread_pkg_init(u_long rrperiod);
 
 void pse51_thread_pkg_cleanup(void);
 
 /* round-robin period. */
 extern xnticks_t pse51_time_slice;
-
-/* threads list */
-extern xnqueue_t pse51_threadq;
 
 #endif /* !_POSIX_THREAD_H */

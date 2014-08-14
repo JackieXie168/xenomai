@@ -22,8 +22,10 @@
 
 #include <memory.h>
 #include <string.h>
+#include <asm/param.h>
 
-static inline unsigned long ffnz (unsigned long ul) {
+static inline unsigned long ffnz (unsigned long ul)
+{
     return ffs((int)ul) - 1;
 }
 
@@ -32,6 +34,7 @@ static inline unsigned long ffnz (unsigned long ul) {
 #else /* !__XENO_UVM__ */
 #include <asm/xenomai/atomic.h>
 #include <nucleus/core.h>
+#include <nucleus/trace.h>
 #endif /* __XENO_UVM__ */
 
 #endif /* !_XENO_NUCLEUS_SYSTEM_H */

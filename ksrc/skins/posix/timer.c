@@ -29,402 +29,522 @@
 
 struct pse51_timer {
 
-    xntimer_t timerbase;
+	xntimer_t timerbase;
 
-    unsigned queued;
-    unsigned overruns;
-    unsigned last_overruns;
+	unsigned queued;
+	unsigned overruns;
+	unsigned last_overruns;
 
-    xnholder_t link;
+	xnholder_t link; /* link in process or global timers queue. */
 
-#define link2tm(laddr) \
-    ((struct pse51_timer *)(((char *)laddr) - offsetof(struct pse51_timer, link)))
-    pse51_siginfo_t si;
+#define link2tm(laddr, member)							\
+    ((struct pse51_timer *)(((char *)laddr) - offsetof(struct pse51_timer, member)))
 
-#define si2tm(saddr) \
-    ((struct pse51_timer *)(((char *)saddr) - offsetof(struct pse51_timer, si)))
+	xnholder_t tlink; /* link in thread timers queue. */
 
-    clockid_t clockid;
-    pthread_t owner;
+	pse51_siginfo_t si;
+
+	clockid_t clockid;
+	pthread_t owner;
 };
-
 
 static xnqueue_t timer_freeq;
 
 static struct pse51_timer timer_pool[PSE51_TIMER_MAX];
 
-static void pse51_base_timer_handler (void *cookie)
+static void pse51_base_timer_handler(void *cookie)
 {
-    struct pse51_timer *timer = (struct pse51_timer *)cookie;
+	struct pse51_timer *timer = (struct pse51_timer *)cookie;
 
-    if(timer->queued)
-        {
-        if(timer->overruns < DELAYTIMER_MAX)
-            ++timer->overruns;
-        }
-    else
-        {
-        timer->queued = 1;
-        timer->overruns = 0;
-        pse51_sigqueue_inner(timer->owner, &timer->si);
-        }
+	if (timer->queued) {
+		if (timer->overruns < DELAYTIMER_MAX)
+			++timer->overruns;
+	} else {
+		timer->queued = 1;
+		timer->overruns = 0;
+		pse51_sigqueue_inner(timer->owner, &timer->si);
+	}
 }
 
 /* Must be called with nklock locked, irq off. */
-void pse51_timer_notified (pse51_siginfo_t *si)
+void pse51_timer_notified(pse51_siginfo_t * si)
 {
-    struct pse51_timer *timer = si2tm(si);
+	struct pse51_timer *timer = link2tm(si, si);
 
-    timer->queued = 0;
-    /* We need this two staged overruns count. The overruns count returned by
-       timer_getoverrun is the count of overruns which occured between the time
-       the signal was queued and the time this signal was accepted by the
-       application.
-       In other words, if the timer elapses again after pse51_timer_notified get
-       called (i.e. the signal is accepted by the application), the signal shall
-       be queued again, and later overruns should count for that new
-       notification, not the one the application is currently handling. */
-    timer->last_overruns = timer->overruns;
+	timer->queued = 0;
+	/* We need this two staged overruns count. The overruns count returned by
+	   timer_getoverrun is the count of overruns which occured between the time
+	   the signal was queued and the time this signal was accepted by the
+	   application.
+	   In other words, if the timer elapses again after pse51_timer_notified get
+	   called (i.e. the signal is accepted by the application), the signal shall
+	   be queued again, and later overruns should count for that new
+	   notification, not the one the application is currently handling. */
+	timer->last_overruns = timer->overruns;
 }
 
 /**
  * Create a timer object.
  *
- * @see http://www.opengroup.org/onlinepubs/000095399/functions/timer_create.html
+ * This service creates a time object using the clock @a clockid.
+ *
+ * If @a evp is not @a NULL, it describes the notification mechanism used on
+ * timer expiration. Only notification via signal delivery is supported (member
+ * @a sigev_notify of @a evp set to @a SIGEV_SIGNAL).  The signal will be sent to
+ * the thread starting the timer with the timer_settime() service. If @a evp is
+ * @a NULL, the SIGALRM signal will be used.
+ *
+ * Note that signals sent to user-space threads will cause them to switch to
+ * secondary mode.
+ *
+ * If this service succeeds, an identifier for the created timer is returned at
+ * the address @a timerid. The timer is unarmed until started with the
+ * timer_settime() service.
+ *
+ * @param clockid clock used as a timing base;
+ *
+ * @param evp description of the asynchronous notification to occur when the
+ * timer expires;
+ *
+ * @param timerid address where the identifier of the created timer will be
+ * stored on success.
+ *
+ * @retval 0 on success;
+ * @retval -1 with @a errno set if:
+ * - EINVAL, the clock @a clockid is invalid;
+ * - EINVAL, the member @a sigev_notify of the @b sigevent structure at the
+ *   address @a evp is not SIGEV_SIGNAL;
+ * - EINVAL, the  member @a sigev_signo of the @b sigevent structure is an
+ *   invalid signal number;
+ * - EAGAIN, the maximum number of timers was exceeded, recompile with a larger
+ *   value.
+ *
+ * @see
+ * <a href="http://www.opengroup.org/onlinepubs/000095399/functions/timer_create.html">
+ * Specification.</a>
  *
  */
-int timer_create (clockid_t clockid,
-                  const struct sigevent *__restrict__ evp,
-                  timer_t *__restrict__ timerid)
+int timer_create(clockid_t clockid,
+		 const struct sigevent *__restrict__ evp,
+		 timer_t * __restrict__ timerid)
 {
-    struct pse51_timer *timer;
-    xnholder_t *holder;
-    spl_t s;
-    int err;
+	struct pse51_timer *timer;
+	xnholder_t *holder;
+	spl_t s;
+	int err;
 
-    if (clockid != CLOCK_MONOTONIC && clockid != CLOCK_REALTIME)
-        {
-        err = EINVAL;
-        goto error;
-        }
-
-    /* We only support notification via signals. */
-    if (evp && (evp->sigev_notify != SIGEV_SIGNAL ||
-                (unsigned) (evp->sigev_signo - 1) > SIGRTMAX - 1))
-        {
-        err = EINVAL;
-        goto error;
-        }
-    
-    xnlock_get_irqsave(&nklock, s);
-
-    holder = getq(&timer_freeq);
-    
-    if (!holder)
-	{
-        err = EAGAIN;
-        goto unlock_and_error;
+	if (clockid != CLOCK_MONOTONIC && clockid != CLOCK_REALTIME) {
+		err = EINVAL;
+		goto error;
 	}
 
-    timer = link2tm(holder);
+	/* We only support notification via signals. */
+	if (evp && (evp->sigev_notify != SIGEV_SIGNAL ||
+		    (unsigned)(evp->sigev_signo - 1) > SIGRTMAX - 1)) {
+		err = EINVAL;
+		goto error;
+	}
 
-    if (evp)
-        {
-        timer->si.info.si_signo = evp->sigev_signo;
-        timer->si.info.si_code = SI_TIMER;
-        timer->si.info.si_value = evp->sigev_value;
-        }
-    else
-        {
-        timer->si.info.si_signo = SIGALRM;
-        timer->si.info.si_code = SI_TIMER;
-        timer->si.info.si_value.sival_int = (timer - timer_pool);
-        }
+	xnlock_get_irqsave(&nklock, s);
 
-    xntimer_init(&timer->timerbase, &pse51_base_timer_handler, timer);
+	holder = getq(&timer_freeq);
 
-    timer->overruns = 0;
-    timer->owner = NULL;
-    timer->clockid = clockid;
-    xnlock_put_irqrestore(&nklock, s);
+	if (!holder) {
+		err = EAGAIN;
+		goto unlock_and_error;
+	}
 
-    *timerid = timer - timer_pool;
+	timer = link2tm(holder, link);
 
-    return 0;
+	if (evp) {
+		timer->si.info.si_signo = evp->sigev_signo;
+		timer->si.info.si_code = SI_TIMER;
+		timer->si.info.si_value = evp->sigev_value;
+	} else {
+		timer->si.info.si_signo = SIGALRM;
+		timer->si.info.si_code = SI_TIMER;
+		timer->si.info.si_value.sival_int = (timer - timer_pool);
+	}
 
-  unlock_and_error:
-    xnlock_put_irqrestore(&nklock, s);
-  error:
-    thread_set_errno(err);
-    return -1;
+	xntimer_init(&timer->timerbase, &pse51_base_timer_handler, timer);
+
+	timer->overruns = 0;
+	timer->owner = NULL;
+	timer->clockid = clockid;
+	inith(&timer->link);
+	appendq(&pse51_kqueues(0)->timerq, &timer->link);
+	xnlock_put_irqrestore(&nklock, s);
+
+	*timerid = (timer_t) (timer - timer_pool);
+
+	return 0;
+
+      unlock_and_error:
+	xnlock_put_irqrestore(&nklock, s);
+      error:
+	thread_set_errno(err);
+	return -1;
+}
+
+int pse51_timer_delete_inner(timer_t timerid, pse51_kqueues_t *q)
+{
+	struct pse51_timer *timer;
+	spl_t s;
+
+	if ((unsigned)timerid >= PSE51_TIMER_MAX)
+		goto einval;
+
+	xnlock_get_irqsave(&nklock, s);
+
+	timer = &timer_pool[(unsigned long)timerid];
+
+	removeq(&q->timerq, &timer->link);
+
+	if (!xntimer_active_p(&timer->timerbase))
+		goto unlock_and_einval;
+
+	if (timer->queued) {
+		/* timer signal is queued, unqueue it. */
+		pse51_sigunqueue(timer->owner, &timer->si);
+		timer->queued = 0;
+	}
+
+	xntimer_destroy(&timer->timerbase);
+	if (timer->owner)
+		removeq(&timer->owner->timersq, &timer->tlink);
+	timer->owner = NULL;	/* Used for debugging. */
+	prependq(&timer_freeq, &timer->link);	/* Favour earliest reuse. */
+
+	xnlock_put_irqrestore(&nklock, s);
+
+	return 0;
+
+      unlock_and_einval:
+	xnlock_put_irqrestore(&nklock, s);
+      einval:
+	thread_set_errno(EINVAL);
+	return -1;
 }
 
 /**
  * Delete a timer object.
  *
- * @see http://www.opengroup.org/onlinepubs/000095399/functions/timer_delete.html
+ * This service deletes the timer @a timerid.
+ *
+ * @param timerid identifier of the timer to be removed;
+ *
+ * @retval 0 on success;
+ * @retval -1 with @a errno set if:
+ * - EINVAL, @a timerid is invalid.
+ *
+ * @see
+ * <a href="http://www.opengroup.org/onlinepubs/000095399/functions/timer_delete.html">
+ * Specification.</a>
  * 
  */
 int timer_delete(timer_t timerid)
 {
-    struct pse51_timer *timer;
-    spl_t s;
-
-    if ((unsigned) timerid >= PSE51_TIMER_MAX)
-        goto einval;
-
-    xnlock_get_irqsave(&nklock, s);
-
-    timer = &timer_pool[timerid];
-
-    if (!xntimer_active_p(&timer->timerbase))
-        goto unlock_and_einval;
-
-    if (timer->queued)
-        {
-        /* timer signal is queued, unqueue it. */
-        pse51_sigunqueue(timer->owner, &timer->si);
-        timer->queued = 0;
-        }
-    
-    xntimer_destroy(&timer->timerbase);
-    if (timer->owner)
-        removeq(&timer->owner->timersq, &timer->link);
-    timer->owner = NULL;        /* Used for debugging. */
-    prependq(&timer_freeq,&timer->link); /* Favour earliest reuse. */
-
-    xnlock_put_irqrestore(&nklock, s);
-
-    return 0;
-
-  unlock_and_einval:
-    xnlock_put_irqrestore(&nklock, s);
-  einval:
-    thread_set_errno(EINVAL);
-    return -1;
+	return pse51_timer_delete_inner(timerid, pse51_kqueues(0));
 }
 
-static void pse51_timer_gettime_inner (struct pse51_timer *__restrict__ timer,
-                                       struct itimerspec *__restrict__ value)
+static void pse51_timer_gettime_inner(struct pse51_timer *__restrict__ timer,
+				      struct itimerspec *__restrict__ value)
 {
-    if (xntimer_running_p(&timer->timerbase))
-        {
-        ticks2ts(&value->it_value, xntimer_get_timeout(&timer->timerbase));
-        ticks2ts(&value->it_interval, xntimer_interval(&timer->timerbase));
-        }
-    else
-        {
-        value->it_value.tv_sec = 0;
-        value->it_value.tv_nsec = 0;
-        value->it_interval.tv_sec = 0;
-        value->it_interval.tv_nsec = 0;
-        }
+	if (xntimer_running_p(&timer->timerbase)) {
+		ticks2ts(&value->it_value,
+			 xntimer_get_timeout(&timer->timerbase));
+		ticks2ts(&value->it_interval,
+			 xntimer_interval(&timer->timerbase));
+	} else {
+		value->it_value.tv_sec = 0;
+		value->it_value.tv_nsec = 0;
+		value->it_interval.tv_sec = 0;
+		value->it_interval.tv_nsec = 0;
+	}
 }
 
 /**
  * Start or stop a timer.
  *
- * @see http://www.opengroup.org/onlinepubs/000095399/functions/timer_settime.html
+ * This service sets a timer expiration date and reload value of the timer @a
+ * timerid. If @a ovalue is not @a NULL, the current expiration date and reload
+ * value are stored at the address @a ovalue as with timer_gettime().
+ *
+ * If the member @a it_value of the @b itimerspec structure at @a value is zero,
+ * the timer is stopped, otherwise the timer is started. If the member @a
+ * it_interval is not zero, the timer is periodic. The current thread must be a
+ * POSIX skin thread (created with pthread_create()) and will be notified via
+ * signal of timer expirations. Note that these notifications will cause
+ * user-space threads to switch to secondary mode.
+ *
+ * When starting the timer, if @a flags is TIMER_ABSTIME, the expiration value
+ * is interpreted as an absolute date of the clock passed to the timer_create()
+ * service. Otherwise, the expiration value is interpreted as a time interval.
+ *
+ * Expiration date and reload value are rounded to an integer count of system
+ * clock ticks (see note in section @ref posix_time "Clocks and timers services"
+ * for details on the duration of the system tick).
+ *
+ * @param timerid identifier of the timer to be started or stopped;
+ *
+ * @param flags one of 0 or TIMER_ABSTIME;
+ *
+ * @param value address where the specified timer expiration date and reload
+ * value are read;
+ *
+ * @param ovalue address where the specified timer previous expiration date and
+ * reload value are stored if not @a NULL.
+ *
+ * @retval 0 on success;
+ * @retval -1 with @a errno set if:
+ * - EPERM, the caller context is invalid;
+ * - EINVAL, the specified timer identifier, expiration date or reload value is
+ *   invalid.
+ *
+ * @par Valid contexts:
+ * - Xenomai kernel-space POSIX skin thread,
+ * - kernel-space thread cancellation cleanup routine,
+ * - Xenomai POSIX skin user-space thread (switches to primary mode),
+ * - user-space thread cancellation cleanup routine.
+ *
+ * @see
+ * <a href="http://www.opengroup.org/onlinepubs/000095399/functions/timer_settime.html">
+ * Specification.</a>
  * 
  */
-int timer_settime (timer_t timerid,
-                   int flags,
-                   const struct itimerspec *__restrict__ value,
-                   struct itimerspec *__restrict__ ovalue)
+int timer_settime(timer_t timerid,
+		  int flags,
+		  const struct itimerspec *__restrict__ value,
+		  struct itimerspec *__restrict__ ovalue)
 {
-    pthread_t cur = pse51_current_thread();
-    struct pse51_timer *timer;
-    spl_t s;
-    int err;
+	pthread_t cur = pse51_current_thread();
+	struct pse51_timer *timer;
+	spl_t s;
+	int err;
 
-    if (!cur)
-        {
-        err = EPERM;
-        goto error;
-        }
-    
-    if ((unsigned) timerid >= PSE51_TIMER_MAX)
-        goto einval;
+	if (!cur || xnpod_interrupt_p()) {
+		err = EPERM;
+		goto error;
+	}
 
-    if ((unsigned long) value->it_value.tv_nsec >= ONE_BILLION ||
-        ((unsigned long) value->it_interval.tv_nsec >= ONE_BILLION &&
-         (value->it_value.tv_sec != 0 || value->it_value.tv_nsec != 0)))
-        goto einval;
+	if ((unsigned)timerid >= PSE51_TIMER_MAX)
+		goto einval;
 
-    xnlock_get_irqsave(&nklock, s);
+	if ((unsigned long)value->it_value.tv_nsec >= ONE_BILLION ||
+	    ((unsigned long)value->it_interval.tv_nsec >= ONE_BILLION &&
+	     (value->it_value.tv_sec != 0 || value->it_value.tv_nsec != 0)))
+		goto einval;
 
-    timer = &timer_pool[timerid];
+	xnlock_get_irqsave(&nklock, s);
 
-    if (!xntimer_active_p(&timer->timerbase))
-        goto unlock_and_einval;
+	timer = &timer_pool[(unsigned long)timerid];
 
-    if (ovalue)
-        pse51_timer_gettime_inner(timer, ovalue);    
+	if (!xntimer_active_p(&timer->timerbase))
+		goto unlock_and_einval;
 
-    if (timer->queued)
-        {
-        /* timer signal is queued, unqueue it. */
-        pse51_sigunqueue(timer->owner, &timer->si);
-        timer->queued = 0;
-        }
+	if (ovalue)
+		pse51_timer_gettime_inner(timer, ovalue);
 
-    if (timer->owner)
-        removeq(&timer->owner->timersq, &timer->link);
+	if (timer->queued) {
+		/* timer signal is queued, unqueue it. */
+		pse51_sigunqueue(timer->owner, &timer->si);
+		timer->queued = 0;
+	}
 
-    if (value->it_value.tv_nsec == 0 && value->it_value.tv_sec == 0)
-        {
-        xntimer_stop(&timer->timerbase);
-	timer->owner = NULL;
-        }
-    else
-        {
-        xnticks_t start = ts2ticks_ceil(&value->it_value) + 1;
-    
-        if (flags & TIMER_ABSTIME)
-            /* If the initial delay has already passed, the call shall suceed. */
-            if (clock_adjust_timeout(&start, timer->clockid))
-                /* clock_adjust timeout returns an error if start time has
-                   already passed, in which case timer_settime is expected not
-                   to return an error but schedule the timer ASAP. */
-                /* FIXME: when passing 0 tick, xntimer_start disables the
-                   timer, we pass 1.*/
-                start = 1;
+	if (timer->owner)
+		removeq(&timer->owner->timersq, &timer->tlink);
 
-        xntimer_start(&timer->timerbase,
-                      start,
-                      ts2ticks_ceil(&value->it_interval));
-        timer->owner = cur;
-        inith(&timer->link);
-        appendq(&timer->owner->timersq, &timer->link);
-        }
+	if (value->it_value.tv_nsec == 0 && value->it_value.tv_sec == 0) {
+		xntimer_stop(&timer->timerbase);
+		timer->owner = NULL;
+	} else {
+		xnticks_t start = ts2ticks_ceil(&value->it_value) + 1;
 
-    xnlock_put_irqrestore(&nklock, s);
+		if (flags & TIMER_ABSTIME)
+			/* If the initial delay has already passed, the call shall suceed. */
+			if (clock_adjust_timeout(&start, timer->clockid))
+				/* clock_adjust timeout returns an error if start time has
+				   already passed, in which case timer_settime is expected not
+				   to return an error but schedule the timer ASAP. */
+				/* FIXME: when passing 0 tick, xntimer_start disables the
+				   timer, we pass 1. */
+				start = 1;
 
-    return 0;
+		xntimer_start(&timer->timerbase,
+			      start, ts2ticks_ceil(&value->it_interval));
+		timer->owner = cur;
+		inith(&timer->tlink);
+		appendq(&timer->owner->timersq, &timer->tlink);
+	}
 
-  unlock_and_einval:
-    xnlock_put_irqrestore(&nklock, s);
-  einval:
-    err = EINVAL;
-  error:
-    thread_set_errno(err);
-    return -1;
+	xnlock_put_irqrestore(&nklock, s);
+
+	return 0;
+
+      unlock_and_einval:
+	xnlock_put_irqrestore(&nklock, s);
+      einval:
+	err = EINVAL;
+      error:
+	thread_set_errno(err);
+	return -1;
 }
 
 /**
  * Get timer next expiration date and reload value.
  *
- * @see http://www.opengroup.org/onlinepubs/000095399/functions/timer_gettime.html
+ * This service stores, at the address @a value, the expiration date (member @a
+ * it_value) and reload value (member @a it_interval) of the timer @a
+ * timerid. The values are returned as time intervals, and as multiples of the
+ * system clock tick duration (see note in section
+ * @ref posix_time "Clocks and timers services" for details on the
+ * duration of the system clock tick). If the timer was not started, the
+ * returned members @a it_value and @a it_interval of @a value are zero.
+ *
+ * @param timerid timer identifier;
+ *
+ * @param value address where the timer expiration date and reload value are
+ * stored on success.
+ *
+ * @retval 0 on success;
+ * @retval -1 with @a errno set if:
+ * - EINVAL, @a timerid is invalid.
+ *
+ * @see
+ * <a href="http://www.opengroup.org/onlinepubs/000095399/functions/timer_gettime.html">
+ * Specification.</a>
  * 
  */
 int timer_gettime(timer_t timerid, struct itimerspec *value)
 {
-    struct pse51_timer *timer;
-    spl_t s;
+	struct pse51_timer *timer;
+	spl_t s;
 
-    if ((unsigned) timerid >= PSE51_TIMER_MAX)
-        goto einval;
+	if ((unsigned)timerid >= PSE51_TIMER_MAX)
+		goto einval;
 
-    xnlock_get_irqsave(&nklock, s);
+	xnlock_get_irqsave(&nklock, s);
 
-    timer = &timer_pool[timerid];
+	timer = &timer_pool[(unsigned long)timerid];
 
-    if (!xntimer_active_p(&timer->timerbase))
-        goto unlock_and_einval;
+	if (!xntimer_active_p(&timer->timerbase))
+		goto unlock_and_einval;
 
-    pse51_timer_gettime_inner(timer, value);
+	pse51_timer_gettime_inner(timer, value);
 
-    xnlock_put_irqrestore(&nklock, s);
+	xnlock_put_irqrestore(&nklock, s);
 
-    return 0;
+	return 0;
 
-  unlock_and_einval:
-    xnlock_put_irqrestore(&nklock, s);
-  einval:
-    thread_set_errno(EINVAL);
-    return -1;
+      unlock_and_einval:
+	xnlock_put_irqrestore(&nklock, s);
+      einval:
+	thread_set_errno(EINVAL);
+	return -1;
 }
 
 /**
- * Get the timer expiration overruns count since the most recent expiration
+ * Get expiration overruns count since the most recent timer expiration
  * signal delivery.
  *
- * @see http://www.opengroup.org/onlinepubs/000095399/functions/timer_getoverrun.html
+ * This service returns @a timerid expiration overruns count since the most
+ * recent timer expiration signal delivery. If this count is more than @a
+ * DELAYTIMER_MAX expirations, @a DELAYTIMER_MAX is returned.
+ *
+ * @param timerid Timer identifier.
+ *
+ * @return the overruns count on success;
+ * @return -1 with @a errno set if:
+ * - EINVAL, @a timerid is invalid.
+ *
+ * @see
+ * <a href="http://www.opengroup.org/onlinepubs/000095399/functions/timer_getoverrun.html">
+ * Specification.</a>
  * 
  */
 int timer_getoverrun(timer_t timerid)
 {
-    struct pse51_timer *timer;
-    int overruns;
-    spl_t s;
+	struct pse51_timer *timer;
+	int overruns;
+	spl_t s;
 
-    if ((unsigned) timerid >= PSE51_TIMER_MAX)
-        goto einval;
+	if ((unsigned)timerid >= PSE51_TIMER_MAX)
+		goto einval;
 
-    xnlock_get_irqsave(&nklock, s);
+	xnlock_get_irqsave(&nklock, s);
 
-    timer = &timer_pool[timerid];
+	timer = &timer_pool[(unsigned long)timerid];
 
-    if (!xntimer_active_p(&timer->timerbase))
-        goto unlock_and_einval;
+	if (!xntimer_active_p(&timer->timerbase))
+		goto unlock_and_einval;
 
-    overruns = timer->last_overruns;
+	overruns = timer->last_overruns;
 
-    xnlock_put_irqrestore(&nklock, s);
+	xnlock_put_irqrestore(&nklock, s);
 
-    return overruns;
+	return overruns;
 
-
-  unlock_and_einval:
-    xnlock_put_irqrestore(&nklock, s);
-  einval:
-    thread_set_errno(EINVAL);
-    return -1;
+      unlock_and_einval:
+	xnlock_put_irqrestore(&nklock, s);
+      einval:
+	thread_set_errno(EINVAL);
+	return -1;
 }
 
 void pse51_timer_init_thread(pthread_t new_thread)
 {
-    initq(&new_thread->timersq);
+	initq(&new_thread->timersq);
 }
-                
+
 /* Called with nklock locked irq off. */
 void pse51_timer_cleanup_thread(pthread_t zombie)
 {
-    xnholder_t *holder;
-    while ((holder = getq(&zombie->timersq)) != NULL)
-        {
-        struct pse51_timer *timer = link2tm(holder);
-	xntimer_stop(&timer->timerbase);
-        timer->owner = NULL;
-        }
+	xnholder_t *holder;
+	while ((holder = getq(&zombie->timersq)) != NULL) {
+		struct pse51_timer *timer = link2tm(holder, tlink);
+		xntimer_stop(&timer->timerbase);
+		timer->owner = NULL;
+	}
 }
 
+void pse51_timerq_cleanup(pse51_kqueues_t *q)
+{
+	xnholder_t *holder;
+	spl_t s;
+
+	xnlock_get_irqsave(&nklock, s);
+
+	while ((holder = getheadq(&q->timerq))) {
+		timer_t tm = (timer_t) (link2tm(holder, link) - timer_pool);
+		pse51_timer_delete_inner(tm, q);
+		xnlock_put_irqrestore(&nklock, s);
+#ifdef CONFIG_XENO_OPT_DEBUG
+		xnprintf("Posix timer %u deleted\n", (unsigned) tm);
+#endif /* CONFIG_XENO_OPT_DEBUG */
+		xnlock_get_irqsave(&nklock, s);
+	}
+
+	xnlock_put_irqrestore(&nklock, s);
+}
 
 int pse51_timer_pkg_init(void)
 {
-    int n;
+	int n;
 
-    initq(&timer_freeq);
+	initq(&timer_freeq);
+	initq(&pse51_global_kqueues.timerq);
 
-    for (n = 0; n < PSE51_TIMER_MAX; n++)
-	{
-	inith(&timer_pool[n].link);
-	appendq(&timer_freeq,&timer_pool[n].link);
+	for (n = 0; n < PSE51_TIMER_MAX; n++) {
+		inith(&timer_pool[n].link);
+		appendq(&timer_freeq, &timer_pool[n].link);
 	}
 
-    return 0;
+	return 0;
 }
 
 void pse51_timer_pkg_cleanup(void)
 {
-#ifdef CONFIG_XENO_OPT_DEBUG
-    int n;
-
-    for (n = 0; n < PSE51_TIMER_MAX; n++)
-        if (timer_pool[n].owner)
-            xnprintf("Posix timer %d was not deleted, deleting now.\n", n);
-    /* Nothing to be done for deletion, since the pool is in static memory. */
-#endif /* CONFIG_XENO_OPT_DEBUG */
+	pse51_timerq_cleanup(&pse51_global_kqueues);
 }
 
 /*@}*/

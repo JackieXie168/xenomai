@@ -50,6 +50,11 @@ check_filter() {
 patch_append() {
     file="$1"
     if test "x$output_patch" = "x"; then
+	if test -L "$linux_tree/$file" ; then
+	    mv "$linux_tree/$file" "$linux_tree/$file.orig"
+	    cp "$linux_tree/$file.orig" "$linux_tree/$file"
+	fi
+	chmod +w "$linux_tree/$file"
         cat >> "$linux_tree/$file"
     else
         if test `check_filter $file` = "ok"; then
@@ -108,7 +113,9 @@ patch_link() {
             d=`dirname $f`
             if test "x$output_patch" = "x"; then
                 mkdir -p $linux_tree/$link_dir/$d
-                if test x$forcelink = x1 -o ! -h $linux_tree/$link_dir/$f; then
+                if test x$forcelink = x1 -o \
+		   ! $xenomai_root/$target_dir/$f -ef $linux_tree/$link_dir/$f;
+		then
                     ln -sf $xenomai_root/$target_dir/$f $linux_tree/$link_dir/$f
                 fi
             else

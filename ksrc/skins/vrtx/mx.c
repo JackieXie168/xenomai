@@ -1,7 +1,7 @@
 /*
  * Copyright (C) 2001,2002 IDEALX (http://www.idealx.com/).
  * Written by Julien Pinon <jpinon@idealx.com>.
- * Copyright (C) 2003 Philippe Gerum <rpm@xenomai.org>.
+ * Copyright (C) 2003,2006 Philippe Gerum <rpm@xenomai.org>.
  *
  * Xenomai is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -18,253 +18,328 @@
  * Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  */
 
-#include "vrtx/task.h"
-#include "vrtx/mx.h"
+#include <vrtx/task.h>
+#include <vrtx/mx.h>
 
-static vrtxmx_t vrtxmxmap[VRTX_MAX_MXID];
-static int mx_destroy_internal (int indx);
-static xnqueue_t mx_free_q;
+static vrtxidmap_t *vrtx_mx_idmap;
 
-#define vrtxmx2indx(addr) ((vrtxmx_t *)addr - vrtxmxmap)
+static xnqueue_t vrtx_mx_q;
 
-void vrtxmx_init(void)
+#ifdef CONFIG_XENO_EXPORT_REGISTRY
+
+static int __mutex_read_proc(char *page,
+			     char **start,
+			     off_t off, int count, int *eof, void *data)
 {
-    int indx;
-    initq(&mx_free_q);
-    for (indx = 0 ; indx < VRTX_MAX_MXID ; indx++)
-	{
-	vrtxmxmap[indx].state = VRTXMX_FREE;
-	inith(&vrtxmxmap[indx].link);
-	appendq(&mx_free_q, &vrtxmxmap[indx].link);
-	}
+	vrtxmx_t *mx = (vrtxmx_t *)data;
+	char *p = page;
+	int len;
+	spl_t s;
+
+	xnlock_get_irqsave(&nklock, s);
+
+	if (mx->owner) {
+		xnpholder_t *holder;
+
+		/* Locked mx -- dump owner and waiters, if any. */
+
+		p += sprintf(p, "=locked by %s\n",
+			     xnthread_name(mx->owner));
+
+		holder = getheadpq(xnsynch_wait_queue(&mx->synchbase));
+
+		while (holder) {
+			xnthread_t *sleeper = link2thread(holder, plink);
+			p += sprintf(p, "+%s\n", xnthread_name(sleeper));
+			holder =
+			    nextpq(xnsynch_wait_queue(&mx->synchbase),
+				   holder);
+		}
+	} else
+		/* Mutex unlocked. */
+		p += sprintf(p, "=unlocked\n");
+
+	xnlock_put_irqrestore(&nklock, s);
+
+	len = (p - page) - off;
+	if (len <= off + count)
+		*eof = 1;
+	*start = page + off;
+	if (len > count)
+		len = count;
+	if (len < 0)
+		len = 0;
+
+	return len;
+}
+
+extern xnptree_t __vrtx_ptree;
+
+static xnpnode_t __mutex_pnode = {
+
+	.dir = NULL,
+	.type = "mutexes",
+	.entries = 0,
+	.read_proc = &__mutex_read_proc,
+	.write_proc = NULL,
+	.root = &__vrtx_ptree,
+};
+
+#elif defined(CONFIG_XENO_OPT_REGISTRY)
+
+static xnpnode_t __mutex_pnode = {
+
+	.type = "mutexes"
+};
+
+#endif /* CONFIG_XENO_EXPORT_REGISTRY */
+
+int mx_destroy_internal(vrtxmx_t *mx)
+{
+	int s = xnsynch_destroy(&mx->synchbase);
+	vrtx_put_id(vrtx_mx_idmap, mx->mid);
+	removeq(&vrtx_mx_q, &mx->link);
+#ifdef CONFIG_XENO_OPT_REGISTRY
+	xnregistry_remove(mx->handle);
+#endif /* CONFIG_XENO_OPT_REGISTRY */
+	xnfree(mx);
+	return s;
+}
+
+int vrtxmx_init(void)
+{
+	initq(&vrtx_mx_q);
+	vrtx_mx_idmap = vrtx_alloc_idmap(VRTX_MAX_MUTEXES, 0);
+	return vrtx_mx_idmap ? 0 : -ENOMEM;
 }
 
 void vrtxmx_cleanup(void)
 {
-    int indx;
-    for (indx = 0 ; indx < VRTX_MAX_MXID ; indx++)
-	{
-	mx_destroy_internal(indx);
-	}
+	xnholder_t *holder;
+
+	while ((holder = getheadq(&vrtx_mx_q)) != NULL)
+		mx_destroy_internal(link2vrtxmx(holder));
+
+	vrtx_free_idmap(vrtx_mx_idmap);
 }
 
-int mx_destroy_internal (int indx)
+int sc_mcreate(unsigned int opt, int *errp)
 {
-    spl_t s;
-    int rc;
+	int bflags, mid;
+	vrtxmx_t *mx;
+	spl_t s;
 
-    xnlock_get_irqsave(&nklock,s);
-    rc = xnsynch_destroy(&vrtxmxmap[indx].synchbase);
-    appendq(&mx_free_q, &vrtxmxmap[indx].link);
-    vrtxmxmap[indx].state = VRTXMX_FREE;
-    xnlock_put_irqrestore(&nklock,s);
-
-    return rc;
-}
-
-
-int sc_mcreate (unsigned int opt, int *errp)
-{
-    int indx;
-    int flags;
-    xnholder_t *holder;
-    spl_t s;
-
-    xnpod_check_context(XNPOD_THREAD_CONTEXT);
-
-    switch (opt) {
-    case 0:
-	flags = XNSYNCH_PRIO;
-	break;
-    case 1:
-	flags = XNSYNCH_FIFO;
-	break;
-    case 2:
-	flags = XNSYNCH_PRIO | XNSYNCH_PIP;
-	break;
-    default:
-	*errp = ER_IIP;
-	return 0;
-    }
-
-    xnlock_get_irqsave(&nklock,s);
-
-    holder = getq(&mx_free_q);
-    if (holder == NULL)
-	{
-	xnlock_put_irqrestore(&nklock,s);
-	*errp = ER_NOCB;
-	return -1;
+	switch (opt) {
+	case 0:
+		bflags = XNSYNCH_PRIO;
+		break;
+	case 1:
+		bflags = XNSYNCH_FIFO;
+		break;
+	case 2:
+		bflags = XNSYNCH_PRIO | XNSYNCH_PIP;
+		break;
+	default:
+		*errp = ER_IIP;
+		return 0;
 	}
 
-    indx = vrtxmx2indx(link2vrtxmx(holder));
-    vrtxmxmap[indx].state = VRTXMX_UNLOCKED;
+	mx = (vrtxmx_t *)xnmalloc(sizeof(*mx));
 
-    xnsynch_init(&vrtxmxmap[indx].synchbase, flags|XNSYNCH_DREORD);
+	if (!mx) {
+		*errp = ER_NOCB;
+		return -1;
+	}
 
-    xnlock_put_irqrestore(&nklock,s);
+	mid = vrtx_get_id(vrtx_mx_idmap, -1, mx);
 
-    *errp = RET_OK;
-    return indx;
+	if (mid < 0) {
+		xnfree(mx);
+		return -1;
+	}
+
+	inith(&mx->link);
+	mx->mid = mid;
+	mx->owner = NULL;
+	xnsynch_init(&mx->synchbase, bflags | XNSYNCH_DREORD);
+
+	xnlock_get_irqsave(&nklock, s);
+	appendq(&vrtx_mx_q, &mx->link);
+	xnlock_put_irqrestore(&nklock, s);
+
+#ifdef CONFIG_XENO_OPT_REGISTRY
+	sprintf(mx->name, "mx%d", mid);
+	xnregistry_enter(mx->name, mx, &mx->handle, &__mutex_pnode);
+#endif /* CONFIG_XENO_OPT_REGISTRY */
+
+	*errp = RET_OK;
+
+	return mid;
 }
 
 void sc_mpost(int mid, int *errp)
-
 {
-    xnthread_t *waiter;
-    spl_t s;
+	vrtxmx_t *mx;
+	spl_t s;
 
-    xnpod_check_context(XNPOD_THREAD_CONTEXT);
+	xnlock_get_irqsave(&nklock, s);
 
-    xnlock_get_irqsave(&nklock,s);
+	mx = (vrtxmx_t *)vrtx_get_object(vrtx_mx_idmap, mid);
 
-    if ( (mid < 0) || (mid >= VRTX_MAX_MXID)
-	 || (vrtxmxmap[mid].state == VRTXMX_FREE) )
-	{
-	xnlock_put_irqrestore(&nklock,s);
-	*errp = ER_ID;
-	return;
+	if (mx == NULL || mx->owner == NULL) {
+		*errp = ER_ID;
+		goto unlock_and_exit;
 	}
 
-    waiter = xnsynch_wakeup_one_sleeper(&vrtxmxmap[mid].synchbase);
-    
-    if (waiter)
-	xnpod_schedule();
-    else
-	{
-	vrtxmxmap[mid].state = VRTXMX_UNLOCKED;
-	}
+	/* Undefined behaviour if the poster does not own the mutex. */
+	mx->owner = xnsynch_wakeup_one_sleeper(&mx->synchbase);
 
-    xnlock_put_irqrestore(&nklock,s);
-
-    *errp = RET_OK;
-    return;
-}
-
-void sc_mdelete (int mid, int opt, int *errp)
-{
-    spl_t s;
-
-    xnpod_check_context(XNPOD_THREAD_CONTEXT);
-
-    if ( (opt != 0) && (opt != 1) )
-	{
-	*errp = ER_IIP;
-	return;
-	}
-
-    xnlock_get_irqsave(&nklock,s);
-
-    if ( (mid < 0) || (mid >= VRTX_MAX_MXID)
-	 || (vrtxmxmap[mid].state == VRTXMX_FREE) )
-	{
-	xnlock_put_irqrestore(&nklock,s);
-	*errp = ER_ID;
-	return;
-	}
-
-    if (vrtxmxmap[mid].state == VRTXMX_LOCKED)
-	{
-	if ( (opt == 0) || (xnpod_current_thread() != vrtxmxmap[mid].owner) )
-	    {
-	    xnlock_put_irqrestore(&nklock,s);
-	    *errp = ER_PND;
-	    return;
-	    }
-	}
-    *errp = RET_OK;
-
-    /* forcing delete or no task pending */
-    if (mx_destroy_internal(mid) == XNSYNCH_RESCHED)
-	xnpod_schedule();
-
-    xnlock_put_irqrestore(&nklock,s);
-}
-
-void sc_mpend (int mid, unsigned long timeout, int *errp)
-{
-    vrtxtask_t *task;
-    spl_t s;
-
-    xnlock_get_irqsave(&nklock,s);
-
-    if ( (mid < 0) || (mid >= VRTX_MAX_MXID)
-	 || (vrtxmxmap[mid].state == VRTXMX_FREE) )
-	{
-	xnlock_put_irqrestore(&nklock,s);
-	*errp = ER_ID;
-	return;
-	}
-
-    *errp = RET_OK;
-
-    if (vrtxmxmap[mid].state == VRTXMX_UNLOCKED)
-	{
-	vrtxmxmap[mid].state = VRTXMX_LOCKED;
-	vrtxmxmap[mid].owner = xnpod_current_thread();
-	}
-    else
-	{
-	task = vrtx_current_task();
-	task->vrtxtcb.TCBSTAT = TBSMUTEX;
-	if (timeout)
-	    task->vrtxtcb.TCBSTAT |= TBSDELAY;
-	xnsynch_sleep_on(&vrtxmxmap[mid].synchbase,timeout);
-	if (xnthread_test_flags(xnpod_current_thread(), XNRMID))
-	    *errp = ER_DEL; /* Mutex deleted while pending. */
-	else if (xnthread_test_flags(xnpod_current_thread(), XNTIMEO))
-	    *errp = ER_TMO; /* Timeout.*/
-	}
-
-    xnlock_put_irqrestore(&nklock,s);
-}
-
-void sc_maccept (int mid, int *errp)
-{
-    spl_t s;
-
-    xnlock_get_irqsave(&nklock,s);
-
-   if ( (mid < 0) || (mid >= VRTX_MAX_MXID)
-	 || (vrtxmxmap[mid].state == VRTXMX_FREE) )
-	{
-	xnlock_put_irqrestore(&nklock,s);
-	*errp = ER_ID;
-	return;
-	}
-
-    if (vrtxmxmap[mid].state == VRTXMX_UNLOCKED)
-	{
-	vrtxmxmap[mid].state = VRTXMX_LOCKED;
-	vrtxmxmap[mid].owner = xnpod_current_thread();
 	*errp = RET_OK;
-	}
-    else
-	{
-	*errp = ER_PND;
-	}
 
-    xnlock_put_irqrestore(&nklock,s);
+	if (mx->owner)
+		xnpod_schedule();
+
+      unlock_and_exit:
+
+	xnlock_put_irqrestore(&nklock, s);
 }
 
-int sc_minquiry (int mid, int *errp)
+void sc_mdelete(int mid, int opt, int *errp)
 {
-    spl_t s;
-    int rc;
+	vrtxmx_t *mx;
+	spl_t s;
 
-    xnlock_get_irqsave(&nklock,s);
-
-    if ( (mid < 0) || (mid >= VRTX_MAX_MXID)
-	 || (vrtxmxmap[mid].state == VRTXMX_FREE) )
-	{
-	xnlock_put_irqrestore(&nklock,s);
-	*errp = ER_ID;
-	return 0;
+	if (opt & ~1) {
+		*errp = ER_IIP;
+		return;
 	}
 
-    rc = (vrtxmxmap[mid].state == VRTXMX_UNLOCKED);
+	xnlock_get_irqsave(&nklock, s);
 
-    xnlock_put_irqrestore(&nklock,s);
+	mx = (vrtxmx_t *)vrtx_get_object(vrtx_mx_idmap, mid);
 
-    return rc;
+	if (mx == NULL) {
+		*errp = ER_ID;
+		goto unlock_and_exit;
+	}
+
+	if (mx->owner && (opt == 0 || xnpod_current_thread() != mx->owner)) {
+		*errp = ER_PND;
+		goto unlock_and_exit;
+	}
+
+	*errp = RET_OK;
+
+	if (mx_destroy_internal(mx) == XNSYNCH_RESCHED)
+		xnpod_schedule();
+
+      unlock_and_exit:
+
+	xnlock_put_irqrestore(&nklock, s);
+}
+
+void sc_mpend(int mid, unsigned long timeout, int *errp)
+{
+	vrtxtask_t *task;
+	vrtxmx_t *mx;
+	spl_t s;
+
+	xnlock_get_irqsave(&nklock, s);
+
+	if (xnpod_unblockable_p()) {
+		*errp = -EPERM;
+		goto unlock_and_exit;
+	}
+
+	mx = (vrtxmx_t *)vrtx_get_object(vrtx_mx_idmap, mid);
+
+	if (mx == NULL) {
+		*errp = ER_ID;
+		goto unlock_and_exit;
+	}
+
+	*errp = RET_OK;
+
+	if (mx->owner != NULL) {
+		task = vrtx_current_task();
+		task->vrtxtcb.TCBSTAT = TBSMUTEX;
+
+		if (timeout)
+			task->vrtxtcb.TCBSTAT |= TBSDELAY;
+
+		xnsynch_sleep_on(&mx->synchbase, timeout);
+
+		if (xnthread_test_flags(&task->threadbase, XNBREAK))
+			*errp = -EINTR;
+		else if (xnthread_test_flags(&task->threadbase, XNRMID))
+			*errp = ER_DEL;	/* Mutex deleted while pending. */
+		else if (xnthread_test_flags(&task->threadbase, XNTIMEO))
+			*errp = ER_TMO;	/* Timeout. */
+		else
+			goto grab_mutex;
+
+		goto unlock_and_exit;
+	}
+
+      grab_mutex:
+
+	mx->owner = xnpod_current_thread();
+
+      unlock_and_exit:
+
+	xnlock_put_irqrestore(&nklock, s);
+}
+
+void sc_maccept(int mid, int *errp)
+{
+	vrtxmx_t *mx;
+	spl_t s;
+
+	xnlock_get_irqsave(&nklock, s);
+
+	if (xnpod_unblockable_p()) {
+		*errp = -EPERM;
+		goto unlock_and_exit;
+	}
+
+	mx = (vrtxmx_t *)vrtx_get_object(vrtx_mx_idmap, mid);
+
+	if (mx == NULL) {
+		*errp = ER_ID;
+		goto unlock_and_exit;
+	}
+
+	if (mx->owner == NULL) {
+		mx->owner = xnpod_current_thread();
+		*errp = RET_OK;
+	} else
+		*errp = ER_PND;
+
+      unlock_and_exit:
+
+	xnlock_put_irqrestore(&nklock, s);
+}
+
+int sc_minquiry(int mid, int *errp)
+{
+	vrtxmx_t *mx;
+	int rc = 0;
+	spl_t s;
+
+	xnlock_get_irqsave(&nklock, s);
+
+	mx = (vrtxmx_t *)vrtx_get_object(vrtx_mx_idmap, mid);
+
+	if (mx == NULL) {
+		*errp = ER_ID;
+		goto unlock_and_exit;
+	}
+
+	rc = mx->owner == NULL;
+
+      unlock_and_exit:
+
+	xnlock_put_irqrestore(&nklock, s);
+
+	return rc;
 }

@@ -27,6 +27,7 @@
 
 #include <linux/config.h>
 #include <linux/version.h>
+#include <linux/module.h>
 #include <asm/io.h>
 
 #if LINUX_VERSION_CODE < KERNEL_VERSION(2,5,0)
@@ -70,13 +71,17 @@ unsigned long __va_to_kva(unsigned long va);
 /* Seqfiles */
 #define SEQ_START_TOKEN ((void *)1)
 
-/* Sched */
+/* Sched and process flags */
 #define MAX_RT_PRIO 100
 #define task_cpu(p) ((p)->processor)
 #ifndef CONFIG_PREEMPT
 #define preempt_disable()  do { } while(0)
 #define preempt_enable()   do { } while(0)
-#endif /* CONFIG_PREEMPT */
+#endif /* !CONFIG_PREEMPT */
+#ifndef SCHED_NORMAL
+#define SCHED_NORMAL SCHED_OTHER
+#endif /* !SCHED_NORMAL */
+#define PF_NOFREEZE 0
 
 /* Signals */
 #define wrap_sighand_lock(p)     ((p)->sigmask_lock)
@@ -134,6 +139,14 @@ static inline void finish_wait(wait_queue_head_t *q,
 	schedule_timeout((x)*(HZ/1000));         \
 } while(0)
 #endif
+
+#ifdef MODULE
+#define try_module_get(mod) try_inc_mod_count(mod)
+#define module_put(mod) __MOD_DEC_USE_COUNT(mod)
+#else /* !__MODULE__ */
+#define try_module_get(mod) (1)
+#define module_put(mod) do { } while (0)
+#endif /* !__MODULE__ */
 
 /* Types */
 typedef enum __kernel_clockid_t {

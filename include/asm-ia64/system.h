@@ -25,6 +25,9 @@
 
 #include <linux/config.h>
 #include <linux/ptrace.h>
+
+#define xnarch_fault_um(fi)     (user_mode((fi)->ia64.regs))
+
 #include <asm-generic/xenomai/system.h>
 
 #ifdef CONFIG_IA64_HP_SIM
@@ -145,11 +148,7 @@ static inline void xnarch_leave_root (xnarchtcb_t *rootcb)
 {
     struct task_struct *fpu_owner
         = (struct task_struct *)ia64_get_kr(IA64_KR_FPU_OWNER);
-    rthal_declare_cpuid;
 
-    rthal_load_cpuid();
-
-    __set_bit(cpuid,&rthal_cpu_realtime);
     /* Remember the preempted Linux task pointer. */
     rootcb->user_task = rootcb->active_task = current;
     /* So that xnarch_save_fpu() will operate on the right FPU area. */
@@ -159,7 +158,6 @@ static inline void xnarch_leave_root (xnarchtcb_t *rootcb)
 
 static inline void xnarch_enter_root (xnarchtcb_t *rootcb)
 {
-    __clear_bit(xnarch_current_cpu(),&rthal_cpu_realtime);
 }
 
 static inline void xnarch_switch_to (xnarchtcb_t *out_tcb,
@@ -168,10 +166,15 @@ static inline void xnarch_switch_to (xnarchtcb_t *out_tcb,
     struct task_struct *prev = out_tcb->active_task;
     struct task_struct *next = in_tcb->user_task;
 
-    in_tcb->active_task = next ?: prev;
+	if (likely(next != NULL)) {
+		in_tcb->active_task = next;
+		rthal_clear_foreign_stack(&rthal_domain);
+	} else {
+		in_tcb->active_task = prev;
+		rthal_set_foreign_stack(&rthal_domain);
+	}
 
-    if (next && next != prev)
-        {
+    if (next && next != prev) {
         /* We are switching to a user task different from the last
            preempted or running user task, so that we can use the
            Linux context switch routine. */
@@ -182,18 +185,17 @@ static inline void xnarch_switch_to (xnarchtcb_t *out_tcb,
         if (!next->mm)
             enter_lazy_tlb(oldmm,next);
 
-	if (IA64_HAS_EXTRA_STATE(prev))
-		ia64_save_extra(prev);
+		if (IA64_HAS_EXTRA_STATE(prev))
+			ia64_save_extra(prev);
 
-	if (IA64_HAS_EXTRA_STATE(next))
-		ia64_load_extra(next);
+		if (IA64_HAS_EXTRA_STATE(next))
+			ia64_load_extra(next);
 
-	ia64_psr(task_pt_regs(next))->dfh = !ia64_is_local_fpu_owner(next);
+		ia64_psr(task_pt_regs(next))->dfh = !ia64_is_local_fpu_owner(next);
 
         rthal_thread_switch(out_tcb->kspp,in_tcb->kspp,1);
-        }
-    else
-        {
+	}
+    else {
         unsigned long gp;
 
         ia64_stop();
@@ -207,7 +209,7 @@ static inline void xnarch_switch_to (xnarchtcb_t *out_tcb,
         /* fph will be enabled by xnarch_restore_fpu if needed, and
            returns the root thread in its usual mode. */
         ia64_fph_disable();
-        }
+	}
 }
 
 static inline void xnarch_finalize_and_switch (xnarchtcb_t *dead_tcb,
@@ -431,7 +433,7 @@ static inline void xnarch_grab_xirqs (rthal_irq_handler_t handler)
                              handler,
                              NULL,
                              NULL,
-                             IPIPE_DYNAMIC_MASK);
+                             IPIPE_HANDLE_MASK);
 }
 
 static inline void xnarch_lock_xirqs (rthal_pipeline_stage_t *ipd, int cpuid)
@@ -748,27 +750,15 @@ static inline int xnarch_init (void)
 			 (rthal_irq_handler_t)&xnpod_schedule_handler,
 			 NULL,
 			 NULL,
-			 IPIPE_HANDLE_MASK);
+			 IPIPE_HANDLE_MASK | IPIPE_WIRED_MASK);
 
     xnarch_old_trap_handler = rthal_trap_catch(&xnarch_trap_fault);
-
-#ifdef CONFIG_XENO_OPT_PERVASIVE
-    err = xnshadow_mount();
-#endif /* CONFIG_XENO_OPT_PERVASIVE */
-
-    if (err)
-        goto release_trap;
 
     err = xnarch_stack_pool_init();
 
     if (!err)
         return 0;
 
-#ifdef CONFIG_XENO_OPT_PERVASIVE
-    xnshadow_cleanup();
-#endif /* CONFIG_XENO_OPT_PERVASIVE */
-
- release_trap:
     rthal_trap_catch(xnarch_old_trap_handler);
     rthal_free_virq(xnarch_escalation_virq);
 
@@ -778,9 +768,6 @@ static inline int xnarch_init (void)
 static inline void xnarch_exit (void)
 
 {
-#ifdef CONFIG_XENO_OPT_PERVASIVE
-    xnshadow_cleanup();
-#endif /* CONFIG_XENO_OPT_PERVASIVE */
     rthal_trap_catch(xnarch_old_trap_handler);
     rthal_free_virq(xnarch_escalation_virq);
     xnarch_stack_pool_destroy();

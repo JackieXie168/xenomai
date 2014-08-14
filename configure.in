@@ -82,6 +82,7 @@ case "$host" in
 esac
 
 AC_MSG_RESULT([$XENO_TARGET_ARCH])
+AM_CONDITIONAL(XENO_TARGET_ARCH_I386,[test $XENO_TARGET_ARCH = i386])
 
 dnl
 dnl Parse options
@@ -206,7 +207,7 @@ else
   AC_MSG_RESULT(yes)
   AC_MSG_CHECKING(for Linux sources)
   if test x"$XENO_LINUX_SRCDIR" = xy; then
-      candidates="linux* $srcdir/linux*"
+      candidates="linux-* $srcdir/linux-* $srcdir/linux linux"
       if test x"$cross_compiling" = xno; then
           candidates="$candidates /lib/modules/`uname -r`/source /usr/src/linux"
       fi
@@ -240,6 +241,13 @@ else
      else
         AC_MSG_RESULT([$XENO_LINUX_SRCDIR (kernel ${linux_full_version})])
      fi
+
+     case "$linux_base_version" in
+	2.4.*) XENO_LINUX_ALL_TARGETS="bzImage modules";;
+        2.6.*) XENO_LINUX_ALL_TARGETS="all";;
+	*) AC_MSG_ERROR([Unknown Linux version $linux_full_version]);;
+     esac
+     AC_SUBST(XENO_LINUX_ALL_TARGETS)
   fi
 
   AC_MSG_CHECKING(for Adeos patch)
@@ -268,8 +276,9 @@ patch. Default is to infer the patch name from Linux kernel version.]),
            echo "*** Warning: built version of linux and requested versions are "
            echo "*** different. If you want to build the requested version of "
            echo "*** linux, remove the file: linux/.xenomai-prepared."
+        else
+           touch linux/.xenomai-prepared
         fi
-        touch linux/.xenomai-prepared
      else
            set -e
            targetdir=$PWD/linux
@@ -297,6 +306,7 @@ patch. Default is to infer the patch name from Linux kernel version.]),
               test x"$CONFIG_PPC" = xy && cfg_arch=ppc || :
               test x"$CONFIG_IA64" = xy && cfg_arch=ia64 || :
               test x"$CONFIG_PPC64" = xy && cfg_arch=ppc64 || :
+              test x"$CONFIG_BLACKFIN" = xy && cfg_arch=blackfin || :
               if test $cfg_arch = $XENO_TARGET_ARCH; then
                  cp $XENO_LINUX_SRCDIR/.config .xenomai.config
               fi
@@ -454,6 +464,31 @@ AM_CONDITIONAL(CONFIG_XENO_UVM,[test "$CONFIG_XENO_UVM" = y])
 dnl Documentation.
 AM_CONDITIONAL(CONFIG_XENO_DOC_DOX,[test "$CONFIG_XENO_DOC_DOX" = y])
 
+AC_MSG_CHECKING([for sched_setaffinity])
+AC_CACHE_VAL(ac_cv_sched_setaffinity,
+ save_CFLAGS="$CFLAGS"
+ CFLAGS="-Wimplicit-function-declaration -Werror -D_GNU_SOURCE"
+ [AC_TRY_COMPILE([#include <sched.h>],
+ [cpu_set_t cpu_set; sched_setaffinity(0, sizeof(cpu_set), &cpu_set);],
+ [ac_cv_sched_setaffinity=new],
+ [ac_cv_sched_setaffinity=bad])]
+ if test $ac_cv_sched_setaffinity = bad ; then
+   [AC_TRY_COMPILE([#include <sched.h>],
+   [cpu_set_t cpu_set; sched_setaffinity(0, &cpu_set);],
+   [ac_cv_sched_setaffinity=old],
+   [ac_cv_sched_setaffinity=no])]
+ fi
+ if test $ac_cv_sched_setaffinity = old; then
+     AC_MSG_RESULT(old)
+     AC_DEFINE(HAVE_OLD_SETAFFINITY,1,[config])
+ elif test $ac_cv_sched_setaffinity = new; then
+     AC_MSG_RESULT(ok)
+     AC_DEFINE(HAVE_RECENT_SETAFFINITY,1,[config])
+ else
+     AC_MSG_RESULT(no)
+ fi
+ CFLAGS="$save_CFLAGS")
+
 AC_MSG_CHECKING([for specific GCC switches])
 AC_CACHE_VAL(ac_cv_gcc_wnoalias,
 AC_LANG_SAVE
@@ -479,12 +514,15 @@ XENO_USER_LDFLAGS=
 case $XENO_TARGET_ARCH in
  i386)
 	XENO_USER_CFLAGS="$XENO_USER_CFLAGS -Wall -pipe -fstrict-aliasing $gcc_w_noalias"
+	XENO_USER_LDFLAGS="-rdynamic"
         ;;
  powerpc)
 	XENO_USER_CFLAGS="$XENO_USER_CFLAGS -Wall -pipe"
+	XENO_USER_LDFLAGS="-rdynamic"
         ;;
  ia64)
 	XENO_USER_CFLAGS="$XENO_USER_CFLAGS -Wall -pipe"
+	XENO_USER_LDFLAGS="-rdynamic"
         ;;
  blackfin)
 	XENO_USER_CFLAGS="$XENO_USER_CFLAGS -Wall -pipe"
@@ -494,6 +532,7 @@ case $XENO_TARGET_ARCH in
         ;;
  arm)
 	XENO_USER_CFLAGS="$XENO_USER_CFLAGS -Wall -pipe"
+	XENO_USER_LDFLAGS="-rdynamic"
         ;;
 esac
 
@@ -506,6 +545,9 @@ fi
 XENO_USER_APP_CFLAGS=$XENO_USER_CFLAGS
 XENO_USER_CFLAGS="$XENO_USER_CFLAGS -D__IN_XENO__ -Wstrict-prototypes"
 XENO_USER_APP_LDFLAGS=$XENO_USER_LDFLAGS
+
+XENO_POSIX_WRAPPERS=`while read symbol; do echo -n "-Wl,--wrap,$symbol "; done \
+        < $srcdir/src/skins/posix/posix.wrappers`
 
 dnl
 dnl Build the Makefiles
@@ -525,6 +567,9 @@ AC_SUBST(XENO_USER_CFLAGS)
 AC_SUBST(XENO_USER_LDFLAGS)
 AC_SUBST(XENO_USER_APP_CFLAGS)
 AC_SUBST(XENO_USER_APP_LDFLAGS)
+AC_SUBST([CONFIG_STATUS_DEPENDENCIES],
+        ['$(top_srcdir)/src/skins/posix/posix.wrappers'])
+AC_SUBST(XENO_POSIX_WRAPPERS)
 
 base=asm-$XENO_TARGET_ARCH
 AC_CONFIG_LINKS([src/include/asm/xenomai:include/$base])
@@ -539,21 +584,26 @@ AC_CONFIG_FILES([ \
 	scripts/xeno-load \
 	scripts/xeno-test \
 	src/Makefile \
-	src/nucleus/Makefile \
 	src/skins/Makefile \
-       	src/skins/uvm/Makefile \
        	src/skins/posix/Makefile \
        	src/skins/native/Makefile \
-       	src/skins/psos+/Makefile \
-       	src/skins/uitron/Makefile \
-       	src/skins/vrtx/Makefile \
        	src/skins/vxworks/Makefile \
+       	src/skins/vrtx/Makefile \
        	src/skins/rtdm/Makefile \
        	src/skins/rtai/Makefile \
+       	src/skins/uvm/Makefile \
+       	src/skins/uvm/nucleus/Makefile \
+       	src/skins/uvm/vxworks/Makefile \
+       	src/skins/uvm/psos+/Makefile \
+       	src/skins/uvm/vrtx/Makefile \
+       	src/skins/uvm/uitron/Makefile \
 	src/include/Makefile \
        	src/testsuite/Makefile \
        	src/testsuite/latency/Makefile \
-       	src/testsuite/switch/Makefile \
+       	src/testsuite/switchbench/Makefile \
+       	src/testsuite/cyclic/Makefile \
+       	src/testsuite/switchtest/Makefile \
+	src/testsuite/irqbench/Makefile \
        	include/Makefile \
        	include/asm-generic/Makefile \
        	include/asm-blackfin/Makefile \
@@ -595,6 +645,7 @@ if test \! x$XENO_MAYBE_DOCDIR = x; then
 	doc/docbook/custom-stylesheets/xsl/fo/Makefile \
 	doc/docbook/custom-stylesheets/xsl/html/Makefile \
 	doc/docbook/custom-stylesheets/xsl/html/chunk.xsl \
+	doc/docbook/custom-stylesheets/xsl/html/onechunk.xsl \
 	doc/docbook/xenomai/Makefile \
       ])
 fi

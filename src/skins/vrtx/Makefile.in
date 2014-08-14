@@ -38,7 +38,7 @@ build_triplet = @build@
 host_triplet = @host@
 target_triplet = @target@
 subdir = src/skins/vrtx
-DIST_COMMON = $(srcdir)/Makefile.am $(srcdir)/Makefile.in
+DIST_COMMON = $(srcdir)/Makefile.am $(srcdir)/Makefile.in COPYING
 ACLOCAL_M4 = $(top_srcdir)/aclocal.m4
 am__aclocal_m4_deps = $(top_srcdir)/config/ac_prog_cc_for_build.m4 \
 	$(top_srcdir)/config/docbook.m4 $(top_srcdir)/config/version \
@@ -55,15 +55,14 @@ am__vpath_adj = case $$p in \
   esac;
 am__strip_dir = `echo $$p | sed -e 's|^.*/||'`;
 am__installdirs = "$(DESTDIR)$(libdir)"
-libLIBRARIES_INSTALL = $(INSTALL_DATA)
-LIBRARIES = $(lib_LIBRARIES)
-ARFLAGS = cru
-libvrtx_a_AR = $(AR) $(ARFLAGS)
-libvrtx_a_LIBADD =
-nodist_libvrtx_a_OBJECTS = event.$(OBJEXT) heap.$(OBJEXT) mb.$(OBJEXT) \
-	module.$(OBJEXT) mx.$(OBJEXT) pt.$(OBJEXT) queue.$(OBJEXT) \
-	sem.$(OBJEXT) task.$(OBJEXT) time.$(OBJEXT)
-libvrtx_a_OBJECTS = $(nodist_libvrtx_a_OBJECTS)
+libLTLIBRARIES_INSTALL = $(INSTALL)
+LTLIBRARIES = $(lib_LTLIBRARIES)
+libvrtx_la_LIBADD =
+am_libvrtx_la_OBJECTS = libvrtx_la-event.lo libvrtx_la-heap.lo \
+	libvrtx_la-init.lo libvrtx_la-mb.lo libvrtx_la-mx.lo \
+	libvrtx_la-pt.lo libvrtx_la-queue.lo libvrtx_la-sem.lo \
+	libvrtx_la-task.lo libvrtx_la-time.lo
+libvrtx_la_OBJECTS = $(am_libvrtx_la_OBJECTS)
 DEFAULT_INCLUDES = -I. -I$(srcdir) -I$(top_builddir)/src/include
 depcomp = $(SHELL) $(top_srcdir)/config/depcomp
 am__depfiles_maybe = depfiles
@@ -75,8 +74,8 @@ LTCOMPILE = $(LIBTOOL) --tag=CC --mode=compile $(CC) $(DEFS) \
 CCLD = $(CC)
 LINK = $(LIBTOOL) --tag=CC --mode=link $(CCLD) $(AM_CFLAGS) $(CFLAGS) \
 	$(AM_LDFLAGS) $(LDFLAGS) -o $@
-SOURCES = $(nodist_libvrtx_a_SOURCES)
-DIST_SOURCES =
+SOURCES = $(libvrtx_la_SOURCES)
+DIST_SOURCES = $(libvrtx_la_SOURCES)
 ETAGS = etags
 CTAGS = ctags
 DISTFILES = $(DIST_COMMON) $(DIST_SOURCES) $(TEXINFOS) $(EXTRA_DIST)
@@ -99,6 +98,7 @@ CCDEPMODE = @CCDEPMODE@
 CC_FOR_BUILD = @CC_FOR_BUILD@
 CFLAGS = @CFLAGS@
 CFLAGS_FOR_BUILD = @CFLAGS_FOR_BUILD@
+CONFIG_STATUS_DEPENDENCIES = @CONFIG_STATUS_DEPENDENCIES@
 CONFIG_XENO_DOC_DOX_FALSE = @CONFIG_XENO_DOC_DOX_FALSE@
 CONFIG_XENO_DOC_DOX_TRUE = @CONFIG_XENO_DOC_DOX_TRUE@
 CONFIG_XENO_UVM_FALSE = @CONFIG_XENO_UVM_FALSE@
@@ -173,9 +173,13 @@ XENO_BUILD_LINUX_FALSE = @XENO_BUILD_LINUX_FALSE@
 XENO_BUILD_LINUX_TRUE = @XENO_BUILD_LINUX_TRUE@
 XENO_BUILD_STRING = @XENO_BUILD_STRING@
 XENO_HOST_STRING = @XENO_HOST_STRING@
+XENO_LINUX_ALL_TARGETS = @XENO_LINUX_ALL_TARGETS@
 XENO_LINUX_ARCH = @XENO_LINUX_ARCH@
 XENO_MAYBE_DOCDIR = @XENO_MAYBE_DOCDIR@
+XENO_POSIX_WRAPPERS = @XENO_POSIX_WRAPPERS@
 XENO_TARGET_ARCH = @XENO_TARGET_ARCH@
+XENO_TARGET_ARCH_I386_FALSE = @XENO_TARGET_ARCH_I386_FALSE@
+XENO_TARGET_ARCH_I386_TRUE = @XENO_TARGET_ARCH_I386_TRUE@
 XENO_USER_APP_CFLAGS = @XENO_USER_APP_CFLAGS@
 XENO_USER_APP_LDFLAGS = @XENO_USER_APP_LDFLAGS@
 XENO_USER_CFLAGS = @XENO_USER_CFLAGS@
@@ -228,12 +232,13 @@ target_alias = @target_alias@
 target_cpu = @target_cpu@
 target_os = @target_os@
 target_vendor = @target_vendor@
-lib_LIBRARIES = libvrtx.a
-nodist_libvrtx_a_SOURCES = \
+lib_LTLIBRARIES = libvrtx.la
+libvrtx_la_LDFLAGS = -module -version-info 0:0:0 -lpthread
+libvrtx_la_SOURCES = \
 	event.c \
 	heap.c \
+	init.c \
 	mb.c \
-	module.c \
 	mx.c \
 	pt.c \
 	queue.c \
@@ -241,12 +246,10 @@ nodist_libvrtx_a_SOURCES = \
 	task.c \
 	time.c
 
-AM_CPPFLAGS = \
+libvrtx_la_CPPFLAGS = \
 	@XENO_USER_CFLAGS@ \
-	-I$(top_srcdir)/include \
-	-D__XENO_UVM__
+	-I$(top_srcdir)/include
 
-CLEANFILES = $(nodist_libvrtx_a_SOURCES)
 all: all-am
 
 .SUFFIXES:
@@ -280,39 +283,35 @@ $(top_srcdir)/configure: @MAINTAINER_MODE_TRUE@ $(am__configure_deps)
 	cd $(top_builddir) && $(MAKE) $(AM_MAKEFLAGS) am--refresh
 $(ACLOCAL_M4): @MAINTAINER_MODE_TRUE@ $(am__aclocal_m4_deps)
 	cd $(top_builddir) && $(MAKE) $(AM_MAKEFLAGS) am--refresh
-install-libLIBRARIES: $(lib_LIBRARIES)
+install-libLTLIBRARIES: $(lib_LTLIBRARIES)
 	@$(NORMAL_INSTALL)
 	test -z "$(libdir)" || $(mkdir_p) "$(DESTDIR)$(libdir)"
-	@list='$(lib_LIBRARIES)'; for p in $$list; do \
+	@list='$(lib_LTLIBRARIES)'; for p in $$list; do \
 	  if test -f $$p; then \
 	    f=$(am__strip_dir) \
-	    echo " $(libLIBRARIES_INSTALL) '$$p' '$(DESTDIR)$(libdir)/$$f'"; \
-	    $(libLIBRARIES_INSTALL) "$$p" "$(DESTDIR)$(libdir)/$$f"; \
-	  else :; fi; \
-	done
-	@$(POST_INSTALL)
-	@list='$(lib_LIBRARIES)'; for p in $$list; do \
-	  if test -f $$p; then \
-	    p=$(am__strip_dir) \
-	    echo " $(RANLIB) '$(DESTDIR)$(libdir)/$$p'"; \
-	    $(RANLIB) "$(DESTDIR)$(libdir)/$$p"; \
+	    echo " $(LIBTOOL) --mode=install $(libLTLIBRARIES_INSTALL) $(INSTALL_STRIP_FLAG) '$$p' '$(DESTDIR)$(libdir)/$$f'"; \
+	    $(LIBTOOL) --mode=install $(libLTLIBRARIES_INSTALL) $(INSTALL_STRIP_FLAG) "$$p" "$(DESTDIR)$(libdir)/$$f"; \
 	  else :; fi; \
 	done
 
-uninstall-libLIBRARIES:
+uninstall-libLTLIBRARIES:
 	@$(NORMAL_UNINSTALL)
-	@list='$(lib_LIBRARIES)'; for p in $$list; do \
+	@set -x; list='$(lib_LTLIBRARIES)'; for p in $$list; do \
 	  p=$(am__strip_dir) \
-	  echo " rm -f '$(DESTDIR)$(libdir)/$$p'"; \
-	  rm -f "$(DESTDIR)$(libdir)/$$p"; \
+	  echo " $(LIBTOOL) --mode=uninstall rm -f '$(DESTDIR)$(libdir)/$$p'"; \
+	  $(LIBTOOL) --mode=uninstall rm -f "$(DESTDIR)$(libdir)/$$p"; \
 	done
 
-clean-libLIBRARIES:
-	-test -z "$(lib_LIBRARIES)" || rm -f $(lib_LIBRARIES)
-libvrtx.a: $(libvrtx_a_OBJECTS) $(libvrtx_a_DEPENDENCIES) 
-	-rm -f libvrtx.a
-	$(libvrtx_a_AR) libvrtx.a $(libvrtx_a_OBJECTS) $(libvrtx_a_LIBADD)
-	$(RANLIB) libvrtx.a
+clean-libLTLIBRARIES:
+	-test -z "$(lib_LTLIBRARIES)" || rm -f $(lib_LTLIBRARIES)
+	@list='$(lib_LTLIBRARIES)'; for p in $$list; do \
+	  dir="`echo $$p | sed -e 's|/[^/]*$$||'`"; \
+	  test "$$dir" != "$$p" || dir=.; \
+	  echo "rm -f \"$${dir}/so_locations\""; \
+	  rm -f "$${dir}/so_locations"; \
+	done
+libvrtx.la: $(libvrtx_la_OBJECTS) $(libvrtx_la_DEPENDENCIES) 
+	$(LINK) -rpath $(libdir) $(libvrtx_la_LDFLAGS) $(libvrtx_la_OBJECTS) $(libvrtx_la_LIBADD) $(LIBS)
 
 mostlyclean-compile:
 	-rm -f *.$(OBJEXT)
@@ -320,16 +319,16 @@ mostlyclean-compile:
 distclean-compile:
 	-rm -f *.tab.c
 
-@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/event.Po@am__quote@
-@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/heap.Po@am__quote@
-@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/mb.Po@am__quote@
-@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/module.Po@am__quote@
-@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/mx.Po@am__quote@
-@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/pt.Po@am__quote@
-@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/queue.Po@am__quote@
-@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/sem.Po@am__quote@
-@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/task.Po@am__quote@
-@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/time.Po@am__quote@
+@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/libvrtx_la-event.Plo@am__quote@
+@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/libvrtx_la-heap.Plo@am__quote@
+@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/libvrtx_la-init.Plo@am__quote@
+@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/libvrtx_la-mb.Plo@am__quote@
+@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/libvrtx_la-mx.Plo@am__quote@
+@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/libvrtx_la-pt.Plo@am__quote@
+@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/libvrtx_la-queue.Plo@am__quote@
+@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/libvrtx_la-sem.Plo@am__quote@
+@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/libvrtx_la-task.Plo@am__quote@
+@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/libvrtx_la-time.Plo@am__quote@
 
 .c.o:
 @am__fastdepCC_TRUE@	if $(COMPILE) -MT $@ -MD -MP -MF "$(DEPDIR)/$*.Tpo" -c -o $@ $<; \
@@ -351,6 +350,76 @@ distclean-compile:
 @AMDEP_TRUE@@am__fastdepCC_FALSE@	source='$<' object='$@' libtool=yes @AMDEPBACKSLASH@
 @AMDEP_TRUE@@am__fastdepCC_FALSE@	DEPDIR=$(DEPDIR) $(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
 @am__fastdepCC_FALSE@	$(LTCOMPILE) -c -o $@ $<
+
+libvrtx_la-event.lo: event.c
+@am__fastdepCC_TRUE@	if $(LIBTOOL) --tag=CC --mode=compile $(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(libvrtx_la_CPPFLAGS) $(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS) -MT libvrtx_la-event.lo -MD -MP -MF "$(DEPDIR)/libvrtx_la-event.Tpo" -c -o libvrtx_la-event.lo `test -f 'event.c' || echo '$(srcdir)/'`event.c; \
+@am__fastdepCC_TRUE@	then mv -f "$(DEPDIR)/libvrtx_la-event.Tpo" "$(DEPDIR)/libvrtx_la-event.Plo"; else rm -f "$(DEPDIR)/libvrtx_la-event.Tpo"; exit 1; fi
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	source='event.c' object='libvrtx_la-event.lo' libtool=yes @AMDEPBACKSLASH@
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	DEPDIR=$(DEPDIR) $(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
+@am__fastdepCC_FALSE@	$(LIBTOOL) --tag=CC --mode=compile $(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(libvrtx_la_CPPFLAGS) $(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS) -c -o libvrtx_la-event.lo `test -f 'event.c' || echo '$(srcdir)/'`event.c
+
+libvrtx_la-heap.lo: heap.c
+@am__fastdepCC_TRUE@	if $(LIBTOOL) --tag=CC --mode=compile $(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(libvrtx_la_CPPFLAGS) $(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS) -MT libvrtx_la-heap.lo -MD -MP -MF "$(DEPDIR)/libvrtx_la-heap.Tpo" -c -o libvrtx_la-heap.lo `test -f 'heap.c' || echo '$(srcdir)/'`heap.c; \
+@am__fastdepCC_TRUE@	then mv -f "$(DEPDIR)/libvrtx_la-heap.Tpo" "$(DEPDIR)/libvrtx_la-heap.Plo"; else rm -f "$(DEPDIR)/libvrtx_la-heap.Tpo"; exit 1; fi
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	source='heap.c' object='libvrtx_la-heap.lo' libtool=yes @AMDEPBACKSLASH@
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	DEPDIR=$(DEPDIR) $(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
+@am__fastdepCC_FALSE@	$(LIBTOOL) --tag=CC --mode=compile $(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(libvrtx_la_CPPFLAGS) $(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS) -c -o libvrtx_la-heap.lo `test -f 'heap.c' || echo '$(srcdir)/'`heap.c
+
+libvrtx_la-init.lo: init.c
+@am__fastdepCC_TRUE@	if $(LIBTOOL) --tag=CC --mode=compile $(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(libvrtx_la_CPPFLAGS) $(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS) -MT libvrtx_la-init.lo -MD -MP -MF "$(DEPDIR)/libvrtx_la-init.Tpo" -c -o libvrtx_la-init.lo `test -f 'init.c' || echo '$(srcdir)/'`init.c; \
+@am__fastdepCC_TRUE@	then mv -f "$(DEPDIR)/libvrtx_la-init.Tpo" "$(DEPDIR)/libvrtx_la-init.Plo"; else rm -f "$(DEPDIR)/libvrtx_la-init.Tpo"; exit 1; fi
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	source='init.c' object='libvrtx_la-init.lo' libtool=yes @AMDEPBACKSLASH@
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	DEPDIR=$(DEPDIR) $(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
+@am__fastdepCC_FALSE@	$(LIBTOOL) --tag=CC --mode=compile $(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(libvrtx_la_CPPFLAGS) $(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS) -c -o libvrtx_la-init.lo `test -f 'init.c' || echo '$(srcdir)/'`init.c
+
+libvrtx_la-mb.lo: mb.c
+@am__fastdepCC_TRUE@	if $(LIBTOOL) --tag=CC --mode=compile $(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(libvrtx_la_CPPFLAGS) $(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS) -MT libvrtx_la-mb.lo -MD -MP -MF "$(DEPDIR)/libvrtx_la-mb.Tpo" -c -o libvrtx_la-mb.lo `test -f 'mb.c' || echo '$(srcdir)/'`mb.c; \
+@am__fastdepCC_TRUE@	then mv -f "$(DEPDIR)/libvrtx_la-mb.Tpo" "$(DEPDIR)/libvrtx_la-mb.Plo"; else rm -f "$(DEPDIR)/libvrtx_la-mb.Tpo"; exit 1; fi
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	source='mb.c' object='libvrtx_la-mb.lo' libtool=yes @AMDEPBACKSLASH@
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	DEPDIR=$(DEPDIR) $(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
+@am__fastdepCC_FALSE@	$(LIBTOOL) --tag=CC --mode=compile $(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(libvrtx_la_CPPFLAGS) $(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS) -c -o libvrtx_la-mb.lo `test -f 'mb.c' || echo '$(srcdir)/'`mb.c
+
+libvrtx_la-mx.lo: mx.c
+@am__fastdepCC_TRUE@	if $(LIBTOOL) --tag=CC --mode=compile $(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(libvrtx_la_CPPFLAGS) $(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS) -MT libvrtx_la-mx.lo -MD -MP -MF "$(DEPDIR)/libvrtx_la-mx.Tpo" -c -o libvrtx_la-mx.lo `test -f 'mx.c' || echo '$(srcdir)/'`mx.c; \
+@am__fastdepCC_TRUE@	then mv -f "$(DEPDIR)/libvrtx_la-mx.Tpo" "$(DEPDIR)/libvrtx_la-mx.Plo"; else rm -f "$(DEPDIR)/libvrtx_la-mx.Tpo"; exit 1; fi
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	source='mx.c' object='libvrtx_la-mx.lo' libtool=yes @AMDEPBACKSLASH@
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	DEPDIR=$(DEPDIR) $(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
+@am__fastdepCC_FALSE@	$(LIBTOOL) --tag=CC --mode=compile $(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(libvrtx_la_CPPFLAGS) $(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS) -c -o libvrtx_la-mx.lo `test -f 'mx.c' || echo '$(srcdir)/'`mx.c
+
+libvrtx_la-pt.lo: pt.c
+@am__fastdepCC_TRUE@	if $(LIBTOOL) --tag=CC --mode=compile $(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(libvrtx_la_CPPFLAGS) $(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS) -MT libvrtx_la-pt.lo -MD -MP -MF "$(DEPDIR)/libvrtx_la-pt.Tpo" -c -o libvrtx_la-pt.lo `test -f 'pt.c' || echo '$(srcdir)/'`pt.c; \
+@am__fastdepCC_TRUE@	then mv -f "$(DEPDIR)/libvrtx_la-pt.Tpo" "$(DEPDIR)/libvrtx_la-pt.Plo"; else rm -f "$(DEPDIR)/libvrtx_la-pt.Tpo"; exit 1; fi
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	source='pt.c' object='libvrtx_la-pt.lo' libtool=yes @AMDEPBACKSLASH@
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	DEPDIR=$(DEPDIR) $(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
+@am__fastdepCC_FALSE@	$(LIBTOOL) --tag=CC --mode=compile $(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(libvrtx_la_CPPFLAGS) $(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS) -c -o libvrtx_la-pt.lo `test -f 'pt.c' || echo '$(srcdir)/'`pt.c
+
+libvrtx_la-queue.lo: queue.c
+@am__fastdepCC_TRUE@	if $(LIBTOOL) --tag=CC --mode=compile $(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(libvrtx_la_CPPFLAGS) $(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS) -MT libvrtx_la-queue.lo -MD -MP -MF "$(DEPDIR)/libvrtx_la-queue.Tpo" -c -o libvrtx_la-queue.lo `test -f 'queue.c' || echo '$(srcdir)/'`queue.c; \
+@am__fastdepCC_TRUE@	then mv -f "$(DEPDIR)/libvrtx_la-queue.Tpo" "$(DEPDIR)/libvrtx_la-queue.Plo"; else rm -f "$(DEPDIR)/libvrtx_la-queue.Tpo"; exit 1; fi
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	source='queue.c' object='libvrtx_la-queue.lo' libtool=yes @AMDEPBACKSLASH@
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	DEPDIR=$(DEPDIR) $(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
+@am__fastdepCC_FALSE@	$(LIBTOOL) --tag=CC --mode=compile $(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(libvrtx_la_CPPFLAGS) $(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS) -c -o libvrtx_la-queue.lo `test -f 'queue.c' || echo '$(srcdir)/'`queue.c
+
+libvrtx_la-sem.lo: sem.c
+@am__fastdepCC_TRUE@	if $(LIBTOOL) --tag=CC --mode=compile $(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(libvrtx_la_CPPFLAGS) $(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS) -MT libvrtx_la-sem.lo -MD -MP -MF "$(DEPDIR)/libvrtx_la-sem.Tpo" -c -o libvrtx_la-sem.lo `test -f 'sem.c' || echo '$(srcdir)/'`sem.c; \
+@am__fastdepCC_TRUE@	then mv -f "$(DEPDIR)/libvrtx_la-sem.Tpo" "$(DEPDIR)/libvrtx_la-sem.Plo"; else rm -f "$(DEPDIR)/libvrtx_la-sem.Tpo"; exit 1; fi
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	source='sem.c' object='libvrtx_la-sem.lo' libtool=yes @AMDEPBACKSLASH@
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	DEPDIR=$(DEPDIR) $(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
+@am__fastdepCC_FALSE@	$(LIBTOOL) --tag=CC --mode=compile $(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(libvrtx_la_CPPFLAGS) $(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS) -c -o libvrtx_la-sem.lo `test -f 'sem.c' || echo '$(srcdir)/'`sem.c
+
+libvrtx_la-task.lo: task.c
+@am__fastdepCC_TRUE@	if $(LIBTOOL) --tag=CC --mode=compile $(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(libvrtx_la_CPPFLAGS) $(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS) -MT libvrtx_la-task.lo -MD -MP -MF "$(DEPDIR)/libvrtx_la-task.Tpo" -c -o libvrtx_la-task.lo `test -f 'task.c' || echo '$(srcdir)/'`task.c; \
+@am__fastdepCC_TRUE@	then mv -f "$(DEPDIR)/libvrtx_la-task.Tpo" "$(DEPDIR)/libvrtx_la-task.Plo"; else rm -f "$(DEPDIR)/libvrtx_la-task.Tpo"; exit 1; fi
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	source='task.c' object='libvrtx_la-task.lo' libtool=yes @AMDEPBACKSLASH@
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	DEPDIR=$(DEPDIR) $(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
+@am__fastdepCC_FALSE@	$(LIBTOOL) --tag=CC --mode=compile $(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(libvrtx_la_CPPFLAGS) $(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS) -c -o libvrtx_la-task.lo `test -f 'task.c' || echo '$(srcdir)/'`task.c
+
+libvrtx_la-time.lo: time.c
+@am__fastdepCC_TRUE@	if $(LIBTOOL) --tag=CC --mode=compile $(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(libvrtx_la_CPPFLAGS) $(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS) -MT libvrtx_la-time.lo -MD -MP -MF "$(DEPDIR)/libvrtx_la-time.Tpo" -c -o libvrtx_la-time.lo `test -f 'time.c' || echo '$(srcdir)/'`time.c; \
+@am__fastdepCC_TRUE@	then mv -f "$(DEPDIR)/libvrtx_la-time.Tpo" "$(DEPDIR)/libvrtx_la-time.Plo"; else rm -f "$(DEPDIR)/libvrtx_la-time.Tpo"; exit 1; fi
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	source='time.c' object='libvrtx_la-time.lo' libtool=yes @AMDEPBACKSLASH@
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	DEPDIR=$(DEPDIR) $(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
+@am__fastdepCC_FALSE@	$(LIBTOOL) --tag=CC --mode=compile $(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(libvrtx_la_CPPFLAGS) $(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS) -c -o libvrtx_la-time.lo `test -f 'time.c' || echo '$(srcdir)/'`time.c
 
 mostlyclean-libtool:
 	-rm -f *.lo
@@ -439,7 +508,7 @@ distdir: $(DISTFILES)
 	done
 check-am: all-am
 check: check-am
-all-am: Makefile $(LIBRARIES)
+all-am: Makefile $(LTLIBRARIES)
 installdirs:
 	for dir in "$(DESTDIR)$(libdir)"; do \
 	  test -z "$$dir" || $(mkdir_p) "$$dir"; \
@@ -461,7 +530,6 @@ install-strip:
 mostlyclean-generic:
 
 clean-generic:
-	-test -z "$(CLEANFILES)" || rm -f $(CLEANFILES)
 
 distclean-generic:
 	-test -z "$(CONFIG_CLEAN_FILES)" || rm -f $(CONFIG_CLEAN_FILES)
@@ -471,7 +539,7 @@ maintainer-clean-generic:
 	@echo "it deletes files that may require special tools to rebuild."
 clean: clean-am
 
-clean-am: clean-generic clean-libLIBRARIES clean-libtool \
+clean-am: clean-generic clean-libLTLIBRARIES clean-libtool \
 	mostlyclean-am
 
 distclean: distclean-am
@@ -492,7 +560,9 @@ info-am:
 
 install-data-am:
 
-install-exec-am: install-libLIBRARIES
+install-exec-am: install-libLTLIBRARIES
+	@$(NORMAL_INSTALL)
+	$(MAKE) $(AM_MAKEFLAGS) install-exec-hook
 
 install-info: install-info-am
 
@@ -518,24 +588,27 @@ ps: ps-am
 
 ps-am:
 
-uninstall-am: uninstall-info-am uninstall-libLIBRARIES
+uninstall-am: uninstall-info-am uninstall-libLTLIBRARIES
 
 .PHONY: CTAGS GTAGS all all-am check check-am clean clean-generic \
-	clean-libLIBRARIES clean-libtool ctags distclean \
+	clean-libLTLIBRARIES clean-libtool ctags distclean \
 	distclean-compile distclean-generic distclean-libtool \
 	distclean-tags distdir dvi dvi-am html html-am info info-am \
 	install install-am install-data install-data-am install-exec \
-	install-exec-am install-info install-info-am \
-	install-libLIBRARIES install-man install-strip installcheck \
+	install-exec-am install-exec-hook install-info install-info-am \
+	install-libLTLIBRARIES install-man install-strip installcheck \
 	installcheck-am installdirs maintainer-clean \
 	maintainer-clean-generic mostlyclean mostlyclean-compile \
 	mostlyclean-generic mostlyclean-libtool pdf pdf-am ps ps-am \
 	tags uninstall uninstall-am uninstall-info-am \
-	uninstall-libLIBRARIES
+	uninstall-libLTLIBRARIES
 
 
-$(nodist_libvrtx_a_SOURCES): Makefile
-	$(LN_S) -f $(top_srcdir)/ksrc/skins/vrtx/$@
+install-exec-hook:
+	for la in $(lib_LTLIBRARIES); do \
+	    sed -e 's/shouldnotlink=yes/shouldnotlink=no/' $(DESTDIR)$(libdir)/$$la > $(DESTDIR)$(libdir)/$$la.patched; \
+	    mv $(DESTDIR)$(libdir)/$$la.patched $(DESTDIR)$(libdir)/$$la; \
+	done
 # Tell versions [3.59,3.63) of GNU make to not export all variables.
 # Otherwise a system limit (for SysV at least) may be exceeded.
 .NOEXPORT:

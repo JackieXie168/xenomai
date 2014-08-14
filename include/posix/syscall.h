@@ -84,6 +84,21 @@
 #define __pse51_mmap_epilogue         58
 #define __pse51_munmap_prologue       59
 #define __pse51_munmap_epilogue       60
+#define __pse51_mutexattr_init        61
+#define __pse51_mutexattr_destroy     62
+#define __pse51_mutexattr_gettype     63
+#define __pse51_mutexattr_settype     64
+#define __pse51_mutexattr_getprotocol 65
+#define __pse51_mutexattr_setprotocol 66
+#define __pse51_mutexattr_getpshared  67
+#define __pse51_mutexattr_setpshared  68
+#define __pse51_condattr_init         69
+#define __pse51_condattr_destroy      70
+#define __pse51_condattr_getclock     71
+#define __pse51_condattr_setclock     72
+#define __pse51_condattr_getpshared   73
+#define __pse51_condattr_setpshared   74
+#define __pse51_thread_getschedparam  75
 
 #ifdef __KERNEL__
 
@@ -98,6 +113,10 @@ void pse51_syscall_cleanup(void);
 #ifdef __cplusplus
 }
 #endif
+
+#elif !defined(__XENO_SIM__)
+
+#include <nucleus/bind.h>
 
 #endif /* __KERNEL__ */
 

@@ -54,12 +54,15 @@
     (P4_CCCR_OVF_PMI0|P4_CCCR_THRESHOLD(15)|P4_CCCR_COMPLEMENT|         \
      P4_CCCR_COMPARE|P4_CCCR_REQUIRED|P4_CCCR_ESCR_SELECT(4)|P4_CCCR_ENABLE)
 
-typedef struct {
-    /* Xenomai watchdog data. */
-    unsigned armed;
-    unsigned long perfctr_msr;
-    unsigned long long next_linux_check;
-    unsigned int p4_cccr_val;
+typedef union {
+    struct {
+        /* Xenomai watchdog data. */
+        unsigned armed;
+        unsigned long perfctr_msr;
+        unsigned long long next_linux_check;
+        unsigned int p4_cccr_val;
+    };
+    char __pad[SMP_CACHE_BYTES];
 } rthal_nmi_wd_t ____cacheline_aligned;
 
 static rthal_nmi_wd_t rthal_nmi_wds[NR_CPUS];
@@ -71,22 +74,22 @@ static void (*rthal_linux_nmi_tick) (struct pt_regs *);
 #if LINUX_VERSION_CODE < KERNEL_VERSION(2,6,0)
 #define MSR_P4_IQ_CCCR0		0x36C
 #define nmi_active (nmi_watchdog != NMI_NONE)
-static inline void wrmsrl (unsigned long msr, unsigned long long val)
+static inline void wrmsrl(unsigned long msr, unsigned long long val)
 {
-	unsigned long lo, hi;
-	lo = (unsigned long) val;
-	hi = val >> 32;
-	wrmsr (msr, lo, hi);
+    unsigned long lo, hi;
+    lo = (unsigned long)val;
+    hi = val >> 32;
+    wrmsr(msr, lo, hi);
 }
-#else  /* Linux >= 2.6 */
+#else /* Linux >= 2.6 */
 extern int nmi_active;
-#endif  /* Linux >= 2.6 */
+#endif /* Linux >= 2.6 */
 
-static void rthal_touch_nmi_watchdog (void)
+static void rthal_touch_nmi_watchdog(void)
 {
     unsigned long long next_linux_check;
     int i;
-    
+
     next_linux_check = rthal_rdtsc() + RTHAL_CPU_FREQ;
 
     for (i = 0; i < NR_CPUS; i++) {
@@ -99,7 +102,7 @@ static void rthal_touch_nmi_watchdog (void)
     }
 }
 
-static void rthal_nmi_watchdog_tick (struct pt_regs *regs)
+static void rthal_nmi_watchdog_tick(struct pt_regs *regs)
 {
     int cpu = rthal_processor_id();
     rthal_nmi_wd_t *wd = &rthal_nmi_wds[cpu];
@@ -110,13 +113,13 @@ static void rthal_nmi_watchdog_tick (struct pt_regs *regs)
 
     now = rthal_rdtsc();
 
-    if ((long long) (now - wd->next_linux_check) >= 0) {
+    if ((long long)(now - wd->next_linux_check) >= 0) {
 
         rthal_linux_nmi_tick(regs);
 
         do {
             wd->next_linux_check += RTHAL_CPU_FREQ;
-        } while ((long long) (now - wd->next_linux_check) >= 0);
+        } while ((long long)(now - wd->next_linux_check) >= 0);
     }
 
     if (wd->perfctr_msr == MSR_P4_IQ_COUNTER0) {
@@ -129,8 +132,7 @@ static void rthal_nmi_watchdog_tick (struct pt_regs *regs)
          */
         wrmsr(MSR_P4_IQ_CCCR0, wd->p4_cccr_val, 0);
         apic_write(APIC_LVTPC, APIC_DM_NMI);
-    }
-    else if (rthal_nmi_perfctr_msr == MSR_P6_PERFCTR0) {
+    } else if (rthal_nmi_perfctr_msr == MSR_P6_PERFCTR0) {
         /* Only P6 based Pentium M need to re-unmask
          * the apic vector but it doesn't hurt
          * other P6 variant */
@@ -140,7 +142,7 @@ static void rthal_nmi_watchdog_tick (struct pt_regs *regs)
     wrmsrl(wd->perfctr_msr, now - wd->next_linux_check);
 }
 
-int rthal_nmi_request (void (*emergency)(struct pt_regs *))
+int rthal_nmi_request(void (*emergency) (struct pt_regs *))
 {
     if (!nmi_active || !nmi_watchdog_tick)
         return -ENODEV;
@@ -149,28 +151,28 @@ int rthal_nmi_request (void (*emergency)(struct pt_regs *))
         return -EBUSY;
 
     switch (boot_cpu_data.x86_vendor) {
-    case X86_VENDOR_AMD:
-        rthal_nmi_perfctr_msr = MSR_K7_PERFCTR0;
-        break;
-    case X86_VENDOR_INTEL:
-        switch (boot_cpu_data.x86) {
-        case 6:
-            rthal_nmi_perfctr_msr = MSR_P6_PERFCTR0;
+        case X86_VENDOR_AMD:
+            rthal_nmi_perfctr_msr = MSR_K7_PERFCTR0;
             break;
-        case 15:
-            rthal_nmi_perfctr_msr = MSR_P4_IQ_COUNTER0;
-            rthal_nmi_p4_cccr_val = P4_NMI_IQ_CCCR0;
+        case X86_VENDOR_INTEL:
+            switch (boot_cpu_data.x86) {
+                case 6:
+                    rthal_nmi_perfctr_msr = MSR_P6_PERFCTR0;
+                    break;
+                case 15:
+                    rthal_nmi_perfctr_msr = MSR_P4_IQ_COUNTER0;
+                    rthal_nmi_p4_cccr_val = P4_NMI_IQ_CCCR0;
 #ifdef CONFIG_SMP
-            if (smp_num_siblings == 2)
-                rthal_nmi_p4_cccr_val |= P4_CCCR_OVF_PMI1;
+                    if (smp_num_siblings == 2)
+                        rthal_nmi_p4_cccr_val |= P4_CCCR_OVF_PMI1;
 #endif
+                    break;
+                default:
+                    return -ENODEV;
+            }
             break;
         default:
             return -ENODEV;
-        }
-        break;
-    default:
-        return -ENODEV;
     }
 
     rthal_nmi_emergency = emergency;
@@ -181,7 +183,7 @@ int rthal_nmi_request (void (*emergency)(struct pt_regs *))
     return 0;
 }
 
-void rthal_nmi_release (void)
+void rthal_nmi_release(void)
 {
     if (!rthal_linux_nmi_tick)
         return;
@@ -193,7 +195,7 @@ void rthal_nmi_release (void)
     rthal_linux_nmi_tick = NULL;
 }
 
-void rthal_nmi_arm (unsigned long delay)
+void rthal_nmi_arm(unsigned long delay)
 {
     rthal_nmi_wd_t *wd = &rthal_nmi_wds[rthal_processor_id()];
 
@@ -209,7 +211,7 @@ void rthal_nmi_arm (unsigned long delay)
         wd->armed = 0;
         wmb();
         wrmsrl(wd->perfctr_msr, -1);
-        asm ("nop");
+        asm("nop");
         rthal_local_irq_restore(flags);
     }
 
@@ -218,7 +220,7 @@ void rthal_nmi_arm (unsigned long delay)
     wd->armed = 1;
 }
 
-void rthal_nmi_disarm (void)
+void rthal_nmi_disarm(void)
 {
     rthal_nmi_wds[rthal_processor_id()].armed = 0;
 }

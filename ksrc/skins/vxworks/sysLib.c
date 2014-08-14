@@ -23,80 +23,72 @@
 #define ONE_BILLION 1000000000
 
 static wind_tick_handler_t tick_handler;
-static int tick_handler_arg;
-
+static long tick_handler_arg;
 
 void tickAnnounce(void)
 {
-    if(tick_handler != NULL)
-        tick_handler(tick_handler_arg);
+	if (tick_handler != NULL)
+		tick_handler(tick_handler_arg);
 
-    xnpod_announce_tick(&nkclock);
+	xnpod_announce_tick(&nkclock);
 }
-
 
 static int __tickAnnounce(xnintr_t *intr)
 {
-    tickAnnounce();
-    return XN_ISR_HANDLED | XN_ISR_NOENABLE;
+	tickAnnounce();
+	return XN_ISR_HANDLED | XN_ISR_NOENABLE;
 }
-
 
 int wind_sysclk_init(u_long init_rate)
 {
-    return sysClkRateSet(init_rate);
+	return sysClkRateSet(init_rate);
 }
-
 
 void wind_sysclk_cleanup(void)
 {
-    xnpod_reset_timer();	/* Back to the default timer setup. */
+	xnpod_reset_timer();	/* Back to the default timer setup. */
 }
 
-
-STATUS sysClkConnect (wind_tick_handler_t func, int arg)
+STATUS sysClkConnect(wind_tick_handler_t func, long arg)
 {
-    if(func == NULL)
-        return ERROR;
+	if (func == NULL)
+		return ERROR;
 
-    tick_handler_arg = arg;
-    tick_handler = func;
+	tick_handler_arg = arg;
+	tick_handler = func;
 
-    return OK;
+	return OK;
 }
 
-
-void sysClkDisable (void)
+void sysClkDisable(void)
 {
-    xnpod_stop_timer();
+	xnpod_stop_timer();
 }
 
-
-void sysClkEnable (void)
+void sysClkEnable(void)
 {
-    /* Rely on the fact that even if sysClkDisable was called, the value of
-       nkpod->tickvalue did not change. */
-    xnpod_start_timer(xnpod_get_tickval(), &__tickAnnounce);
+	/* Rely on the fact that even if sysClkDisable was called, the value of
+	   nkpod->tickvalue did not change. */
+	xnpod_start_timer(xnpod_get_tickval(), &__tickAnnounce);
 }
 
-
-int sysClkRateGet (void)
+int sysClkRateGet(void)
 {
-    return xnpod_get_ticks2sec();
+	return xnpod_get_ticks2sec();
 }
 
-
-STATUS sysClkRateSet (int new_rate)
+STATUS sysClkRateSet(int new_rate)
 {
-    int err;
-    
-    if(new_rate <= 0)
-        return ERROR;
+	int err;
 
-    if (testbits(nkpod->status,XNTIMED))
-        xnpod_stop_timer();
+	if (new_rate <= 0) {
+		return ERROR;
+	}
 
-    err = xnpod_start_timer(ONE_BILLION / new_rate , &__tickAnnounce);
+	if (testbits(nkpod->status, XNTIMED))
+		xnpod_stop_timer();
 
-    return err == 0 ? OK : ERROR;
+	err = xnpod_start_timer(ONE_BILLION / new_rate, &__tickAnnounce);
+
+	return err == 0 ? OK : ERROR;
 }

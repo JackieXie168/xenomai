@@ -43,6 +43,10 @@ int __uvm_syscall_init(void);
 
 void __uvm_syscall_cleanup(void);
 
+#else /* !__KERNEL__ */
+
+#include <nucleus/bind.h>
+
 #endif /* __KERNEL__ */
 
 #endif /* !_XENO_ASM_UVM_SYSCALL_H */

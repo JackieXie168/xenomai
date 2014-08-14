@@ -1,7 +1,7 @@
 /*
  * Copyright (C) 2001,2002 IDEALX (http://www.idealx.com/).
  * Written by Julien Pinon <jpinon@idealx.com>.
- * Copyright (C) 2003 Philippe Gerum <rpm@xenomai.org>.
+ * Copyright (C) 2003,2006 Philippe Gerum <rpm@xenomai.org>.
  *
  * Xenomai is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -18,412 +18,416 @@
  * Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  */
 
-#include "vrtx/task.h"
-#include "vrtx/queue.h"
+#include <vrtx/task.h>
+#include <vrtx/queue.h>
 
-static vrtxqueue_t *vrtxqueuemap[VRTX_MAX_QID];
+static vrtxidmap_t *vrtx_queue_idmap;
 
-static u_long q_destroy_internal(vrtxqueue_t *queue);
+static xnqueue_t vrtx_queue_q;
 
-u_long q_destroy_internal(vrtxqueue_t *queue)
+#ifdef CONFIG_XENO_EXPORT_REGISTRY
+
+static int __queue_read_proc(char *page,
+			     char **start,
+			     off_t off, int count, int *eof, void *data)
 {
-    u_long rv;
-    xnholder_t *holder;
-    rv = xnsynch_destroy(&queue->synchbase);
+	vrtxqueue_t *queue = (vrtxqueue_t *)data;
+	char *p = page;
+	int len;
+	spl_t s;
 
-    while ((holder = getq(&queue->messageq)) != NULL)
-	xnfree(link2vrtxmsg(holder));
+	p += sprintf(p, "mcount=%d, qsize=%d\n", queue->qused, queue->qsize);
 
-    xnfree(queue);
+	xnlock_get_irqsave(&nklock, s);
 
-    return rv;
+	if (xnsynch_nsleepers(&queue->synchbase) > 0) {
+		xnpholder_t *holder;
+
+		/* Pended queue -- dump waiters. */
+
+		holder = getheadpq(xnsynch_wait_queue(&queue->synchbase));
+
+		while (holder) {
+			xnthread_t *sleeper = link2thread(holder, plink);
+			p += sprintf(p, "+%s\n", xnthread_name(sleeper));
+			holder =
+			    nextpq(xnsynch_wait_queue(&queue->synchbase), holder);
+		}
+	}
+
+	xnlock_put_irqrestore(&nklock, s);
+
+	len = (p - page) - off;
+	if (len <= off + count)
+		*eof = 1;
+	*start = page + off;
+	if (len > count)
+		len = count;
+	if (len < 0)
+		len = 0;
+
+	return len;
 }
 
-void vrtxqueue_init (void)
+extern xnptree_t __vrtx_ptree;
+
+static xnpnode_t __queue_pnode = {
+
+	.dir = NULL,
+	.type = "queues",
+	.entries = 0,
+	.read_proc = &__queue_read_proc,
+	.write_proc = NULL,
+	.root = &__vrtx_ptree,
+};
+
+#elif defined(CONFIG_XENO_OPT_REGISTRY)
+
+static xnpnode_t __queue_pnode = {
+
+	.type = "queues"
+};
+
+#endif /* CONFIG_XENO_EXPORT_REGISTRY */
+
+int queue_destroy_internal(vrtxqueue_t * queue)
 {
-    int qid;
-    for (qid = 0 ; qid < VRTX_MAX_QID ; qid++)
-	{
-	vrtxqueuemap[qid] = NULL;
-	}
+	int s;
+
+	removeq(&vrtx_queue_q, &queue->link);
+	s = xnsynch_destroy(&queue->synchbase);
+	vrtx_put_id(vrtx_queue_idmap, queue->qid);
+	xnfree(queue->messages);
+#ifdef CONFIG_XENO_OPT_REGISTRY
+	xnregistry_remove(queue->handle);
+#endif /* CONFIG_XENO_OPT_REGISTRY */
+	vrtx_mark_deleted(queue);
+	xnfree(queue);
+
+	return s;
 }
 
-void vrtxqueue_cleanup (void)
+int vrtxqueue_init(void)
 {
-    int qid;
-
-    for (qid = 0 ; qid < VRTX_MAX_QID ; qid++)
-	{
-	if (NULL != vrtxqueuemap[qid])
-	    {
-	    /* depending of the number of queues, and the cost of
-	       CRITICAL_ operations, we may prefer protect from interrupts
-	       here only */
-	    q_destroy_internal(vrtxqueuemap[qid]);
-	    }
-	}
+	initq(&vrtx_queue_q);
+	vrtx_queue_idmap = vrtx_alloc_idmap(VRTX_MAX_QUEUES, 1);
+	return vrtx_queue_idmap ? 0 : -ENOMEM;
 }
 
-int sc_qecreate (int qid, int qsize, int opt, int *errp)
+void vrtxqueue_cleanup(void)
 {
-    vrtxqueue_t *queue;
-    int bflags;
-    spl_t s;
+	xnholder_t *holder;
 
-    xnpod_check_context(XNPOD_THREAD_CONTEXT);
+	while ((holder = getheadq(&vrtx_queue_q)) != NULL)
+		queue_destroy_internal(link2vrtxqueue(holder));
 
-    if ( ( (qid < -1) || (qid >= VRTX_MAX_QID) ) ||
-	 ( (opt != 0) && (opt != 1) ) )
-	{
-	*errp = ER_IIP;
-	return -1;
-	}
-
-    xnlock_get_irqsave(&nklock,s);
-
-    if (qid == -1)
-	{
-	for (qid = 0; qid < VRTX_MAX_QID; qid++)
-	    {
-	    if (vrtxqueuemap[qid] == NULL)
-		break;
-	    }
-
-	if (qid >= VRTX_MAX_QID)
-	    {
-	    xnlock_put_irqrestore(&nklock,s);
-	    *errp = ER_MEM;
-	    return -1;
-	    }
-	}
-    else if (qid > 0 && vrtxqueuemap[qid] != NULL)
-	{
-	xnlock_put_irqrestore(&nklock,s);
-	*errp = ER_QID;
-	return -1;
-	}
-
-    vrtxqueuemap[qid] = (vrtxqueue_t *)1;	/* Reserve slot */
-
-    xnlock_put_irqrestore(&nklock,s);
-
-    queue = (vrtxqueue_t *)xnmalloc(sizeof(*queue));
-    if (queue == NULL)
-	{
-	vrtxqueuemap[qid] = NULL;
-	*errp = ER_MEM;
-	return -1;
-	}
-
-    /* messages[0] is reserved, others are indexed from 1 to qsize.
-    */
-    initq(&queue->messageq);
-
-    if (opt == 1)
-	{
-	bflags = XNSYNCH_FIFO;
-	}
-    else
-	{
-	bflags = XNSYNCH_PRIO;
-	}
-
-    xnsynch_init(&queue->synchbase, bflags|XNSYNCH_DREORD);
-
-    queue->magic = VRTX_QUEUE_MAGIC;
-    queue->maxnum = qsize;
-    vrtxqueuemap[qid] = queue;
-    *errp = RET_OK;
-    return qid;
+	vrtx_free_idmap(vrtx_queue_idmap);
 }
 
-int sc_qcreate (int qid, int qsize, int *errp)
+int sc_qecreate(int qid, int qsize, int opt, int *errp)
 {
-    return sc_qecreate(qid, qsize, 1, errp);
+	vrtxqueue_t *queue;
+	int bflags;
+	spl_t s;
+
+	if ((opt & ~1) || qid < -1 || qsize < 0 || qsize > 65535) {
+		*errp = ER_IIP;
+		return -1;
+	}
+
+	queue = (vrtxqueue_t *) xnmalloc(sizeof(*queue));
+
+	if (queue == NULL)
+		goto nomem;
+
+	/* Allocate enough message entries, +1 for the jamming slot. */
+	queue->messages = (char **)xnmalloc(sizeof(char *) * (qsize + 1));
+
+	if (queue->messages == NULL) {
+		xnfree(queue);
+	      nomem:
+		*errp = ER_MEM;
+		return -1;
+	}
+
+	qid = vrtx_get_id(vrtx_queue_idmap, qid, queue);
+
+	if (qid < 0) {
+		xnfree(queue->messages);
+		xnfree(queue);
+		*errp = ER_QID;
+		return -1;
+	}
+
+	if (opt == 1)
+		bflags = XNSYNCH_FIFO;
+	else
+		bflags = XNSYNCH_PRIO;
+
+	inith(&queue->link);
+	xnsynch_init(&queue->synchbase, bflags | XNSYNCH_DREORD);
+	queue->magic = VRTX_QUEUE_MAGIC;
+	queue->qid = qid;
+	queue->qsize = qsize;
+	queue->rdptr = 0;
+	queue->wrptr = 0;
+	queue->qused = 0;
+
+	*errp = RET_OK;
+
+	xnlock_get_irqsave(&nklock, s);
+	appendq(&vrtx_queue_q, &queue->link);
+	xnlock_put_irqrestore(&nklock, s);
+
+#ifdef CONFIG_XENO_OPT_REGISTRY
+	sprintf(queue->name, "q%d", qid);
+	xnregistry_enter(queue->name, queue, &queue->handle, &__queue_pnode);
+#endif /* CONFIG_XENO_OPT_REGISTRY */
+	return qid;
 }
 
-void sc_qdelete (int qid, int opt, int *errp)
+int sc_qcreate(int qid, int qsize, int *errp)
 {
-    vrtxqueue_t *queue;
-    spl_t s;
-
-    xnpod_check_context(XNPOD_THREAD_CONTEXT);
-
-    if ( (opt != 0) && (opt != 1) )
-	{
-	*errp = ER_IIP;
-	return;
-	}
-
-    xnlock_get_irqsave(&nklock,s);
-
-    queue = vrtxqueuemap[qid];
-
-    if (queue == NULL)
-	{
-	xnlock_put_irqrestore(&nklock,s);
-	*errp = ER_QID;
-	return;
-	}
-
-    if (opt == 0 && xnsynch_nsleepers(&queue->synchbase) > 0) /* we look for pending task */
-	{
-	xnlock_put_irqrestore(&nklock,s);
-	*errp = ER_PND;
-	return;
-	}
-
-    *errp = RET_OK;
-
-    /* forcing delete or no task pending */
-    if (q_destroy_internal(queue) == XNSYNCH_RESCHED)
-	{
-	/* we do not want to have an unaffected qid for another task */
-	vrtxqueuemap[qid] = NULL;
-	xnpod_schedule();
-	}
-    else
-	{
-	vrtxqueuemap[qid] = NULL;
-	}
-
-    xnlock_put_irqrestore(&nklock,s);
-
-    *errp = RET_OK;
+	return sc_qecreate(qid, qsize, 1, errp);
 }
 
-static void sc_qpost_internal (int qid, char *msg, int *errp, int to_head)
+void sc_qdelete(int qid, int opt, int *errp)
 {
-    vrtxqueue_t *queue;
-    vrtxqmsg_t *msg_slot;
-    xnthread_t *waiter;
-    spl_t s;
+	vrtxqueue_t *queue;
+	spl_t s;
 
-    xnlock_get_irqsave(&nklock,s);
-
-    queue = vrtxqueuemap[qid];
-
-    if (queue == NULL)
-	{
-	xnlock_put_irqrestore(&nklock,s);
-	*errp = ER_QID;
-	return;
+	if (opt & ~1) {
+		*errp = ER_IIP;
+		return;
 	}
 
-    *errp = RET_OK;
-    waiter = xnsynch_wakeup_one_sleeper(&queue->synchbase);
-    
-    if (waiter)
-	{
-	thread2vrtxtask(waiter)->waitargs.qmsg = msg;
-	xnpod_schedule();
-	xnlock_put_irqrestore(&nklock,s);
-	return;
+	xnlock_get_irqsave(&nklock, s);
+
+	queue = (vrtxqueue_t *) vrtx_get_object(vrtx_queue_idmap, qid);
+
+	if (queue == NULL) {
+		*errp = ER_QID;
+		goto unlock_and_exit;
 	}
 
-/*     count = countq(&queue->messageq); */
-/*     if ( ( (to_head == 0) && (count >= queue->maxnum)) || */
-/*  	    ( (to_head == 1) && (count > queue->maxnum))) */
-/* optimized below : */
-    if ( countq(&queue->messageq) >= queue->maxnum + to_head )
-	{
-	xnlock_put_irqrestore(&nklock,s);
-	*errp = ER_QFL;
-	return;
+	/* We look for a pending task */
+	if (opt == 0 && xnsynch_nsleepers(&queue->synchbase) > 0) {
+		*errp = ER_PND;
+		goto unlock_and_exit;
 	}
 
-    msg_slot = (vrtxqmsg_t *)xnmalloc(sizeof(*msg_slot));
+	*errp = RET_OK;
 
-    if (msg_slot == NULL)
-	{
-	xnlock_put_irqrestore(&nklock,s);
-	*errp = ER_QFL;
-	return;
-	}
+	/* forcing delete or no task pending */
+	if (queue_destroy_internal(queue) == XNSYNCH_RESCHED)
+		xnpod_schedule();
 
-    msg_slot->message = msg;
-    inith(&msg_slot->link);
-    if (to_head == 0)
-	{
-	appendq(&queue->messageq, &msg_slot->link);
-	}
-    else
-	{
-	prependq(&queue->messageq, &msg_slot->link);
-	}	
+      unlock_and_exit:
 
-    xnlock_put_irqrestore(&nklock,s);
+	xnlock_put_irqrestore(&nklock, s);
 }
 
-void sc_qpost (int qid, char *msg, int *errp)
+static void sc_qpost_inner(int qid, char *msg, int *errp, int jammed)
 {
-    sc_qpost_internal(qid, msg, errp, 0);
-}
+	vrtxqueue_t *queue;
+	xnthread_t *waiter;
+	spl_t s;
 
-void sc_qjam (int qid, char *msg, int *errp)
-{
-    sc_qpost_internal(qid, msg, errp, 1);
-}
+	xnlock_get_irqsave(&nklock, s);
 
-char *sc_qpend (int qid, long timeout, int *errp)
-{
-    vrtxqueue_t *queue;
-    xnholder_t *holder;
-    vrtxtask_t *task;
-    vrtxqmsg_t *qmsg;
-    char *msg;
-    spl_t s;
+	queue = (vrtxqueue_t *) vrtx_get_object(vrtx_queue_idmap, qid);
 
-    xnpod_check_context(XNPOD_THREAD_CONTEXT);
-
-    xnlock_get_irqsave(&nklock,s);
-
-    queue = vrtxqueuemap[qid];
-
-    if (queue == NULL)
-	{
-	xnlock_put_irqrestore(&nklock,s);
-	*errp = ER_QID;
-	return NULL;
+	if (queue == NULL) {
+		*errp = ER_QID;
+		goto unlock_and_exit;
 	}
 
-    holder = getq(&queue->messageq);
+	*errp = RET_OK;
 
-    if (holder == NULL)
-	{
-	task = vrtx_current_task();    
+	waiter = xnsynch_wakeup_one_sleeper(&queue->synchbase);
+
+	if (waiter) {
+		thread2vrtxtask(waiter)->waitargs.msg = msg;
+		xnpod_schedule();
+		goto unlock_and_exit;
+	}
+
+	if (queue->qused >= queue->qsize + jammed) {
+		*errp = ER_QFL;
+		goto unlock_and_exit;
+	}
+
+	if (jammed) {
+		queue->rdptr =
+		    queue->rdptr == 0 ? queue->qsize : queue->rdptr - 1;
+		queue->messages[queue->rdptr] = msg;
+	} else {
+		queue->messages[queue->wrptr] = msg;
+		queue->wrptr = (queue->wrptr + 1) % (queue->qsize + 1);
+	}
+
+	++queue->qused;
+
+      unlock_and_exit:
+
+	xnlock_put_irqrestore(&nklock, s);
+}
+
+void sc_qpost(int qid, char *msg, int *errp)
+{
+	sc_qpost_inner(qid, msg, errp, 0);
+}
+
+void sc_qjam(int qid, char *msg, int *errp)
+{
+	sc_qpost_inner(qid, msg, errp, 1);
+}
+
+char *sc_qpend(int qid, long timeout, int *errp)
+{
+	vrtxqueue_t *queue;
+	vrtxtask_t *task;
+	char *msg = NULL;
+	spl_t s;
+
+	xnlock_get_irqsave(&nklock, s);
+
+	queue = (vrtxqueue_t *) vrtx_get_object(vrtx_queue_idmap, qid);
+
+	if (queue == NULL) {
+		*errp = ER_QID;
+		goto unlock_and_exit;
+	}
+
+	if (likely(queue->qused > 0)) {
+		msg = queue->messages[queue->rdptr];
+		queue->rdptr = (queue->rdptr + 1) % (queue->qsize + 1);
+		--queue->qused;
+		goto unlock_and_exit;
+	}
+
+	if (xnpod_unblockable_p()) {
+		*errp = -EPERM;
+		goto unlock_and_exit;
+	}
+
+	task = vrtx_current_task();
 	task->vrtxtcb.TCBSTAT = TBSQUEUE;
+
 	if (timeout)
-	    {
-	    task->vrtxtcb.TCBSTAT |= TBSDELAY;
-	    }
+		task->vrtxtcb.TCBSTAT |= TBSDELAY;
 
-	xnsynch_sleep_on(&queue->synchbase,timeout);
+	xnsynch_sleep_on(&queue->synchbase, timeout);
 
-	if (xnthread_test_flags(&task->threadbase, XNRMID))
-	    {
-	    xnlock_put_irqrestore(&nklock,s);
-	    *errp = ER_DEL;
-	    return NULL; /* Queue deleted while pending. */
-	    }
-	
-	if (xnthread_test_flags(&task->threadbase, XNTIMEO))
-	    {
-	    xnlock_put_irqrestore(&nklock,s);
-	    *errp = ER_TMO;
-	    return NULL; /* Timeout.*/
-	    }
-	msg = vrtx_current_task()->waitargs.qmsg;
-	}
-    else
-	{
-	qmsg = link2vrtxmsg(holder);
-	msg = qmsg->message;
-	xnfree(qmsg);
+	if (xnthread_test_flags(&task->threadbase, XNBREAK)) {
+		*errp = -EINTR;
+		goto unlock_and_exit;
 	}
 
-    xnlock_put_irqrestore(&nklock,s);
+	if (xnthread_test_flags(&task->threadbase, XNRMID)) {
+		*errp = ER_DEL;
+		goto unlock_and_exit;
+	}
 
-    *errp = RET_OK;
+	if (xnthread_test_flags(&task->threadbase, XNTIMEO)) {
+		*errp = ER_TMO;
+		goto unlock_and_exit;
+	}
 
-    return msg;
+	msg = task->waitargs.msg;
+
+	*errp = RET_OK;
+
+      unlock_and_exit:
+
+	xnlock_put_irqrestore(&nklock, s);
+
+	return msg;
 }
 
 char *sc_qaccept(int qid, int *errp)
 {
-    vrtxqueue_t *queue;
-    xnholder_t *holder;
-    char *msg;
-    vrtxqmsg_t *qmsg;
-    spl_t s;
+	vrtxqueue_t *queue;
+	char *msg = NULL;
+	spl_t s;
 
-    xnlock_get_irqsave(&nklock,s);
+	xnlock_get_irqsave(&nklock, s);
 
-    queue = vrtxqueuemap[qid];
+	queue = (vrtxqueue_t *) vrtx_get_object(vrtx_queue_idmap, qid);
 
-    if (queue == NULL)
-	{
-	xnlock_put_irqrestore(&nklock,s);
-	*errp = ER_QID;
-	return NULL;
+	if (queue == NULL) {
+		*errp = ER_QID;
+		goto unlock_and_exit;
 	}
 
-    holder = getq(&queue->messageq);
-    if (holder == NULL)
-	{
-	xnlock_put_irqrestore(&nklock,s);
-	*errp = ER_NMP;
-	return NULL;
+	if (queue->qused == 0) {
+		*errp = ER_NMP;
+		goto unlock_and_exit;
 	}
 
-    qmsg = link2vrtxmsg(holder);
-    msg = qmsg->message;
-    xnfree(qmsg);
+	msg = queue->messages[queue->rdptr];
+	queue->rdptr = (queue->rdptr + 1) % (queue->qsize + 1);
+	--queue->qused;
 
-    xnlock_put_irqrestore(&nklock,s);
+	*errp = RET_OK;
 
-    *errp = RET_OK;
+      unlock_and_exit:
 
-    return msg;
+	xnlock_put_irqrestore(&nklock, s);
+
+	return msg;
 }
 
 void sc_qbrdcst(int qid, char *msg, int *errp)
 {
-    xnthread_t *waiter;
-    vrtxqueue_t *queue;
-    spl_t s;
+	xnthread_t *waiter;
+	vrtxqueue_t *queue;
+	spl_t s;
 
-    xnlock_get_irqsave(&nklock,s);
+	xnlock_get_irqsave(&nklock, s);
 
-    queue = vrtxqueuemap[qid];
+	queue = (vrtxqueue_t *) vrtx_get_object(vrtx_queue_idmap, qid);
 
-    if (queue == NULL)
-	{
-	xnlock_put_irqrestore(&nklock,s);
-	*errp = ER_QID;
-	return;
+	if (queue == NULL) {
+		*errp = ER_QID;
+		goto unlock_and_exit;
 	}
 
-    while ((waiter = xnsynch_wakeup_one_sleeper(&queue->synchbase)) != NULL)
-	thread2vrtxtask(waiter)->waitargs.qmsg = msg;
+	while ((waiter = xnsynch_wakeup_one_sleeper(&queue->synchbase)) != NULL)
+		thread2vrtxtask(waiter)->waitargs.msg = msg;
 
-    xnpod_schedule();
+	*errp = RET_OK;
 
-    xnlock_put_irqrestore(&nklock,s);
+	xnpod_schedule();
 
-    *errp = RET_OK;
+      unlock_and_exit:
+
+	xnlock_put_irqrestore(&nklock, s);
 }
 
-char *sc_qinquiry (int qid, int *countp, int *errp)
+char *sc_qinquiry(int qid, int *countp, int *errp)
 {
-    vrtxqueue_t *queue;
-    char *msg = NULL;
-    xnholder_t *holder;
-    spl_t s;
+	vrtxqueue_t *queue;
+	char *msg;
+	spl_t s;
 
-    *countp = 0;
+	xnlock_get_irqsave(&nklock, s);
 
-    xnlock_get_irqsave(&nklock,s);
+	queue = (vrtxqueue_t *) vrtx_get_object(vrtx_queue_idmap, qid);
 
-    queue = vrtxqueuemap[qid];
-
-    if (queue == NULL)
-	{
-	xnlock_put_irqrestore(&nklock,s);
-	*errp = ER_QID;
-	return NULL;
-	}
-    
-    holder = getheadq(&queue->messageq);
-    if (holder != NULL)
-	{
-	*countp = countq(&queue->messageq);
-	msg = link2vrtxmsg(holder)->message;
+	if (queue == NULL) {
+		msg = NULL;
+		*errp = ER_QID;
+		goto unlock_and_exit;
 	}
 
-    xnlock_put_irqrestore(&nklock,s);
+	*countp = queue->qused;
+	msg = queue->messages[queue->rdptr];
+	*errp = RET_OK;
 
-    *errp = RET_OK;
-    
-    return msg;
+      unlock_and_exit:
+
+	xnlock_put_irqrestore(&nklock, s);
+
+	return msg;
 }

@@ -34,89 +34,86 @@
 
 static DECLARE_XNQUEUE(__xeno_intr_q);
 
-int __native_intr_pkg_init (void)
-
+int __native_intr_pkg_init(void)
 {
-    return 0;
+	return 0;
 }
 
-void __native_intr_pkg_cleanup (void)
-
+void __native_intr_pkg_cleanup(void)
 {
-    xnholder_t *holder;
+	xnholder_t *holder;
 
-    while ((holder = getheadq(&__xeno_intr_q)) != NULL)
-	rt_intr_delete(link2intr(holder));
+	while ((holder = getheadq(&__xeno_intr_q)) != NULL)
+		rt_intr_delete(link2intr(holder));
 }
 
 #ifdef CONFIG_XENO_EXPORT_REGISTRY
 
-static int __intr_read_proc (char *page,
-			     char **start,
-			     off_t off,
-			     int count,
-			     int *eof,
-			     void *data)
+static int __intr_read_proc(char *page,
+			    char **start,
+			    off_t off, int count, int *eof, void *data)
 {
-    RT_INTR *intr = (RT_INTR *)data;
-    char *p = page;
-    int len;
+	RT_INTR *intr = (RT_INTR *)data;
+	char *p = page;
+	int len;
 
 #ifdef CONFIG_XENO_OPT_PERVASIVE
-    {
-    xnpholder_t *holder;
-    spl_t s;
-
-    xnlock_get_irqsave(&nklock,s);
-
-    p += sprintf(p,"hits=%lu, pending=%u, mode=0x%x\n",
-		 intr->intr_base.hits,
-		 intr->pending,
-		 intr->mode);
-
-    /* Pended interrupt -- dump waiters. */
-
-    holder = getheadpq(xnsynch_wait_queue(&intr->synch_base));
-
-    while (holder)
 	{
-	xnthread_t *sleeper = link2thread(holder,plink);
-	p += sprintf(p,"+%s\n",xnthread_name(sleeper));
-	holder = nextpq(xnsynch_wait_queue(&intr->synch_base),holder);
-	}
+		xnpholder_t *holder;
+		spl_t s;
 
-    xnlock_put_irqrestore(&nklock,s);
-    }
+		xnlock_get_irqsave(&nklock, s);
+
+		p += sprintf(p, "hits=%lu, pending=%u, mode=0x%x\n",
+			     intr->intr_base.hits, intr->pending, intr->mode);
+
+		/* Pended interrupt -- dump waiters. */
+
+		holder = getheadpq(xnsynch_wait_queue(&intr->synch_base));
+
+		while (holder) {
+			xnthread_t *sleeper = link2thread(holder, plink);
+			p += sprintf(p, "+%s\n", xnthread_name(sleeper));
+			holder =
+			    nextpq(xnsynch_wait_queue(&intr->synch_base),
+				   holder);
+		}
+
+		xnlock_put_irqrestore(&nklock, s);
+	}
 #else /* !CONFIG_XENO_OPT_PERVASIVE */
-    p += sprintf(p,"hits=%lu\n",intr->intr_base.hits);
+	p += sprintf(p, "hits=%lu\n", intr->intr_base.hits);
 #endif /* CONFIG_XENO_OPT_PERVASIVE */
 
-    len = (p - page) - off;
-    if (len <= off + count) *eof = 1;
-    *start = page + off;
-    if(len > count) len = count;
-    if(len < 0) len = 0;
+	len = (p - page) - off;
+	if (len <= off + count)
+		*eof = 1;
+	*start = page + off;
+	if (len > count)
+		len = count;
+	if (len < 0)
+		len = 0;
 
-    return len;
+	return len;
 }
 
 extern xnptree_t __native_ptree;
 
 static xnpnode_t __intr_pnode = {
 
-    .dir = NULL,
-    .type = "interrupts",
-    .entries = 0,
-    .read_proc = &__intr_read_proc,
-    .write_proc = NULL,
-    .root = &__native_ptree,
+	.dir = NULL,
+	.type = "interrupts",
+	.entries = 0,
+	.read_proc = &__intr_read_proc,
+	.write_proc = NULL,
+	.root = &__native_ptree,
 };
 
 #elif defined(CONFIG_XENO_OPT_REGISTRY)
 
 static xnpnode_t __intr_pnode = {
 
-    .type = "interrupts"
+	.type = "interrupts"
 };
 
 #endif /* CONFIG_XENO_EXPORT_REGISTRY */
@@ -234,49 +231,48 @@ static xnpnode_t __intr_pnode = {
  * the new interrupt object to unmask it.
  */
 
-int rt_intr_create (RT_INTR *intr,
-		    const char *name,
-		    unsigned irq,
-		    rt_isr_t isr,
-		    rt_iack_t iack,
-		    int mode)
+int rt_intr_create(RT_INTR *intr,
+		   const char *name,
+		   unsigned irq, rt_isr_t isr, rt_iack_t iack, int mode)
 {
-    int err;
-    spl_t s;
+	int err;
+	spl_t s;
 
-    if (xnpod_asynch_p())
-	return -EPERM;
+	if (xnpod_asynch_p())
+		return -EPERM;
 
-    xnintr_init(&intr->intr_base,name,irq,isr,iack,mode);
-    xnobject_copy_name(intr->name,name);
+	xnintr_init(&intr->intr_base, name, irq, isr, iack, mode);
+	xnobject_copy_name(intr->name, name);
 #if defined(__KERNEL__) && defined(CONFIG_XENO_OPT_PERVASIVE)
-    xnsynch_init(&intr->synch_base,XNSYNCH_PRIO);
-    intr->pending = 0;
-    intr->cpid = 0;
-    intr->mode = 0;
+	xnsynch_init(&intr->synch_base, XNSYNCH_PRIO);
+	intr->pending = 0;
+	intr->cpid = 0;
+	intr->mode = 0;
 #endif /* __KERNEL__ && CONFIG_XENO_OPT_PERVASIVE */
-    intr->magic = XENO_INTR_MAGIC;
-    intr->handle = 0;    /* i.e. (still) unregistered interrupt. */
-    inith(&intr->link);
-    xnlock_get_irqsave(&nklock,s);
-    appendq(&__xeno_intr_q,&intr->link);
-    xnlock_put_irqrestore(&nklock,s);
+	intr->magic = XENO_INTR_MAGIC;
+	intr->handle = 0;	/* i.e. (still) unregistered interrupt. */
+	inith(&intr->link);
+	xnlock_get_irqsave(&nklock, s);
+	appendq(&__xeno_intr_q, &intr->link);
+	xnlock_put_irqrestore(&nklock, s);
 
-    err = xnintr_attach(&intr->intr_base,intr);
+	err = xnintr_attach(&intr->intr_base, intr);
 
 #ifdef CONFIG_XENO_OPT_REGISTRY
-    /* <!> Since xnregister_enter() may reschedule, only register
-       complete objects, so that the registry cannot return handles to
-       half-baked objects... */
+	/* <!> Since xnregister_enter() may reschedule, only register
+	   complete objects, so that the registry cannot return handles to
+	   half-baked objects... */
 
-    if (!err)
-	err = xnregistry_enter(intr->name,intr,&intr->handle,&__intr_pnode);
+	if (!err)
+		err =
+		    xnregistry_enter(intr->name, intr, &intr->handle,
+				     &__intr_pnode);
 #endif /* CONFIG_XENO_OPT_REGISTRY */
 
-    if (err)
-	rt_intr_delete(intr);
+	if (err)
+		rt_intr_delete(intr);
 
-    return err;
+	return err;
 }
 
 /**
@@ -315,50 +311,47 @@ int rt_intr_create (RT_INTR *intr,
  * Rescheduling: possible.
  */
 
-int rt_intr_delete (RT_INTR *intr)
-
+int rt_intr_delete(RT_INTR *intr)
 {
-    int err = 0, rc = XNSYNCH_DONE;
-    spl_t s;
+	int err = 0, rc = XNSYNCH_DONE;
+	spl_t s;
 
-    if (xnpod_asynch_p())
-	return -EPERM;
+	if (xnpod_asynch_p())
+		return -EPERM;
 
-    xnlock_get_irqsave(&nklock,s);
+	xnlock_get_irqsave(&nklock, s);
 
-    intr = xeno_h2obj_validate(intr,XENO_INTR_MAGIC,RT_INTR);
+	intr = xeno_h2obj_validate(intr, XENO_INTR_MAGIC, RT_INTR);
 
-    if (!intr)
-        {
-        err = xeno_handle_error(intr,XENO_INTR_MAGIC,RT_INTR);
-        goto unlock_and_exit;
-        }
-    
-    removeq(&__xeno_intr_q,&intr->link);
+	if (!intr) {
+		err = xeno_handle_error(intr, XENO_INTR_MAGIC, RT_INTR);
+		xnlock_put_irqrestore(&nklock, s);
+		return err;
+	}
+
+	removeq(&__xeno_intr_q, &intr->link);
 #if defined(__KERNEL__) && defined(CONFIG_XENO_OPT_PERVASIVE)
-    rc = xnsynch_destroy(&intr->synch_base);
+	rc = xnsynch_destroy(&intr->synch_base);
 #endif /* __KERNEL__ && CONFIG_XENO_OPT_PERVASIVE */
-    xnintr_detach(&intr->intr_base);
 
 #ifdef CONFIG_XENO_OPT_REGISTRY
-    if (intr->handle)
-        xnregistry_remove(intr->handle);
+	if (intr->handle)
+		xnregistry_remove(intr->handle);
 #endif /* CONFIG_XENO_OPT_REGISTRY */
 
-    xnintr_destroy(&intr->intr_base);
+	xeno_mark_deleted(intr);
 
-    xeno_mark_deleted(intr);
+	xnlock_put_irqrestore(&nklock, s);
 
-    if (rc == XNSYNCH_RESCHED)
-        /* Some task has been woken up as a result of the deletion:
-           reschedule now. */
-        xnpod_schedule();
+	err = xnintr_detach(&intr->intr_base);
+	xnintr_destroy(&intr->intr_base);
 
- unlock_and_exit:
+	if (rc == XNSYNCH_RESCHED)
+		/* Some task has been woken up as a result of the deletion:
+		   reschedule now. */
+		xnpod_schedule();
 
-    xnlock_put_irqrestore(&nklock,s);
-
-    return err;
+	return err;
 }
 
 /*! 
@@ -393,29 +386,27 @@ int rt_intr_delete (RT_INTR *intr)
  * Rescheduling: never.
  */
 
-int rt_intr_enable (RT_INTR *intr)
-
+int rt_intr_enable(RT_INTR *intr)
 {
-    int err;
-    spl_t s;
+	int err;
+	spl_t s;
 
-    xnlock_get_irqsave(&nklock,s);
+	xnlock_get_irqsave(&nklock, s);
 
-    intr = xeno_h2obj_validate(intr,XENO_INTR_MAGIC,RT_INTR);
+	intr = xeno_h2obj_validate(intr, XENO_INTR_MAGIC, RT_INTR);
 
-    if (!intr)
-        {
-        err = xeno_handle_error(intr,XENO_INTR_MAGIC,RT_INTR);
-        goto unlock_and_exit;
-        }
-    
-    err = xnintr_enable(&intr->intr_base);
+	if (!intr) {
+		err = xeno_handle_error(intr, XENO_INTR_MAGIC, RT_INTR);
+		goto unlock_and_exit;
+	}
 
- unlock_and_exit:
+	err = xnintr_enable(&intr->intr_base);
 
-    xnlock_put_irqrestore(&nklock,s);
+      unlock_and_exit:
 
-    return err;
+	xnlock_put_irqrestore(&nklock, s);
+
+	return err;
 }
 
 /*! 
@@ -449,29 +440,27 @@ int rt_intr_enable (RT_INTR *intr)
  * Rescheduling: never.
  */
 
-int rt_intr_disable (RT_INTR *intr)
-
+int rt_intr_disable(RT_INTR *intr)
 {
-    int err;
-    spl_t s;
+	int err;
+	spl_t s;
 
-    xnlock_get_irqsave(&nklock,s);
+	xnlock_get_irqsave(&nklock, s);
 
-    intr = xeno_h2obj_validate(intr,XENO_INTR_MAGIC,RT_INTR);
+	intr = xeno_h2obj_validate(intr, XENO_INTR_MAGIC, RT_INTR);
 
-    if (!intr)
-        {
-        err = xeno_handle_error(intr,XENO_INTR_MAGIC,RT_INTR);
-        goto unlock_and_exit;
-        }
-    
-    err = xnintr_disable(&intr->intr_base);
+	if (!intr) {
+		err = xeno_handle_error(intr, XENO_INTR_MAGIC, RT_INTR);
+		goto unlock_and_exit;
+	}
 
- unlock_and_exit:
+	err = xnintr_disable(&intr->intr_base);
 
-    xnlock_put_irqrestore(&nklock,s);
+      unlock_and_exit:
 
-    return err;
+	xnlock_put_irqrestore(&nklock, s);
+
+	return err;
 }
 
 /**
@@ -508,31 +497,29 @@ int rt_intr_disable (RT_INTR *intr)
  * Rescheduling: never.
  */
 
-int rt_intr_inquire (RT_INTR *intr,
-		     RT_INTR_INFO *info)
+int rt_intr_inquire(RT_INTR *intr, RT_INTR_INFO *info)
 {
-    int err = 0;
-    spl_t s;
+	int err = 0;
+	spl_t s;
 
-    xnlock_get_irqsave(&nklock,s);
+	xnlock_get_irqsave(&nklock, s);
 
-    intr = xeno_h2obj_validate(intr,XENO_INTR_MAGIC,RT_INTR);
+	intr = xeno_h2obj_validate(intr, XENO_INTR_MAGIC, RT_INTR);
 
-    if (!intr)
-        {
-        err = xeno_handle_error(intr,XENO_INTR_MAGIC,RT_INTR);
-        goto unlock_and_exit;
-        }
-    
-    strcpy(info->name,intr->name);
-    info->hits = intr->intr_base.hits;
-    info->irq = intr->intr_base.irq;
+	if (!intr) {
+		err = xeno_handle_error(intr, XENO_INTR_MAGIC, RT_INTR);
+		goto unlock_and_exit;
+	}
 
- unlock_and_exit:
+	strcpy(info->name, intr->name);
+	info->hits = intr->intr_base.hits;
+	info->irq = intr->intr_base.irq;
 
-    xnlock_put_irqrestore(&nklock,s);
+      unlock_and_exit:
 
-    return err;
+	xnlock_put_irqrestore(&nklock, s);
+
+	return err;
 }
 
 /*! 

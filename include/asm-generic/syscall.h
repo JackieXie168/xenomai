@@ -29,6 +29,7 @@
 #define __xn_sys_barrier    3	/* started = xnshadow_wait_barrier(&entry,&cookie) */
 #define __xn_sys_info       4	/* xnshadow_get_info(muxid,&info) */
 #define __xn_sys_arch       5	/* r = xnarch_local_syscall(args) */
+#define __xn_sys_trace      6	/* r = xntrace_xxx(...) */
 
 #define XENOMAI_LINUX_DOMAIN  0
 #define XENOMAI_XENO_DOMAIN   1
@@ -98,10 +99,14 @@ typedef struct _xnsysent {
 
 } xnsysent_t;
 
-extern int nkgkptd;
+extern int nkthrptd;
 
-#define xnshadow_ptd(t)    ((t)->ptd[nkgkptd])
-#define xnshadow_thread(t) ((xnthread_t *)xnshadow_ptd(t))
+extern int nkerrptd;
+
+#define xnshadow_thrptd(t) ((t)->ptd[nkthrptd])
+#define xnshadow_thread(t) ((xnthread_t *)xnshadow_thrptd(t))
+/* The errno field must be addressable for plain Linux tasks too. */
+#define xnshadow_errno(t)  (*(int *)&((t)->ptd[nkerrptd]))
 
 #else /* !__KERNEL__ */
 

@@ -28,326 +28,306 @@ static const u_long tm_secbyhour = 60 * 60;
 
 static const u_long tm_secbymin = 60;
 
-void psostm_init (void) {
-
-    initq(&psostimerq);
-}
-
-void psostm_cleanup (void) {
-
-    xnholder_t *holder;
-
-    while ((holder = getheadq(&psostimerq)) != NULL)
-	tm_destroy_internal(link2psostm(holder));
-}
-
-void tm_destroy_internal (psostm_t *tm)
-
+void psostm_init(void)
 {
-    spl_t s;
 
-    xnlock_get_irqsave(&nklock,s);
-    removegq(&tm->owner->alarmq,tm);
-    xntimer_destroy(&tm->timerbase);
-    psos_mark_deleted(tm);
-    removeq(&psostimerq,&tm->link);
-    xnlock_put_irqrestore(&nklock,s);
-
-    xnfree(tm);
+	initq(&psostimerq);
 }
 
-static void tm_evpost_handler (void *cookie)
-
+void psostm_cleanup(void)
 {
-    psostm_t *tm = (psostm_t *)cookie;
 
-    ev_send((u_long)tm->owner,tm->events);
+	xnholder_t *holder;
 
-    if (xntimer_interval(&tm->timerbase) == XN_INFINITE)
-	tm_destroy_internal(tm);
+	while ((holder = getheadq(&psostimerq)) != NULL)
+		tm_destroy_internal(link2psostm(holder));
 }
 
-static u_long tm_start_event_timer (u_long ticks,
-				    u_long interval,
-				    u_long events,
-				    u_long *tmid)
+void tm_destroy_internal(psostm_t *tm)
 {
-    psostm_t *tm;
-    spl_t s;
+	spl_t s;
 
-    tm = (psostm_t *)xnmalloc(sizeof(*tm));
+	xnlock_get_irqsave(&nklock, s);
+	removegq(&tm->owner->alarmq, tm);
+	xntimer_destroy(&tm->timerbase);
+	psos_mark_deleted(tm);
+	removeq(&psostimerq, &tm->link);
+	xnlock_put_irqrestore(&nklock, s);
 
-    if (!tm)
-	return ERR_NOSEG;
+	xnfree(tm);
+}
 
-    inith(&tm->link);
-    tm->events = events;
-    tm->owner = psos_current_task();
-    *tmid = (u_long)tm;
+static void tm_evpost_handler(void *cookie)
+{
+	psostm_t *tm = (psostm_t *)cookie;
 
-    xntimer_init(&tm->timerbase,tm_evpost_handler,tm);
-    tm->magic = PSOS_TM_MAGIC;
+	ev_send((u_long)tm->owner, tm->events);
 
-    xnlock_get_irqsave(&nklock,s);
-    appendq(&psostimerq,&tm->link);
-    appendgq(&tm->owner->alarmq,tm);
-    xnlock_put_irqrestore(&nklock,s);
+	if (xntimer_interval(&tm->timerbase) == XN_INFINITE)
+		tm_destroy_internal(tm);
+}
 
-    xntimer_start(&tm->timerbase,ticks,interval);
+static u_long tm_start_event_timer(u_long ticks,
+				   u_long interval, u_long events, u_long *tmid)
+{
+	psostm_t *tm;
+	spl_t s;
 
-    return SUCCESS;
+	tm = (psostm_t *)xnmalloc(sizeof(*tm));
+
+	if (!tm)
+		return ERR_NOSEG;
+
+	inith(&tm->link);
+	tm->events = events;
+	tm->owner = psos_current_task();
+	*tmid = (u_long)tm;
+
+	xntimer_init(&tm->timerbase, tm_evpost_handler, tm);
+	tm->magic = PSOS_TM_MAGIC;
+
+	xnlock_get_irqsave(&nklock, s);
+	appendq(&psostimerq, &tm->link);
+	appendgq(&tm->owner->alarmq, tm);
+	xnlock_put_irqrestore(&nklock, s);
+
+	xntimer_start(&tm->timerbase, ticks, interval);
+
+	return SUCCESS;
 }
 
 static const int tm_month_sizes[] = {
-    31, 28, 31, 30,31, 30,
-    31, 31, 30, 31, 30, 31
+	31, 28, 31, 30, 31, 30,
+	31, 31, 30, 31, 30, 31
 };
 
-static u_long tm_date_to_ticks (u_long date,
-				u_long time,
-				u_long ticks,
-				xnticks_t *count)
+static u_long tm_date_to_ticks(u_long date,
+			       u_long time, u_long ticks, xnticks_t *count)
 {
-    u_long year, month, day, hour, min, sec;
-    int n;
+	u_long year, month, day, hour, min, sec;
+	int n;
 
-    *count = 0;
+	*count = 0;
 
-    year = date >> 16;
-    month = (date >> 8) & 0xff;
-    day = (date & 0xff);
-    hour = time >> 16;
-    min = (time >> 8) & 0xff;
-    sec = (time & 0xff);
+	year = date >> 16;
+	month = (date >> 8) & 0xff;
+	day = (date & 0xff);
+	hour = time >> 16;
+	min = (time >> 8) & 0xff;
+	sec = (time & 0xff);
 
-    if (month < 1 || month > 12 || day < 1 || day > 31)
-	return ERR_ILLDATE;
+	if (month < 1 || month > 12 || day < 1 || day > 31)
+		return ERR_ILLDATE;
 
-    if (hour > 23 || min > 59 || sec > 59)
-        return ERR_ILLTIME;
+	if (hour > 23 || min > 59 || sec > 59)
+		return ERR_ILLTIME;
 
-    if (ticks >= xnpod_get_ticks2sec())
-	return ERR_ILLTICKS;
+	if (ticks >= xnpod_get_ticks2sec())
+		return ERR_ILLTICKS;
 
-    for (n = 0; n < year; n++)
-	*count += ((n % 4) ? 365: 366);
+	for (n = 0; n < year; n++)
+		*count += ((n % 4) ? 365 : 366);
 
-    if (!(year % 4) && month >= 3)
-	/* Add one day for leap year after February. */
-	*count += 1;
+	if (!(year % 4) && month >= 3)
+		/* Add one day for leap year after February. */
+		*count += 1;
 
-    for (n = month - 1; month > 0; month--)
-	*count += tm_month_sizes[month - 1];
+	for (n = month - 1; month > 0; month--)
+		*count += tm_month_sizes[month - 1];
 
-    *count += day - 1;
-    *count *= 24;
-    *count += hour;
-    *count *= 60;
-    *count += min;
-    *count *= 60;
-    *count += sec;
-    *count *= xnpod_get_ticks2sec();
-    *count += ticks;
+	*count += day - 1;
+	*count *= 24;
+	*count += hour;
+	*count *= 60;
+	*count += min;
+	*count *= 60;
+	*count += sec;
+	*count *= xnpod_get_ticks2sec();
+	*count += ticks;
 
-    return SUCCESS;
+	return SUCCESS;
 }
 
-static void tm_ticks_to_date (u_long *date,
-			      u_long *time,
-			      u_long *ticks,
-			      xnticks_t count)
+static void tm_ticks_to_date(u_long *date,
+			     u_long *time, u_long *ticks, xnticks_t count)
 {
-    u_long year, month, day, hour, min, sec, allsecs, rem;
+	u_long year, month, day, hour, min, sec, allsecs, rem;
 
-    allsecs = (u_long)xnarch_ulldiv(count,xnpod_get_ticks2sec(),&rem);
+	allsecs = (u_long)xnarch_ulldiv(count, xnpod_get_ticks2sec(), &rem);
 
-    year = 0;
+	year = 0;
 
-    for (;;)
-	{
-	u_long ysecs = ((year % 4) ? 365: 366) * tm_secbyday;
+	for (;;) {
+		u_long ysecs = ((year % 4) ? 365 : 366) * tm_secbyday;
 
-	if (ysecs > allsecs)
-	    break;
+		if (ysecs > allsecs)
+			break;
 
-	allsecs -= ysecs;
-	year++;
+		allsecs -= ysecs;
+		year++;
 	}
 
-    month = 0;
+	month = 0;
 
-    for (;;)
-	{
-        u_long msecs = tm_month_sizes[month] * tm_secbyday;
+	for (;;) {
+		u_long msecs = tm_month_sizes[month] * tm_secbyday;
 
-	if (month == 1 && (year % 4) == 0)
-	    /* Account for leap year on February. */
-	    msecs += tm_secbyday;
-	
-	if (msecs > allsecs) {
-	    month++; break;
+		if (month == 1 && (year % 4) == 0)
+			/* Account for leap year on February. */
+			msecs += tm_secbyday;
+
+		if (msecs > allsecs) {
+			month++;
+			break;
+		}
+
+		allsecs -= msecs;
+		month++;
 	}
 
-	allsecs -= msecs;
-	month++;
+	day = allsecs / tm_secbyday;
+	allsecs -= (day * tm_secbyday);
+	day++;			/* Days are 1-based. */
+	hour = (allsecs / tm_secbyhour);
+	allsecs -= (hour * tm_secbyhour);
+	min = (allsecs / tm_secbymin);
+	allsecs -= (min * tm_secbymin);
+	sec = allsecs;
+
+	*date = (year << 16) | (month << 8) | day;
+	*time = (hour << 16) | (min << 8) | sec;
+	*ticks = xnarch_ullmod(count, xnpod_get_ticks2sec(), &rem);
+}
+
+u_long tm_wkafter(u_long ticks)
+{
+	xnpod_check_context(XNPOD_THREAD_CONTEXT);
+
+	if (ticks > 0)
+		xnpod_delay(ticks);
+	else
+		xnpod_yield();	/* Perform manual round-robin */
+
+	return SUCCESS;
+}
+
+u_long tm_evafter(u_long ticks, u_long events, u_long *tmid)
+{
+
+	xnpod_check_context(XNPOD_THREAD_CONTEXT);
+	return tm_start_event_timer(ticks, XN_INFINITE, events, tmid);
+}
+
+u_long tm_evevery(u_long ticks, u_long events, u_long *tmid)
+{
+
+	xnpod_check_context(XNPOD_THREAD_CONTEXT);
+	return tm_start_event_timer(ticks, ticks, events, tmid);
+}
+
+u_long tm_cancel(u_long tmid)
+{
+	u_long err = SUCCESS;
+	psostm_t *tm;
+	spl_t s;
+
+	xnpod_check_context(XNPOD_THREAD_CONTEXT);
+
+	xnlock_get_irqsave(&nklock, s);
+
+	tm = psos_h2obj_active(tmid, PSOS_TM_MAGIC, psostm_t);
+
+	if (!tm) {
+		err = psos_handle_error(tmid, PSOS_TM_MAGIC, psostm_t);
+		goto unlock_and_exit;
 	}
 
-    day = allsecs / tm_secbyday;
-    allsecs -= (day * tm_secbyday);
-    day++; /* Days are 1-based. */
-    hour = (allsecs / tm_secbyhour);
-    allsecs -= (hour * tm_secbyhour);
-    min = (allsecs / tm_secbymin);
-    allsecs -= (min * tm_secbymin);
-    sec = allsecs;
+	tm_destroy_internal(tm);
 
-    *date = (year << 16)|(month << 8)|day;
-    *time = (hour << 16)|(min << 8)|sec;
-    *ticks = xnarch_ullmod(count,xnpod_get_ticks2sec(),&rem);
-}
+      unlock_and_exit:
 
-u_long tm_wkafter (u_long ticks)
+	xnlock_put_irqrestore(&nklock, s);
 
-{
-    xnpod_check_context(XNPOD_THREAD_CONTEXT);
-
-    if (ticks > 0)
-	xnpod_delay(ticks);
-    else
-	xnpod_yield(); /* Perform manual round-robin */
-
-    return SUCCESS;
-}
-
-u_long tm_evafter (u_long ticks,
-		   u_long events,
-		   u_long *tmid) {
-
-    xnpod_check_context(XNPOD_THREAD_CONTEXT);
-    return tm_start_event_timer(ticks,XN_INFINITE,events,tmid);
-}
-
-u_long tm_evevery (u_long ticks,
-		   u_long events,
-		   u_long *tmid) {
-
-    xnpod_check_context(XNPOD_THREAD_CONTEXT);
-    return tm_start_event_timer(ticks,ticks,events,tmid);
-}
-
-u_long tm_cancel (u_long tmid)
-
-{
-    u_long err = SUCCESS;
-    psostm_t *tm;
-    spl_t s;
-
-    xnpod_check_context(XNPOD_THREAD_CONTEXT);
-
-    xnlock_get_irqsave(&nklock,s);
-
-    tm = psos_h2obj_active(tmid,PSOS_TM_MAGIC,psostm_t);
-
-    if (!tm)
-	{
-	err = psos_handle_error(tmid,PSOS_TM_MAGIC,psostm_t);
-	goto unlock_and_exit;
-	}
-
-    tm_destroy_internal(tm);
-
- unlock_and_exit:
-
-    xnlock_put_irqrestore(&nklock,s);
-
-    return err;
-}
-
-u_long tm_tick (void) {
-
-    xnpod_announce_tick(&nkclock);
-    return SUCCESS;
-}
-
-u_long tm_evwhen (u_long date,
-		  u_long time,
-		  u_long ticks,
-		  u_long events,
-		  u_long *tmid)
-{
-    xnticks_t when, now;
-    u_long err;
-
-    xnpod_check_context(XNPOD_THREAD_CONTEXT);
-
-    if (!xnpod_timeset_p())
-	return ERR_NOTIME; /* Must call tm_set() first. */
-
-    err = tm_date_to_ticks(date,time,ticks,&when);
-
-    if (err != SUCCESS)
 	return err;
-
-    now = xnpod_get_time();
-
-    if (when <= now)
-	return ERR_TOOLATE;
-
-    return tm_start_event_timer(when - now,XN_INFINITE,events,tmid);
 }
 
-u_long tm_wkwhen (u_long date,
-		  u_long time,
-		  u_long ticks)
+u_long tm_tick(void)
 {
-    xnticks_t when, now;
-    u_long err;
 
-    xnpod_check_context(XNPOD_THREAD_CONTEXT);
+	xnpod_announce_tick(&nkclock);
+	return SUCCESS;
+}
 
-    if (!xnpod_timeset_p())
-	return ERR_NOTIME; /* Must call tm_set() first. */
+u_long tm_evwhen(u_long date,
+		 u_long time, u_long ticks, u_long events, u_long *tmid)
+{
+	xnticks_t when, now;
+	u_long err;
 
-    err = tm_date_to_ticks(date,time,ticks,&when);
+	xnpod_check_context(XNPOD_THREAD_CONTEXT);
 
-    if (err != SUCCESS)
+	if (!xnpod_timeset_p())
+		return ERR_NOTIME;	/* Must call tm_set() first. */
+
+	err = tm_date_to_ticks(date, time, ticks, &when);
+
+	if (err != SUCCESS)
+		return err;
+
+	now = xnpod_get_time();
+
+	if (when <= now)
+		return ERR_TOOLATE;
+
+	return tm_start_event_timer(when - now, XN_INFINITE, events, tmid);
+}
+
+u_long tm_wkwhen(u_long date, u_long time, u_long ticks)
+{
+	xnticks_t when, now;
+	u_long err;
+
+	xnpod_check_context(XNPOD_THREAD_CONTEXT);
+
+	if (!xnpod_timeset_p())
+		return ERR_NOTIME;	/* Must call tm_set() first. */
+
+	err = tm_date_to_ticks(date, time, ticks, &when);
+
+	if (err != SUCCESS)
+		return err;
+
+	now = xnpod_get_time();
+
+	if (when <= now)
+		return ERR_TOOLATE;
+
+	xnpod_delay(when - now);
+
+	return SUCCESS;
+}
+
+u_long tm_get(u_long *date, u_long *time, u_long *ticks)
+{
+	if (!xnpod_timeset_p())
+		return ERR_NOTIME;	/* Must call tm_set() first. */
+
+	tm_ticks_to_date(date, time, ticks, xnpod_get_time());
+
+	return SUCCESS;
+}
+
+u_long tm_set(u_long date, u_long time, u_long ticks)
+{
+	xnticks_t when;
+	u_long err;
+
+	err = tm_date_to_ticks(date, time, ticks, &when);
+
+	if (err == SUCCESS)
+		nkpod->svctable.settime(when);
+
 	return err;
-
-    now = xnpod_get_time();
-
-    if (when <= now)
-	return ERR_TOOLATE;
-
-    xnpod_delay(when - now);
-
-    return SUCCESS;
-}
-
-u_long tm_get (u_long *date,
-	       u_long *time,
-	       u_long *ticks)
-{
-    if (!xnpod_timeset_p())
-	return ERR_NOTIME; /* Must call tm_set() first. */
-
-    tm_ticks_to_date(date,time,ticks,xnpod_get_time());
-
-    return SUCCESS;
-}
-
-u_long tm_set (u_long date,
-	       u_long time,
-	       u_long ticks)
-{
-    xnticks_t when;
-    u_long err;
-
-    err = tm_date_to_ticks(date,time,ticks,&when);
-
-    if (err == SUCCESS)
-	nkpod->svctable.settime(when);
-
-    return err;
 }
 
 /*

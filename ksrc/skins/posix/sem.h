@@ -21,14 +21,28 @@
 
 #include <posix/thread.h>       /* For pse51_current_thread and
                                    pse51_thread_t definition. */
+#include <posix/registry.h>     /* For assocq */
 
-/* Must be called nklock locked, irq off. */
-unsigned long pse51_usem_open(struct __shadow_sem *sem,
-                              struct mm_struct *mm,
-                              unsigned long uaddr);
+#if defined(__KERNEL__) && defined(CONFIG_XENO_OPT_PERVASIVE)
 
-/* Must be called nklock locked, irq off. */
-int pse51_usem_close(struct __shadow_sem *sem, struct mm_struct *mm);
+typedef struct {
+    u_long uaddr;
+    unsigned refcnt;
+    pse51_assoc_t assoc;
+
+#define assoc2usem(laddr) \
+    ((pse51_usem_t *)((unsigned long) (laddr) - offsetof(pse51_usem_t, assoc)))
+} pse51_usem_t;
+
+#endif /* __KERNEL__ && CONFIG_XENO_OPT_PERVASIVE */    
+
+#if defined(__KERNEL__) && defined(CONFIG_XENO_OPT_PERVASIVE)
+
+void pse51_sem_usems_cleanup(pse51_queues_t *q);
+
+#endif /* __KERNEL__ && CONFIG_XENO_OPT_PERVASIVE */    
+
+void pse51_semq_cleanup(pse51_kqueues_t *q);
 
 void pse51_sem_pkg_init(void);
 

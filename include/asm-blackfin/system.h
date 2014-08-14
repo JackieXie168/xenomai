@@ -122,13 +122,6 @@ static inline void xnarch_stop_timer (void)
 static inline void xnarch_leave_root (xnarchtcb_t *rootcb)
 
 {
-    rthal_declare_cpuid;
-
-    rthal_load_cpuid();
-
-    /* rthal_cpu_realtime is only tested for the current processor,
-       and always inside a critical section. */
-    __set_bit(cpuid,&rthal_cpu_realtime);
     /* Remember the preempted Linux task pointer. */
     rootcb->user_task = current;
     rootcb->tsp = &current->thread;
@@ -137,12 +130,16 @@ static inline void xnarch_leave_root (xnarchtcb_t *rootcb)
 static inline void xnarch_enter_root (xnarchtcb_t *rootcb)
 
 {
-    __clear_bit(xnarch_current_cpu(),&rthal_cpu_realtime);
 }
 
 static inline void xnarch_switch_to (xnarchtcb_t *out_tcb,
 				     xnarchtcb_t *in_tcb)
 {
+    if (in_tcb->user_task)
+	rthal_clear_foreign_stack(&rthal_domain);
+    else
+	rthal_set_foreign_stack(&rthal_domain);
+
     rthal_thread_switch(out_tcb->tsp, in_tcb->tsp);
 }
 
@@ -335,7 +332,7 @@ static inline void xnarch_grab_xirqs (rthal_irq_handler_t handler)
 			     handler,
 			     NULL,
 			     NULL,
-			     IPIPE_DYNAMIC_MASK);
+			     IPIPE_HANDLE_MASK);
 }
 
 static inline void xnarch_lock_xirqs (rthal_pipeline_stage_t *ipd, int cpuid)
@@ -542,30 +539,17 @@ static inline int xnarch_init (void)
 			 (rthal_irq_handler_t)&xnpod_schedule_handler,
 			 NULL,
 			 NULL,
-			 IPIPE_HANDLE_MASK);
+			 IPIPE_HANDLE_MASK | IPIPE_WIRED_MASK);
 
     xnarch_old_trap_handler = rthal_trap_catch(&xnarch_trap_fault);
 
-#ifdef CONFIG_XENO_OPT_PERVASIVE
-    err = xnshadow_mount();
-#endif /* CONFIG_XENO_OPT_PERVASIVE */
-
-    if (err)
-	{
-	rthal_trap_catch(xnarch_old_trap_handler);
-        rthal_free_virq(xnarch_escalation_virq);
-	}
-
-    return err;
+    return 0;
 }
 
 static inline void xnarch_exit (void)
 
 {
     __ipipe_irq_tail_hook = 0;
-#ifdef CONFIG_XENO_OPT_PERVASIVE
-    xnshadow_cleanup();
-#endif /* CONFIG_XENO_OPT_PERVASIVE */
     rthal_trap_catch(xnarch_old_trap_handler);
     rthal_free_virq(xnarch_escalation_virq);
     rthal_exit();

@@ -25,21 +25,17 @@
 
 static pthread_condattr_t default_cond_attr = {
 
-    magic: PSE51_COND_ATTR_MAGIC,
-    clock: CLOCK_REALTIME
+      magic:PSE51_COND_ATTR_MAGIC,
+      clock:CLOCK_REALTIME
 };
-
 
 /**
  * Initialize a condition variable attributes object.
  *
  * This services initializes the condition variable attributes object @a attr
- * with default values for all attributes. Default value for the @a clock
- * attribute is @a CLOCK_REALTIME.
- *
- * Note that the @a pshared attribute is not supported: condition variables
- * created by Xenomai POSIX skin may be shared by kernel-space modules and
- * user-space processes through shared memory.
+ * with default values for all attributes. Default value are:
+ * - for the @a clock attribute, @a CLOCK_REALTIME;
+ * - for the @a pshared attribute @a PTHREAD_PROCESS_PRIVATE.
  *
  * If this service is called specifying a condition variable attributes object
  * that was already initialized, the attributes object is reinitialized.
@@ -51,22 +47,19 @@ static pthread_condattr_t default_cond_attr = {
  * - ENOMEM, the condition variable attribute object pointer @a attr is @a
  *   NULL.
  *
- * @par Valid contexts:
- * - kernel module initialization or cleanup routine;
- * - Xenomai kernel-space real-time thread.
- *
- * @see http://www.opengroup.org/onlinepubs/000095399/functions/pthread_condattr_init.html
+ * @see
+ * <a href="http://www.opengroup.org/onlinepubs/000095399/functions/pthread_condattr_init.html">
+ * Specification.</a>
  * 
  */
-int pthread_condattr_init (pthread_condattr_t *attr)
-
+int pthread_condattr_init(pthread_condattr_t * attr)
 {
-    if (!attr)
-        return ENOMEM;
+	if (!attr)
+		return ENOMEM;
 
-    *attr = default_cond_attr;
+	*attr = default_cond_attr;
 
-    return 0;
+	return 0;
 }
 
 /**
@@ -82,30 +75,26 @@ int pthread_condattr_init (pthread_condattr_t *attr)
  * @return an error number if:
  * - EINVAL, the mutex attributes object @a attr is invalid.
  *
- * @par Valid contexts:
- * - kernel module initialization or cleanup routine;
- * - Xenomai kernel-space real-time thread.
- *
- * @see http://www.opengroup.org/onlinepubs/000095399/functions/pthread_condattr_destroy.html
+ * @see
+ * <a href="http://www.opengroup.org/onlinepubs/000095399/functions/pthread_condattr_destroy.html">
+ * Specification.</a>
  * 
  */
-int pthread_condattr_destroy (pthread_condattr_t *attr)
-
+int pthread_condattr_destroy(pthread_condattr_t * attr)
 {
-    spl_t s;
+	spl_t s;
 
-    xnlock_get_irqsave(&nklock, s);
+	xnlock_get_irqsave(&nklock, s);
 
-    if (!pse51_obj_active(attr, PSE51_COND_ATTR_MAGIC, pthread_condattr_t))
-	{
-        xnlock_put_irqrestore(&nklock, s);
-        return EINVAL;
+	if (!pse51_obj_active(attr, PSE51_COND_ATTR_MAGIC, pthread_condattr_t)) {
+		xnlock_put_irqrestore(&nklock, s);
+		return EINVAL;
 	}
-    
-    pse51_mark_deleted(attr);
-    xnlock_put_irqrestore(&nklock, s);
 
-    return 0;
+	pse51_mark_deleted(attr);
+	xnlock_put_irqrestore(&nklock, s);
+
+	return 0;
 }
 
 /**
@@ -128,30 +117,27 @@ int pthread_condattr_destroy (pthread_condattr_t *attr)
  * @return an error number if:
  * - EINVAL, the attribute object @a attr is invalid.
  *
- * @par Valid contexts:
- * - kernel module initialization or cleanup routine;
- * - Xenomai kernel-space real-time thread.
- *
- * @see http://www.opengroup.org/onlinepubs/000095399/functions/pthread_condattr_getclock.html
+ * @see
+ * <a href="http://www.opengroup.org/onlinepubs/000095399/functions/pthread_condattr_getclock.html">
+ * Specification.</a>
  * 
  */
-int pthread_condattr_getclock (const pthread_condattr_t *attr, clockid_t *clk_id)
-
+int pthread_condattr_getclock(const pthread_condattr_t * attr,
+			      clockid_t * clk_id)
 {
-    spl_t s;
+	spl_t s;
 
-    xnlock_get_irqsave(&nklock, s);
+	xnlock_get_irqsave(&nklock, s);
 
-    if (!pse51_obj_active(attr, PSE51_COND_ATTR_MAGIC, pthread_condattr_t))
-	{
-        xnlock_put_irqrestore(&nklock, s);
-        return EINVAL;
+	if (!pse51_obj_active(attr, PSE51_COND_ATTR_MAGIC, pthread_condattr_t)) {
+		xnlock_put_irqrestore(&nklock, s);
+		return EINVAL;
 	}
 
-    *clk_id = attr->clock;
-    xnlock_put_irqrestore(&nklock, s);
+	*clk_id = attr->clock;
+	xnlock_put_irqrestore(&nklock, s);
 
-    return 0;
+	return 0;
 }
 
 /**
@@ -173,47 +159,147 @@ int pthread_condattr_getclock (const pthread_condattr_t *attr, clockid_t *clk_id
  * - EINVAL, the condition variable attributes object @a attr is invalid;
  * - EINVAL, the value of @a clk_id is invalid for the @a clock attribute.
  *
- * @par Valid contexts:
- * - kernel module initialization or cleanup routine;
- * - Xenomai kernel-space real-time thread.
- *
- * @see http://www.opengroup.org/onlinepubs/000095399/functions/pthread_condattr_setclock.html
+ * @see
+ * <a href="http://www.opengroup.org/onlinepubs/000095399/functions/pthread_condattr_setclock.html">
+ * Specification.</a>
  * 
  */
-int pthread_condattr_setclock (pthread_condattr_t *attr, clockid_t clk_id)
-
+int pthread_condattr_setclock(pthread_condattr_t * attr, clockid_t clk_id)
 {
-    spl_t s;
+	spl_t s;
 
-    xnlock_get_irqsave(&nklock, s);
+	xnlock_get_irqsave(&nklock, s);
 
-    if (!pse51_obj_active(attr, PSE51_COND_ATTR_MAGIC, pthread_condattr_t))
-	{
-        xnlock_put_irqrestore(&nklock, s);
-        return EINVAL;
+	if (!pse51_obj_active(attr, PSE51_COND_ATTR_MAGIC, pthread_condattr_t)) {
+		xnlock_put_irqrestore(&nklock, s);
+		return EINVAL;
 	}
 
-    switch (clk_id)
-	{
+	switch (clk_id) {
 	default:
 
-	    xnlock_put_irqrestore(&nklock, s);
-	    return EINVAL;
+		xnlock_put_irqrestore(&nklock, s);
+		return EINVAL;
 
 	case CLOCK_REALTIME:
 	case CLOCK_MONOTONIC:
-	    break;
+		break;
 	}
 
-    attr->clock = clk_id;
-    xnlock_put_irqrestore(&nklock, s);
+	attr->clock = clk_id;
+	xnlock_put_irqrestore(&nklock, s);
 
-    return 0;
+	return 0;
 }
 
+/**
+ * Get the process-shared attribute from a condition variable attributes
+ * object.
+ *
+ * This service stores, at the address @a pshared, the value of the @a pshared
+ * attribute in the condition variable attributes object @a attr.
+ *
+ * The @a pshared attribute may only be one of @a PTHREAD_PROCESS_PRIVATE or @a
+ * PTHREAD_PROCESS_SHARED. See pthread_condattr_setpshared() for the meaning of
+ * these two constants.
+ *
+ * @param attr an initialized condition variable attributes object.
+ *
+ * @param pshared address where the value of the @a pshared attribute will be
+ * stored on success.
+ *
+ * @return 0 on success,
+ * @return an error number if:
+ * - EINVAL, the @a pshared address is invalid;
+ * - EINVAL, the condition variable attributes object @a attr is invalid.
+ *
+ * @see
+ * <a href="http://www.opengroup.org/onlinepubs/000095399/functions/pthread_condattr_getpshared.html">
+ * Specification.</a>
+ * 
+ */
+int pthread_condattr_getpshared(const pthread_condattr_t *attr, int *pshared)
+{
+	spl_t s;
+
+	if (!pshared || !attr)
+		return EINVAL;
+
+	xnlock_get_irqsave(&nklock, s);
+
+	if (!pse51_obj_active(attr,PSE51_COND_ATTR_MAGIC,pthread_condattr_t)) {
+		xnlock_put_irqrestore(&nklock, s);
+		return EINVAL;
+	}
+
+	*pshared = attr->pshared;
+
+	xnlock_put_irqrestore(&nklock, s);
+
+	return 0;
+}
+
+/**
+ * Set the process-shared attribute of a condition variable attributes object.
+ *
+ * This service set the @a pshared attribute of the condition variable
+ * attributes object @a attr.
+ *
+ * @param attr an initialized condition variable attributes object.
+ *
+ * @param pshared value of the @a pshared attribute, may be one of:
+ * - PTHREAD_PROCESS_PRIVATE, meaning that a condition variable created with the
+ *   attributes object @a attr will only be accessible by threads within the
+ *   same process as the thread that initialized the condition variable;
+ * - PTHREAD_PROCESS_SHARED, meaning that a condition variable created with the
+ *   attributes object @a attr will be accessible by any thread that has access
+ *   to the memory where the condition variable is allocated.
+ *
+ * @return 0 on success,
+ * @return an error status if:
+ * - EINVAL, the condition variable attributes object @a attr is invalid;
+ * - EINVAL, the value of @a pshared is invalid.
+ *
+ * @see
+ * <a href="http://www.opengroup.org/onlinepubs/000095399/functions/pthread_condattr_setpshared.html">
+ * Specification.</a>
+ * 
+ */
+int pthread_condattr_setpshared(pthread_condattr_t *attr, int pshared)
+{
+	spl_t s;
+
+	if (!attr)
+		return EINVAL;
+
+	xnlock_get_irqsave(&nklock, s);
+
+	if (!pse51_obj_active(attr,PSE51_COND_ATTR_MAGIC,pthread_condattr_t)) {
+		xnlock_put_irqrestore(&nklock, s);
+		return EINVAL;
+	}
+
+	switch (pshared) {
+	default:
+		xnlock_put_irqrestore(&nklock, s);
+		return EINVAL;
+
+	case PTHREAD_PROCESS_PRIVATE:
+	case PTHREAD_PROCESS_SHARED:
+		break;
+	}
+
+	attr->pshared = pshared;
+
+	xnlock_put_irqrestore(&nklock, s);
+
+	return 0;
+}
 /*@}*/
 
 EXPORT_SYMBOL(pthread_condattr_init);
 EXPORT_SYMBOL(pthread_condattr_destroy);
 EXPORT_SYMBOL(pthread_condattr_getclock);
 EXPORT_SYMBOL(pthread_condattr_setclock);
+EXPORT_SYMBOL(pthread_condattr_getpshared);
+EXPORT_SYMBOL(pthread_condattr_setpshared);

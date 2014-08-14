@@ -31,6 +31,10 @@ int __rtai_syscall_init(void);
 
 void __rtai_syscall_cleanup(void);
 
+#elif !defined(__XENO_SIM__)
+
+#include <nucleus/bind.h>
+
 #endif /* __KERNEL__ */
 
 #endif /* !_RTAI_SYSCALL_H */

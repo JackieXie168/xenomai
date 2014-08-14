@@ -86,21 +86,21 @@
 #define XNPOD_ROOT_PRIO_BASE   ((nkpod)->root_prio_base)
 
 #ifdef CONFIG_XENO_OPT_SCALABLE_SCHED
-typedef xnspqueue_t xnsched_queue_t;
-#define sched_initpq    initspq
-#define sched_countpq   countspq
-#define sched_insertpql insertspql
-#define sched_insertpqf insertspqf
-#define sched_appendpq  appendspq
-#define sched_prependpq prependspq
-#define sched_removepq  removespq
-#define sched_getheadpq getheadspq
-#define sched_getpq     getspq
-#define sched_findpqh   findspqh
+typedef xnmlqueue_t xnsched_queue_t;
+#define sched_initpq    initmlq
+#define sched_emptypq_p emptymlq_p
+#define sched_insertpql insertmlql
+#define sched_insertpqf insertmlqf
+#define sched_appendpq  appendmlq
+#define sched_prependpq prependmlq
+#define sched_removepq  removemlq
+#define sched_getheadpq getheadmlq
+#define sched_getpq     getmlq
+#define sched_findpqh   findmlqh
 #else /* ! CONFIG_XENO_OPT_SCALABLE_SCHED */
 typedef xnpqueue_t xnsched_queue_t;
 #define sched_initpq    initpq
-#define sched_countpq   countpq
+#define sched_emptypq_p emptypq_p
 #define sched_insertpql insertpql
 #define sched_insertpqf insertpqf
 #define sched_appendpq  appendpq
@@ -138,7 +138,16 @@ typedef struct xnsched {
     xnthread_t *fpuholder;      /*!< Thread owning the current FPU context. */
 #endif /* CONFIG_XENO_HW_FPU */
 
+#ifdef CONFIG_XENO_OPT_WATCHDOG
+    xnticks_t watchdog_trigger; /* !< Watchdog trigger value. */
+    int watchdog_armed;         /* !< Watchdog state. */
+#endif /* CONFIG_XENO_OPT_WATCHDOG */
+
     xnthread_t rootcb;          /*!< Root thread control block. */
+
+#ifdef CONFIG_XENO_OPT_STATS
+    xnticks_t last_csw;         /*!< Last context switch (ticks). */
+#endif /* CONFIG_XENO_OPT_STATS */
 
 } xnsched_t;
 
@@ -190,6 +199,7 @@ struct xnpod {
     xnsched_t sched[XNARCH_NR_CPUS]; /*!< Per-cpu scheduler slots. */
 
     xnqueue_t threadq;          /*!< All existing threads. */
+    int threadq_rev;            /*!< Modification counter of threadq. */
 
     volatile u_long schedlck;	/*!< Scheduler lock count. */
 
@@ -220,9 +230,7 @@ struct xnpod {
     } svctable;                 /*!< Table of overridable service entry points. */
 
 #ifdef CONFIG_XENO_OPT_WATCHDOG
-    xnticks_t watchdog_trigger; /* !< Watchdog trigger value. */
     xnticks_t watchdog_reload;  /* !< Watchdog reload value. */
-    int watchdog_armed;         /* !< Watchdog state. */
 #endif /* CONFIG_XENO_OPT_WATCHDOG */
 
 #ifdef __XENO_SIM__
@@ -268,13 +276,13 @@ void xnpod_switch_fpu(xnsched_t *sched);
 #endif /* CONFIG_XENO_HW_FPU */
 
 #ifdef CONFIG_XENO_OPT_WATCHDOG
-static inline void xnpod_reset_watchdog (void)
+static inline void xnpod_reset_watchdog (xnsched_t *sched)
 {
-    nkpod->watchdog_trigger = xnarch_get_cpu_tsc() + nkpod->watchdog_reload;
-    nkpod->watchdog_armed = 0;
+    sched->watchdog_trigger = xnarch_get_cpu_tsc() + nkpod->watchdog_reload;
+    sched->watchdog_armed = 0;
 }
 #else /* !CONFIG_XENO_OPT_WATCHDOG */
-static inline void xnpod_reset_watchdog (void)
+static inline void xnpod_reset_watchdog (xnsched_t *sched)
 {
 }
 #endif /* CONFIG_XENO_OPT_WATCHDOG */
@@ -299,7 +307,7 @@ static inline int xnpod_get_maxprio (xnpod_t *pod, int incr)
         pod->maxpri + incr;
 }
 
-static inline int xnpod_priocompare (int inprio, int outprio)
+static inline int xnpod_compare_prio (int inprio, int outprio)
 {
     /* Returns a negative, null or positive value whether inprio is
        lower than, equal to or greater than outprio. */
@@ -307,8 +315,14 @@ static inline int xnpod_priocompare (int inprio, int outprio)
     return testbits(nkpod->status,XNRPRIO) ? -delta : delta;
 }
 
-static inline void xnpod_renice_root (int prio)
+static inline int xnpod_rescale_prio (int prio)
+{
+    return xnpod_get_qdir(nkpod) == xnqueue_up ?
+        nkpod->minpri - prio :
+        nkpod->maxpri - prio - 1;
+}
 
+static inline void xnpod_renice_root (int prio)
 {
     xnthread_t *rootcb;
     spl_t s;
@@ -534,6 +548,40 @@ static inline void xnpod_delete_self (void)
 {
     xnpod_delete_thread(xnpod_current_thread());
 }
+
+#ifdef CONFIG_XENO_OPT_STATS
+static inline void xnpod_acc_exec_time(xnsched_t *sched, xnthread_t *thread)
+{
+    xnticks_t now = xnarch_get_cpu_tsc();
+
+    thread->stat.exec_time += now - sched->last_csw;
+    sched->last_csw = now;
+}
+
+static inline void xnpod_reset_exec_stats(xnthread_t *thread)
+{
+    thread->stat.exec_time = 0;
+    thread->stat.exec_start = xnarch_get_cpu_tsc();
+}
+
+static inline void xnpod_update_csw_date(xnsched_t *sched)
+{
+    sched->last_csw = xnarch_get_cpu_tsc();
+}
+
+#else /* !CONFIG_XENO_OPT_STATS */
+static inline void xnpod_acc_exec_time(xnsched_t *sched, xnthread_t *thread)
+{
+}
+
+static inline void xnpod_reset_exec_stats(xnthread_t *thread)
+{
+}
+
+static inline void xnpod_update_csw_date(xnsched_t *sched)
+{
+}
+#endif /* CONFIG_XENO_OPT_STATS */
 
 #ifdef __cplusplus
 }

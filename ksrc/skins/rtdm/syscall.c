@@ -29,7 +29,7 @@ int __rtdm_muxid;
 
 static int sys_rtdm_fdcount(struct task_struct *curr, struct pt_regs *regs)
 {
-    return fd_count;
+    return RTDM_FD_MAX;
 }
 
 
@@ -142,7 +142,7 @@ int __init rtdm_syscall_init(void)
 {
     __rtdm_muxid = xnshadow_register_interface("rtdm", RTDM_SKIN_MAGIC,
                                                sizeof(systab) / sizeof(systab[0]),
-                                               systab, NULL);
+                                               systab, NULL, THIS_MODULE);
     if (__rtdm_muxid < 0)
         return -ENOSYS;
 

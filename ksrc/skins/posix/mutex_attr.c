@@ -24,9 +24,10 @@
 #include <posix/internal.h>
 
 static const pthread_mutexattr_t default_mutex_attr = {
-    magic: PSE51_MUTEX_ATTR_MAGIC,
-    type: PTHREAD_MUTEX_RECURSIVE,
-    protocol: PTHREAD_PRIO_INHERIT
+	magic: PSE51_MUTEX_ATTR_MAGIC,
+	type: PTHREAD_MUTEX_RECURSIVE,
+	protocol: PTHREAD_PRIO_NONE,
+	pshared: PTHREAD_PROCESS_PRIVATE
 };
 
 /**
@@ -35,11 +36,8 @@ static const pthread_mutexattr_t default_mutex_attr = {
  * This services initializes the mutex attributes object @a attr with default
  * values for all attributes. Default value are :
  * - for the @a type attribute, @a PTHREAD_MUTEX_RECURSIVE;
- * - for the @a protocol attribute, @a PTHREAD_PRIO_INHERIT.
- *
- * Note that the @a pshared attribute is not supported: mutexes created by
- * Xenomai POSIX skin may be shared by kernel-space modules and user-space
- * processes through shared memory.
+ * - for the @a protocol attribute, @a PTHREAD_PRIO_NONE;
+ * - for the @a pshared attribute, @a PTHREAD_PROCESS_PRIVATE.
  *
  * If this service is called specifying a mutex attributes object that was
  * already initialized, the attributes object is reinitialized.
@@ -50,22 +48,19 @@ static const pthread_mutexattr_t default_mutex_attr = {
  * @return an error number if:
  * - ENOMEM, the mutex attributes object pointer @a attr is @a NULL.
  *
- * @par Valid contexts:
- * - kernel module initialization or cleanup routine;
- * - Xenomai kernel-space real-time thread.
- *
- * @see http://www.opengroup.org/onlinepubs/000095399/functions/pthread_mutexattr_init.html
+ * @see
+ * <a href="http://www.opengroup.org/onlinepubs/000095399/functions/pthread_mutexattr_init.html">
+ * Specification.</a>
  * 
  */
-int pthread_mutexattr_init (pthread_mutexattr_t *attr)
-
+int pthread_mutexattr_init(pthread_mutexattr_t * attr)
 {
-    if (!attr)
-        return ENOMEM;
+	if (!attr)
+		return ENOMEM;
 
-    *attr = default_mutex_attr;
+	*attr = default_mutex_attr;
 
-    return 0;    
+	return 0;
 }
 
 /**
@@ -81,30 +76,26 @@ int pthread_mutexattr_init (pthread_mutexattr_t *attr)
  * @return an error number if:
  * - EINVAL, the mutex attributes object @a attr is invalid.
  *
- * @par Valid contexts:
- * - kernel module initialization or cleanup routine;
- * - Xenomai kernel-space real-time thread.
- *
- * @see http://www.opengroup.org/onlinepubs/000095399/functions/pthread_mutexattr_destroy.html
+ * @see
+ * <a href="http://www.opengroup.org/onlinepubs/000095399/functions/pthread_mutexattr_destroy.html">
+ * Specification.</a>
  * 
  */
-int pthread_mutexattr_destroy (pthread_mutexattr_t *attr)
-
+int pthread_mutexattr_destroy(pthread_mutexattr_t * attr)
 {
-    spl_t s;
+	spl_t s;
 
-    xnlock_get_irqsave(&nklock, s);
+	xnlock_get_irqsave(&nklock, s);
 
-    if (!pse51_obj_active(attr, PSE51_MUTEX_ATTR_MAGIC, pthread_attr_t))
-	{
-        xnlock_put_irqrestore(&nklock, s);
-        return EINVAL;
+	if (!pse51_obj_active(attr,PSE51_MUTEX_ATTR_MAGIC,pthread_mutexattr_t)) {
+		xnlock_put_irqrestore(&nklock, s);
+		return EINVAL;
 	}
-    
-    pse51_mark_deleted(attr);
-    xnlock_put_irqrestore(&nklock, s);
 
-    return 0;
+	pse51_mark_deleted(attr);
+	xnlock_put_irqrestore(&nklock, s);
+
+	return 0;
 }
 
 /**
@@ -127,34 +118,30 @@ int pthread_mutexattr_destroy (pthread_mutexattr_t *attr)
  * - EINVAL, the @a type address is invalid;
  * - EINVAL, the mutex attributes object @a attr is invalid.
  *
- * @par Valid contexts:
- * - kernel module initialization or cleanup routine;
- * - Xenomai kernel-space real-time thread.
- *
- * @see http://www.opengroup.org/onlinepubs/000095399/functions/pthread_mutexattr_gettype.html
+ * @see
+ * <a href="http://www.opengroup.org/onlinepubs/000095399/functions/pthread_mutexattr_gettype.html">
+ * Specification.</a>
  * 
  */
-int pthread_mutexattr_gettype (const pthread_mutexattr_t *attr, int *type)
-
+int pthread_mutexattr_gettype(const pthread_mutexattr_t * attr, int *type)
 {
-    spl_t s;
+	spl_t s;
 
-    if (!type || !attr)
-        return EINVAL;
+	if (!type || !attr)
+		return EINVAL;
 
-    xnlock_get_irqsave(&nklock, s);
+	xnlock_get_irqsave(&nklock, s);
 
-    if (!pse51_obj_active(attr, PSE51_MUTEX_ATTR_MAGIC, pthread_attr_t))
-	{
-        xnlock_put_irqrestore(&nklock, s);
-        return EINVAL;
+	if (!pse51_obj_active(attr,PSE51_MUTEX_ATTR_MAGIC,pthread_mutexattr_t)) {
+		xnlock_put_irqrestore(&nklock, s);
+		return EINVAL;
 	}
 
-    *type = attr->type;
+	*type = attr->type;
 
-    xnlock_put_irqrestore(&nklock, s);
+	xnlock_put_irqrestore(&nklock, s);
 
-    return 0;    
+	return 0;
 }
 
 /**
@@ -181,50 +168,45 @@ int pthread_mutexattr_gettype (const pthread_mutexattr_t *attr, int *type)
  * - EINVAL, the mutex attributes object @a attr is invalid;
  * - EINVAL, the value of @a type is invalid for the @a type attribute.
  *
- * @par Valid contexts:
- * - kernel module initialization or cleanup routine;
- * - Xenomai kernel-space real-time thread.
- *
- * @see http://www.opengroup.org/onlinepubs/000095399/functions/pthread_mutexattr_settype.html
+ * @see
+ * <a href="http://www.opengroup.org/onlinepubs/000095399/functions/pthread_mutexattr_settype.html">
+ * Specification.</a>
  * 
  */
-int pthread_mutexattr_settype (pthread_mutexattr_t *attr, int type)
-
+int pthread_mutexattr_settype(pthread_mutexattr_t * attr, int type)
 {
-    spl_t s;
+	spl_t s;
 
-    if (!attr)
-        return EINVAL;
+	if (!attr)
+		return EINVAL;
 
-    xnlock_get_irqsave(&nklock, s);
+	xnlock_get_irqsave(&nklock, s);
 
-    if (!pse51_obj_active(attr, PSE51_MUTEX_ATTR_MAGIC, pthread_attr_t))
-	{
-        xnlock_put_irqrestore(&nklock, s);
-        return EINVAL;
+	if (!pse51_obj_active(attr,PSE51_MUTEX_ATTR_MAGIC,pthread_mutexattr_t)) {
+		xnlock_put_irqrestore(&nklock, s);
+		return EINVAL;
 	}
 
-    switch (type)
-	{
+	switch (type) {
 	default:
 
-	    xnlock_put_irqrestore(&nklock, s);
-	    return EINVAL;
+		xnlock_put_irqrestore(&nklock, s);
+		return EINVAL;
 
 	case PTHREAD_MUTEX_DEFAULT:
-	    type = PTHREAD_MUTEX_RECURSIVE;
+		type = PTHREAD_MUTEX_RECURSIVE;
 
 	case PTHREAD_MUTEX_NORMAL:
 	case PTHREAD_MUTEX_RECURSIVE:
 	case PTHREAD_MUTEX_ERRORCHECK:
-	    break;
-    }
-    
-    attr->type = type;
+		break;
+	}
 
-    xnlock_put_irqrestore(&nklock, s);
+	attr->type = type;
 
-    return 0;
+	xnlock_put_irqrestore(&nklock, s);
+
+	return 0;
 }
 
 /**
@@ -233,8 +215,9 @@ int pthread_mutexattr_settype (pthread_mutexattr_t *attr, int type)
  * This service stores, at the address @a proto, the value of the @a protocol
  * attribute in the mutex attributes object @a attr.
  *
- * The @a protcol attribute may only be one of @a PTHREAD_PRIO_NONE and @a
- * PTHREAD_PRIO_INHERIT.
+ * The @a protcol attribute may only be one of @a PTHREAD_PRIO_NONE or @a
+ * PTHREAD_PRIO_INHERIT. See pthread_mutexattr_setprotocol() for the meaning of
+ * these two constants.
  *
  * @param attr an initialized mutex attributes object;
  *
@@ -246,34 +229,30 @@ int pthread_mutexattr_settype (pthread_mutexattr_t *attr, int type)
  * - EINVAL, the @a proto address is invalid;
  * - EINVAL, the mutex attributes object @a attr is invalid.
  *
- * @par Valid contexts:
- * - kernel module initialization or cleanup routine;
- * - Xenomai kernel-space real-time thread.
- *
- * @see http://www.opengroup.org/onlinepubs/000095399/functions/pthread_mutexattr_getprotocol.html
+ * @see
+ * <a href="http://www.opengroup.org/onlinepubs/000095399/functions/pthread_mutexattr_getprotocol.html">
+ * Specification.</a>
  * 
  */
-int pthread_mutexattr_getprotocol (const pthread_mutexattr_t *attr, int *proto)
-
+int pthread_mutexattr_getprotocol(const pthread_mutexattr_t * attr, int *proto)
 {
-    spl_t s;
+	spl_t s;
 
-    if (!proto || !attr)
-        return EINVAL;
-    
-    xnlock_get_irqsave(&nklock, s);
+	if (!proto || !attr)
+		return EINVAL;
 
-    if (!pse51_obj_active(attr, PSE51_MUTEX_ATTR_MAGIC, pthread_attr_t))
-	{
-        xnlock_put_irqrestore(&nklock, s);
-        return EINVAL;
+	xnlock_get_irqsave(&nklock, s);
+
+	if (!pse51_obj_active(attr,PSE51_MUTEX_ATTR_MAGIC,pthread_mutexattr_t)) {
+		xnlock_put_irqrestore(&nklock, s);
+		return EINVAL;
 	}
 
-    *proto = attr->protocol;
+	*proto = attr->protocol;
 
-    xnlock_put_irqrestore(&nklock, s);
+	xnlock_put_irqrestore(&nklock, s);
 
-    return 0;
+	return 0;
 }
 
 /**
@@ -293,57 +272,156 @@ int pthread_mutexattr_getprotocol (const pthread_mutexattr_t *attr, int *proto)
  * The value PTHREAD_PRIO_PROTECT (priority ceiling protocol) is unsupported.
  *
  * @return 0 on success,
- * @return an error status if:
+ * @return an error number if:
  * - EINVAL, the mutex attributes object @a attr is invalid;
  * - ENOTSUP, the value of @a proto is unsupported;
  * - EINVAL, the value of @a proto is invalid.
  *
- * @par Valid contexts:
- * - kernel module initialization or cleanup routine;
- * - Xenomai kernel-space real-time thread.
- *
- * @see http://www.opengroup.org/onlinepubs/000095399/functions/pthread_mutexattr_setprotocol.html
+ * @see
+ * <a href="http://www.opengroup.org/onlinepubs/000095399/functions/pthread_mutexattr_setprotocol.html">
+ * Specification.</a>
  * 
  */
-int pthread_mutexattr_setprotocol (pthread_mutexattr_t *attr, int proto)
-
+int pthread_mutexattr_setprotocol(pthread_mutexattr_t * attr, int proto)
 {
-    spl_t s;
+	spl_t s;
 
-    if (!attr)
-        return EINVAL;
+	if (!attr)
+		return EINVAL;
 
-    xnlock_get_irqsave(&nklock, s);
+	xnlock_get_irqsave(&nklock, s);
 
-    if (!pse51_obj_active(attr, PSE51_MUTEX_ATTR_MAGIC, pthread_attr_t))
-	{
-        xnlock_put_irqrestore(&nklock, s);
-        return EINVAL;
+	if (!pse51_obj_active(attr,PSE51_MUTEX_ATTR_MAGIC,pthread_mutexattr_t)) {
+		xnlock_put_irqrestore(&nklock, s);
+		return EINVAL;
 	}
 
-    switch (proto)
-	{
+	switch (proto) {
 	default:
 
-	    xnlock_put_irqrestore(&nklock, s);
-	    return EINVAL;
+		xnlock_put_irqrestore(&nklock, s);
+		return EINVAL;
 
 	case PTHREAD_PRIO_PROTECT:
 
-	    xnlock_put_irqrestore(&nklock, s);
-	    return ENOTSUP;
+		xnlock_put_irqrestore(&nklock, s);
+		return ENOTSUP;
 
 	case PTHREAD_PRIO_NONE:
 	case PTHREAD_PRIO_INHERIT:
-	    break;
+		break;
 	}
-    
-    attr->protocol = proto;
 
-    xnlock_put_irqrestore(&nklock, s);
+	attr->protocol = proto;
 
-    return 0;
+	xnlock_put_irqrestore(&nklock, s);
+
+	return 0;
 }
+
+/**
+ * Get the process-shared attribute of a mutex attributes object.
+ *
+ * This service stores, at the address @a pshared, the value of the @a pshared
+ * attribute in the mutex attributes object @a attr.
+ *
+ * The @a pashared attribute may only be one of @a PTHREAD_PROCESS_PRIVATE or
+ * @a PTHREAD_PROCESS_SHARED. See pthread_mutexattr_setpshared() for the meaning
+ * of these two constants.
+ *
+ * @param attr an initialized mutex attributes object;
+ *
+ * @param pshared address where the value of the @a pshared attribute will be
+ * stored on success.
+ *
+ * @return 0 on success;
+ * @return an error number if:
+ * - EINVAL, the @a pshared address is invalid;
+ * - EINVAL, the mutex attributes object @a attr is invalid.
+ *
+ * @see
+ * <a href="http://www.opengroup.org/onlinepubs/000095399/functions/pthread_mutexattr_getpshared.html">
+ * Specification.</a>
+ *
+ */
+int pthread_mutexattr_getpshared(const pthread_mutexattr_t *attr, int *pshared)
+{
+	spl_t s;
+
+	if (!pshared || !attr)
+		return EINVAL;
+
+	xnlock_get_irqsave(&nklock, s);
+
+	if (!pse51_obj_active(attr,PSE51_MUTEX_ATTR_MAGIC,pthread_mutexattr_t)) {
+		xnlock_put_irqrestore(&nklock, s);
+		return EINVAL;
+	}
+
+	*pshared = attr->pshared;
+
+	xnlock_put_irqrestore(&nklock, s);
+
+	return 0;
+}
+
+/**
+ * Set the process-shared attribute of a mutex attributes object.
+ *
+ * This service set the @a pshared attribute of the mutex attributes object @a
+ * attr.
+ *
+ * @param attr an initialized mutex attributes object.
+ *
+ * @param pshared value of the @a pshared attribute, may be one of:
+ * - PTHREAD_PROCESS_PRIVATE, meaning that a mutex created with the attributes
+ *   object @a attr will only be accessible by threads within the same process
+ *   as the thread that initialized the mutex;
+ * - PTHREAD_PROCESS_SHARED, meaning that a mutex created with the attributes
+ *   object @a attr will be accessible by any thread that has access to the
+ *   memory where the mutex is allocated.
+ *
+ * @return 0 on success,
+ * @return an error status if:
+ * - EINVAL, the mutex attributes object @a attr is invalid;
+ * - EINVAL, the value of @a pshared is invalid.
+ *
+ * @see
+ * <a href="http://www.opengroup.org/onlinepubs/000095399/functions/pthread_mutexattr_setpshared.html">
+ * Specification.</a>
+ * 
+ */
+int pthread_mutexattr_setpshared(pthread_mutexattr_t *attr, int pshared)
+{
+	spl_t s;
+
+	if (!attr)
+		return EINVAL;
+
+	xnlock_get_irqsave(&nklock, s);
+
+	if (!pse51_obj_active(attr,PSE51_MUTEX_ATTR_MAGIC,pthread_mutexattr_t)) {
+		xnlock_put_irqrestore(&nklock, s);
+		return EINVAL;
+	}
+
+	switch (pshared) {
+	default:
+		xnlock_put_irqrestore(&nklock, s);
+		return EINVAL;
+
+	case PTHREAD_PROCESS_PRIVATE:
+	case PTHREAD_PROCESS_SHARED:
+		break;
+	}
+
+	attr->pshared = pshared;
+
+	xnlock_put_irqrestore(&nklock, s);
+
+	return 0;
+}
+
 
 /*@}*/
 
@@ -353,3 +431,5 @@ EXPORT_SYMBOL(pthread_mutexattr_gettype);
 EXPORT_SYMBOL(pthread_mutexattr_settype);
 EXPORT_SYMBOL(pthread_mutexattr_getprotocol);
 EXPORT_SYMBOL(pthread_mutexattr_setprotocol);
+EXPORT_SYMBOL(pthread_mutexattr_getpshared);
+EXPORT_SYMBOL(pthread_mutexattr_setpshared);

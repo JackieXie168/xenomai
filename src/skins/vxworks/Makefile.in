@@ -38,7 +38,7 @@ build_triplet = @build@
 host_triplet = @host@
 target_triplet = @target@
 subdir = src/skins/vxworks
-DIST_COMMON = $(srcdir)/Makefile.am $(srcdir)/Makefile.in
+DIST_COMMON = $(srcdir)/Makefile.am $(srcdir)/Makefile.in COPYING
 ACLOCAL_M4 = $(top_srcdir)/aclocal.m4
 am__aclocal_m4_deps = $(top_srcdir)/config/ac_prog_cc_for_build.m4 \
 	$(top_srcdir)/config/docbook.m4 $(top_srcdir)/config/version \
@@ -55,17 +55,16 @@ am__vpath_adj = case $$p in \
   esac;
 am__strip_dir = `echo $$p | sed -e 's|^.*/||'`;
 am__installdirs = "$(DESTDIR)$(libdir)"
-libLIBRARIES_INSTALL = $(INSTALL_DATA)
-LIBRARIES = $(lib_LIBRARIES)
-ARFLAGS = cru
-libvxworks_a_AR = $(AR) $(ARFLAGS)
-libvxworks_a_LIBADD =
-nodist_libvxworks_a_OBJECTS = errnoLib.$(OBJEXT) intLib.$(OBJEXT) \
-	kernelLib.$(OBJEXT) module.$(OBJEXT) msgQLib.$(OBJEXT) \
-	semLib.$(OBJEXT) sysLib.$(OBJEXT) taskHookLib.$(OBJEXT) \
-	taskInfo.$(OBJEXT) taskLib.$(OBJEXT) tickLib.$(OBJEXT) \
-	wdLib.$(OBJEXT)
-libvxworks_a_OBJECTS = $(nodist_libvxworks_a_OBJECTS)
+libLTLIBRARIES_INSTALL = $(INSTALL)
+LTLIBRARIES = $(lib_LTLIBRARIES)
+libvxworks_la_LIBADD =
+am_libvxworks_la_OBJECTS = libvxworks_la-errnoLib.lo \
+	libvxworks_la-intLib.lo libvxworks_la-msgQLib.lo \
+	libvxworks_la-kernelLib.lo libvxworks_la-semLib.lo \
+	libvxworks_la-taskInfo.lo libvxworks_la-taskLib.lo \
+	libvxworks_la-tickLib.lo libvxworks_la-sysLib.lo \
+	libvxworks_la-wdLib.lo libvxworks_la-init.lo
+libvxworks_la_OBJECTS = $(am_libvxworks_la_OBJECTS)
 DEFAULT_INCLUDES = -I. -I$(srcdir) -I$(top_builddir)/src/include
 depcomp = $(SHELL) $(top_srcdir)/config/depcomp
 am__depfiles_maybe = depfiles
@@ -77,8 +76,8 @@ LTCOMPILE = $(LIBTOOL) --tag=CC --mode=compile $(CC) $(DEFS) \
 CCLD = $(CC)
 LINK = $(LIBTOOL) --tag=CC --mode=link $(CCLD) $(AM_CFLAGS) $(CFLAGS) \
 	$(AM_LDFLAGS) $(LDFLAGS) -o $@
-SOURCES = $(nodist_libvxworks_a_SOURCES)
-DIST_SOURCES =
+SOURCES = $(libvxworks_la_SOURCES)
+DIST_SOURCES = $(libvxworks_la_SOURCES)
 ETAGS = etags
 CTAGS = ctags
 DISTFILES = $(DIST_COMMON) $(DIST_SOURCES) $(TEXINFOS) $(EXTRA_DIST)
@@ -101,6 +100,7 @@ CCDEPMODE = @CCDEPMODE@
 CC_FOR_BUILD = @CC_FOR_BUILD@
 CFLAGS = @CFLAGS@
 CFLAGS_FOR_BUILD = @CFLAGS_FOR_BUILD@
+CONFIG_STATUS_DEPENDENCIES = @CONFIG_STATUS_DEPENDENCIES@
 CONFIG_XENO_DOC_DOX_FALSE = @CONFIG_XENO_DOC_DOX_FALSE@
 CONFIG_XENO_DOC_DOX_TRUE = @CONFIG_XENO_DOC_DOX_TRUE@
 CONFIG_XENO_UVM_FALSE = @CONFIG_XENO_UVM_FALSE@
@@ -175,9 +175,13 @@ XENO_BUILD_LINUX_FALSE = @XENO_BUILD_LINUX_FALSE@
 XENO_BUILD_LINUX_TRUE = @XENO_BUILD_LINUX_TRUE@
 XENO_BUILD_STRING = @XENO_BUILD_STRING@
 XENO_HOST_STRING = @XENO_HOST_STRING@
+XENO_LINUX_ALL_TARGETS = @XENO_LINUX_ALL_TARGETS@
 XENO_LINUX_ARCH = @XENO_LINUX_ARCH@
 XENO_MAYBE_DOCDIR = @XENO_MAYBE_DOCDIR@
+XENO_POSIX_WRAPPERS = @XENO_POSIX_WRAPPERS@
 XENO_TARGET_ARCH = @XENO_TARGET_ARCH@
+XENO_TARGET_ARCH_I386_FALSE = @XENO_TARGET_ARCH_I386_FALSE@
+XENO_TARGET_ARCH_I386_TRUE = @XENO_TARGET_ARCH_I386_TRUE@
 XENO_USER_APP_CFLAGS = @XENO_USER_APP_CFLAGS@
 XENO_USER_APP_LDFLAGS = @XENO_USER_APP_LDFLAGS@
 XENO_USER_CFLAGS = @XENO_USER_CFLAGS@
@@ -230,28 +234,25 @@ target_alias = @target_alias@
 target_cpu = @target_cpu@
 target_os = @target_os@
 target_vendor = @target_vendor@
-lib_LIBRARIES = libvxworks.a
-nodist_libvxworks_a_SOURCES = \
+lib_LTLIBRARIES = libvxworks.la
+libvxworks_la_LDFLAGS = -module -version-info 0:0:0 -lpthread
+libvxworks_la_SOURCES = \
 	errnoLib.c \
 	intLib.c \
-	kernelLib.c \
-	module.c \
 	msgQLib.c \
+	kernelLib.c \
 	semLib.c \
-	sysLib.c \
-	taskHookLib.c \
 	taskInfo.c \
 	taskLib.c \
 	tickLib.c \
-	wdLib.c
+	sysLib.c \
+	wdLib.c \
+	init.c
 
-AM_CPPFLAGS = \
+libvxworks_la_CPPFLAGS = \
 	@XENO_USER_CFLAGS@ \
-	-I$(top_srcdir)/ksrc/skins \
-	-I$(top_srcdir)/include \
-	-D__XENO_UVM__
+	-I$(top_srcdir)/include
 
-CLEANFILES = $(nodist_libvxworks_a_SOURCES)
 all: all-am
 
 .SUFFIXES:
@@ -285,39 +286,35 @@ $(top_srcdir)/configure: @MAINTAINER_MODE_TRUE@ $(am__configure_deps)
 	cd $(top_builddir) && $(MAKE) $(AM_MAKEFLAGS) am--refresh
 $(ACLOCAL_M4): @MAINTAINER_MODE_TRUE@ $(am__aclocal_m4_deps)
 	cd $(top_builddir) && $(MAKE) $(AM_MAKEFLAGS) am--refresh
-install-libLIBRARIES: $(lib_LIBRARIES)
+install-libLTLIBRARIES: $(lib_LTLIBRARIES)
 	@$(NORMAL_INSTALL)
 	test -z "$(libdir)" || $(mkdir_p) "$(DESTDIR)$(libdir)"
-	@list='$(lib_LIBRARIES)'; for p in $$list; do \
+	@list='$(lib_LTLIBRARIES)'; for p in $$list; do \
 	  if test -f $$p; then \
 	    f=$(am__strip_dir) \
-	    echo " $(libLIBRARIES_INSTALL) '$$p' '$(DESTDIR)$(libdir)/$$f'"; \
-	    $(libLIBRARIES_INSTALL) "$$p" "$(DESTDIR)$(libdir)/$$f"; \
-	  else :; fi; \
-	done
-	@$(POST_INSTALL)
-	@list='$(lib_LIBRARIES)'; for p in $$list; do \
-	  if test -f $$p; then \
-	    p=$(am__strip_dir) \
-	    echo " $(RANLIB) '$(DESTDIR)$(libdir)/$$p'"; \
-	    $(RANLIB) "$(DESTDIR)$(libdir)/$$p"; \
+	    echo " $(LIBTOOL) --mode=install $(libLTLIBRARIES_INSTALL) $(INSTALL_STRIP_FLAG) '$$p' '$(DESTDIR)$(libdir)/$$f'"; \
+	    $(LIBTOOL) --mode=install $(libLTLIBRARIES_INSTALL) $(INSTALL_STRIP_FLAG) "$$p" "$(DESTDIR)$(libdir)/$$f"; \
 	  else :; fi; \
 	done
 
-uninstall-libLIBRARIES:
+uninstall-libLTLIBRARIES:
 	@$(NORMAL_UNINSTALL)
-	@list='$(lib_LIBRARIES)'; for p in $$list; do \
+	@set -x; list='$(lib_LTLIBRARIES)'; for p in $$list; do \
 	  p=$(am__strip_dir) \
-	  echo " rm -f '$(DESTDIR)$(libdir)/$$p'"; \
-	  rm -f "$(DESTDIR)$(libdir)/$$p"; \
+	  echo " $(LIBTOOL) --mode=uninstall rm -f '$(DESTDIR)$(libdir)/$$p'"; \
+	  $(LIBTOOL) --mode=uninstall rm -f "$(DESTDIR)$(libdir)/$$p"; \
 	done
 
-clean-libLIBRARIES:
-	-test -z "$(lib_LIBRARIES)" || rm -f $(lib_LIBRARIES)
-libvxworks.a: $(libvxworks_a_OBJECTS) $(libvxworks_a_DEPENDENCIES) 
-	-rm -f libvxworks.a
-	$(libvxworks_a_AR) libvxworks.a $(libvxworks_a_OBJECTS) $(libvxworks_a_LIBADD)
-	$(RANLIB) libvxworks.a
+clean-libLTLIBRARIES:
+	-test -z "$(lib_LTLIBRARIES)" || rm -f $(lib_LTLIBRARIES)
+	@list='$(lib_LTLIBRARIES)'; for p in $$list; do \
+	  dir="`echo $$p | sed -e 's|/[^/]*$$||'`"; \
+	  test "$$dir" != "$$p" || dir=.; \
+	  echo "rm -f \"$${dir}/so_locations\""; \
+	  rm -f "$${dir}/so_locations"; \
+	done
+libvxworks.la: $(libvxworks_la_OBJECTS) $(libvxworks_la_DEPENDENCIES) 
+	$(LINK) -rpath $(libdir) $(libvxworks_la_LDFLAGS) $(libvxworks_la_OBJECTS) $(libvxworks_la_LIBADD) $(LIBS)
 
 mostlyclean-compile:
 	-rm -f *.$(OBJEXT)
@@ -325,18 +322,17 @@ mostlyclean-compile:
 distclean-compile:
 	-rm -f *.tab.c
 
-@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/errnoLib.Po@am__quote@
-@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/intLib.Po@am__quote@
-@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/kernelLib.Po@am__quote@
-@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/module.Po@am__quote@
-@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/msgQLib.Po@am__quote@
-@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/semLib.Po@am__quote@
-@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/sysLib.Po@am__quote@
-@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/taskHookLib.Po@am__quote@
-@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/taskInfo.Po@am__quote@
-@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/taskLib.Po@am__quote@
-@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/tickLib.Po@am__quote@
-@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/wdLib.Po@am__quote@
+@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/libvxworks_la-errnoLib.Plo@am__quote@
+@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/libvxworks_la-init.Plo@am__quote@
+@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/libvxworks_la-intLib.Plo@am__quote@
+@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/libvxworks_la-kernelLib.Plo@am__quote@
+@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/libvxworks_la-msgQLib.Plo@am__quote@
+@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/libvxworks_la-semLib.Plo@am__quote@
+@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/libvxworks_la-sysLib.Plo@am__quote@
+@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/libvxworks_la-taskInfo.Plo@am__quote@
+@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/libvxworks_la-taskLib.Plo@am__quote@
+@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/libvxworks_la-tickLib.Plo@am__quote@
+@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/libvxworks_la-wdLib.Plo@am__quote@
 
 .c.o:
 @am__fastdepCC_TRUE@	if $(COMPILE) -MT $@ -MD -MP -MF "$(DEPDIR)/$*.Tpo" -c -o $@ $<; \
@@ -358,6 +354,83 @@ distclean-compile:
 @AMDEP_TRUE@@am__fastdepCC_FALSE@	source='$<' object='$@' libtool=yes @AMDEPBACKSLASH@
 @AMDEP_TRUE@@am__fastdepCC_FALSE@	DEPDIR=$(DEPDIR) $(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
 @am__fastdepCC_FALSE@	$(LTCOMPILE) -c -o $@ $<
+
+libvxworks_la-errnoLib.lo: errnoLib.c
+@am__fastdepCC_TRUE@	if $(LIBTOOL) --tag=CC --mode=compile $(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(libvxworks_la_CPPFLAGS) $(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS) -MT libvxworks_la-errnoLib.lo -MD -MP -MF "$(DEPDIR)/libvxworks_la-errnoLib.Tpo" -c -o libvxworks_la-errnoLib.lo `test -f 'errnoLib.c' || echo '$(srcdir)/'`errnoLib.c; \
+@am__fastdepCC_TRUE@	then mv -f "$(DEPDIR)/libvxworks_la-errnoLib.Tpo" "$(DEPDIR)/libvxworks_la-errnoLib.Plo"; else rm -f "$(DEPDIR)/libvxworks_la-errnoLib.Tpo"; exit 1; fi
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	source='errnoLib.c' object='libvxworks_la-errnoLib.lo' libtool=yes @AMDEPBACKSLASH@
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	DEPDIR=$(DEPDIR) $(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
+@am__fastdepCC_FALSE@	$(LIBTOOL) --tag=CC --mode=compile $(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(libvxworks_la_CPPFLAGS) $(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS) -c -o libvxworks_la-errnoLib.lo `test -f 'errnoLib.c' || echo '$(srcdir)/'`errnoLib.c
+
+libvxworks_la-intLib.lo: intLib.c
+@am__fastdepCC_TRUE@	if $(LIBTOOL) --tag=CC --mode=compile $(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(libvxworks_la_CPPFLAGS) $(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS) -MT libvxworks_la-intLib.lo -MD -MP -MF "$(DEPDIR)/libvxworks_la-intLib.Tpo" -c -o libvxworks_la-intLib.lo `test -f 'intLib.c' || echo '$(srcdir)/'`intLib.c; \
+@am__fastdepCC_TRUE@	then mv -f "$(DEPDIR)/libvxworks_la-intLib.Tpo" "$(DEPDIR)/libvxworks_la-intLib.Plo"; else rm -f "$(DEPDIR)/libvxworks_la-intLib.Tpo"; exit 1; fi
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	source='intLib.c' object='libvxworks_la-intLib.lo' libtool=yes @AMDEPBACKSLASH@
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	DEPDIR=$(DEPDIR) $(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
+@am__fastdepCC_FALSE@	$(LIBTOOL) --tag=CC --mode=compile $(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(libvxworks_la_CPPFLAGS) $(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS) -c -o libvxworks_la-intLib.lo `test -f 'intLib.c' || echo '$(srcdir)/'`intLib.c
+
+libvxworks_la-msgQLib.lo: msgQLib.c
+@am__fastdepCC_TRUE@	if $(LIBTOOL) --tag=CC --mode=compile $(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(libvxworks_la_CPPFLAGS) $(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS) -MT libvxworks_la-msgQLib.lo -MD -MP -MF "$(DEPDIR)/libvxworks_la-msgQLib.Tpo" -c -o libvxworks_la-msgQLib.lo `test -f 'msgQLib.c' || echo '$(srcdir)/'`msgQLib.c; \
+@am__fastdepCC_TRUE@	then mv -f "$(DEPDIR)/libvxworks_la-msgQLib.Tpo" "$(DEPDIR)/libvxworks_la-msgQLib.Plo"; else rm -f "$(DEPDIR)/libvxworks_la-msgQLib.Tpo"; exit 1; fi
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	source='msgQLib.c' object='libvxworks_la-msgQLib.lo' libtool=yes @AMDEPBACKSLASH@
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	DEPDIR=$(DEPDIR) $(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
+@am__fastdepCC_FALSE@	$(LIBTOOL) --tag=CC --mode=compile $(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(libvxworks_la_CPPFLAGS) $(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS) -c -o libvxworks_la-msgQLib.lo `test -f 'msgQLib.c' || echo '$(srcdir)/'`msgQLib.c
+
+libvxworks_la-kernelLib.lo: kernelLib.c
+@am__fastdepCC_TRUE@	if $(LIBTOOL) --tag=CC --mode=compile $(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(libvxworks_la_CPPFLAGS) $(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS) -MT libvxworks_la-kernelLib.lo -MD -MP -MF "$(DEPDIR)/libvxworks_la-kernelLib.Tpo" -c -o libvxworks_la-kernelLib.lo `test -f 'kernelLib.c' || echo '$(srcdir)/'`kernelLib.c; \
+@am__fastdepCC_TRUE@	then mv -f "$(DEPDIR)/libvxworks_la-kernelLib.Tpo" "$(DEPDIR)/libvxworks_la-kernelLib.Plo"; else rm -f "$(DEPDIR)/libvxworks_la-kernelLib.Tpo"; exit 1; fi
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	source='kernelLib.c' object='libvxworks_la-kernelLib.lo' libtool=yes @AMDEPBACKSLASH@
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	DEPDIR=$(DEPDIR) $(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
+@am__fastdepCC_FALSE@	$(LIBTOOL) --tag=CC --mode=compile $(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(libvxworks_la_CPPFLAGS) $(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS) -c -o libvxworks_la-kernelLib.lo `test -f 'kernelLib.c' || echo '$(srcdir)/'`kernelLib.c
+
+libvxworks_la-semLib.lo: semLib.c
+@am__fastdepCC_TRUE@	if $(LIBTOOL) --tag=CC --mode=compile $(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(libvxworks_la_CPPFLAGS) $(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS) -MT libvxworks_la-semLib.lo -MD -MP -MF "$(DEPDIR)/libvxworks_la-semLib.Tpo" -c -o libvxworks_la-semLib.lo `test -f 'semLib.c' || echo '$(srcdir)/'`semLib.c; \
+@am__fastdepCC_TRUE@	then mv -f "$(DEPDIR)/libvxworks_la-semLib.Tpo" "$(DEPDIR)/libvxworks_la-semLib.Plo"; else rm -f "$(DEPDIR)/libvxworks_la-semLib.Tpo"; exit 1; fi
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	source='semLib.c' object='libvxworks_la-semLib.lo' libtool=yes @AMDEPBACKSLASH@
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	DEPDIR=$(DEPDIR) $(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
+@am__fastdepCC_FALSE@	$(LIBTOOL) --tag=CC --mode=compile $(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(libvxworks_la_CPPFLAGS) $(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS) -c -o libvxworks_la-semLib.lo `test -f 'semLib.c' || echo '$(srcdir)/'`semLib.c
+
+libvxworks_la-taskInfo.lo: taskInfo.c
+@am__fastdepCC_TRUE@	if $(LIBTOOL) --tag=CC --mode=compile $(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(libvxworks_la_CPPFLAGS) $(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS) -MT libvxworks_la-taskInfo.lo -MD -MP -MF "$(DEPDIR)/libvxworks_la-taskInfo.Tpo" -c -o libvxworks_la-taskInfo.lo `test -f 'taskInfo.c' || echo '$(srcdir)/'`taskInfo.c; \
+@am__fastdepCC_TRUE@	then mv -f "$(DEPDIR)/libvxworks_la-taskInfo.Tpo" "$(DEPDIR)/libvxworks_la-taskInfo.Plo"; else rm -f "$(DEPDIR)/libvxworks_la-taskInfo.Tpo"; exit 1; fi
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	source='taskInfo.c' object='libvxworks_la-taskInfo.lo' libtool=yes @AMDEPBACKSLASH@
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	DEPDIR=$(DEPDIR) $(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
+@am__fastdepCC_FALSE@	$(LIBTOOL) --tag=CC --mode=compile $(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(libvxworks_la_CPPFLAGS) $(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS) -c -o libvxworks_la-taskInfo.lo `test -f 'taskInfo.c' || echo '$(srcdir)/'`taskInfo.c
+
+libvxworks_la-taskLib.lo: taskLib.c
+@am__fastdepCC_TRUE@	if $(LIBTOOL) --tag=CC --mode=compile $(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(libvxworks_la_CPPFLAGS) $(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS) -MT libvxworks_la-taskLib.lo -MD -MP -MF "$(DEPDIR)/libvxworks_la-taskLib.Tpo" -c -o libvxworks_la-taskLib.lo `test -f 'taskLib.c' || echo '$(srcdir)/'`taskLib.c; \
+@am__fastdepCC_TRUE@	then mv -f "$(DEPDIR)/libvxworks_la-taskLib.Tpo" "$(DEPDIR)/libvxworks_la-taskLib.Plo"; else rm -f "$(DEPDIR)/libvxworks_la-taskLib.Tpo"; exit 1; fi
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	source='taskLib.c' object='libvxworks_la-taskLib.lo' libtool=yes @AMDEPBACKSLASH@
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	DEPDIR=$(DEPDIR) $(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
+@am__fastdepCC_FALSE@	$(LIBTOOL) --tag=CC --mode=compile $(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(libvxworks_la_CPPFLAGS) $(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS) -c -o libvxworks_la-taskLib.lo `test -f 'taskLib.c' || echo '$(srcdir)/'`taskLib.c
+
+libvxworks_la-tickLib.lo: tickLib.c
+@am__fastdepCC_TRUE@	if $(LIBTOOL) --tag=CC --mode=compile $(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(libvxworks_la_CPPFLAGS) $(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS) -MT libvxworks_la-tickLib.lo -MD -MP -MF "$(DEPDIR)/libvxworks_la-tickLib.Tpo" -c -o libvxworks_la-tickLib.lo `test -f 'tickLib.c' || echo '$(srcdir)/'`tickLib.c; \
+@am__fastdepCC_TRUE@	then mv -f "$(DEPDIR)/libvxworks_la-tickLib.Tpo" "$(DEPDIR)/libvxworks_la-tickLib.Plo"; else rm -f "$(DEPDIR)/libvxworks_la-tickLib.Tpo"; exit 1; fi
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	source='tickLib.c' object='libvxworks_la-tickLib.lo' libtool=yes @AMDEPBACKSLASH@
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	DEPDIR=$(DEPDIR) $(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
+@am__fastdepCC_FALSE@	$(LIBTOOL) --tag=CC --mode=compile $(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(libvxworks_la_CPPFLAGS) $(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS) -c -o libvxworks_la-tickLib.lo `test -f 'tickLib.c' || echo '$(srcdir)/'`tickLib.c
+
+libvxworks_la-sysLib.lo: sysLib.c
+@am__fastdepCC_TRUE@	if $(LIBTOOL) --tag=CC --mode=compile $(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(libvxworks_la_CPPFLAGS) $(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS) -MT libvxworks_la-sysLib.lo -MD -MP -MF "$(DEPDIR)/libvxworks_la-sysLib.Tpo" -c -o libvxworks_la-sysLib.lo `test -f 'sysLib.c' || echo '$(srcdir)/'`sysLib.c; \
+@am__fastdepCC_TRUE@	then mv -f "$(DEPDIR)/libvxworks_la-sysLib.Tpo" "$(DEPDIR)/libvxworks_la-sysLib.Plo"; else rm -f "$(DEPDIR)/libvxworks_la-sysLib.Tpo"; exit 1; fi
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	source='sysLib.c' object='libvxworks_la-sysLib.lo' libtool=yes @AMDEPBACKSLASH@
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	DEPDIR=$(DEPDIR) $(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
+@am__fastdepCC_FALSE@	$(LIBTOOL) --tag=CC --mode=compile $(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(libvxworks_la_CPPFLAGS) $(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS) -c -o libvxworks_la-sysLib.lo `test -f 'sysLib.c' || echo '$(srcdir)/'`sysLib.c
+
+libvxworks_la-wdLib.lo: wdLib.c
+@am__fastdepCC_TRUE@	if $(LIBTOOL) --tag=CC --mode=compile $(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(libvxworks_la_CPPFLAGS) $(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS) -MT libvxworks_la-wdLib.lo -MD -MP -MF "$(DEPDIR)/libvxworks_la-wdLib.Tpo" -c -o libvxworks_la-wdLib.lo `test -f 'wdLib.c' || echo '$(srcdir)/'`wdLib.c; \
+@am__fastdepCC_TRUE@	then mv -f "$(DEPDIR)/libvxworks_la-wdLib.Tpo" "$(DEPDIR)/libvxworks_la-wdLib.Plo"; else rm -f "$(DEPDIR)/libvxworks_la-wdLib.Tpo"; exit 1; fi
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	source='wdLib.c' object='libvxworks_la-wdLib.lo' libtool=yes @AMDEPBACKSLASH@
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	DEPDIR=$(DEPDIR) $(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
+@am__fastdepCC_FALSE@	$(LIBTOOL) --tag=CC --mode=compile $(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(libvxworks_la_CPPFLAGS) $(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS) -c -o libvxworks_la-wdLib.lo `test -f 'wdLib.c' || echo '$(srcdir)/'`wdLib.c
+
+libvxworks_la-init.lo: init.c
+@am__fastdepCC_TRUE@	if $(LIBTOOL) --tag=CC --mode=compile $(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(libvxworks_la_CPPFLAGS) $(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS) -MT libvxworks_la-init.lo -MD -MP -MF "$(DEPDIR)/libvxworks_la-init.Tpo" -c -o libvxworks_la-init.lo `test -f 'init.c' || echo '$(srcdir)/'`init.c; \
+@am__fastdepCC_TRUE@	then mv -f "$(DEPDIR)/libvxworks_la-init.Tpo" "$(DEPDIR)/libvxworks_la-init.Plo"; else rm -f "$(DEPDIR)/libvxworks_la-init.Tpo"; exit 1; fi
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	source='init.c' object='libvxworks_la-init.lo' libtool=yes @AMDEPBACKSLASH@
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	DEPDIR=$(DEPDIR) $(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
+@am__fastdepCC_FALSE@	$(LIBTOOL) --tag=CC --mode=compile $(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(libvxworks_la_CPPFLAGS) $(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS) -c -o libvxworks_la-init.lo `test -f 'init.c' || echo '$(srcdir)/'`init.c
 
 mostlyclean-libtool:
 	-rm -f *.lo
@@ -446,7 +519,7 @@ distdir: $(DISTFILES)
 	done
 check-am: all-am
 check: check-am
-all-am: Makefile $(LIBRARIES)
+all-am: Makefile $(LTLIBRARIES)
 installdirs:
 	for dir in "$(DESTDIR)$(libdir)"; do \
 	  test -z "$$dir" || $(mkdir_p) "$$dir"; \
@@ -468,7 +541,6 @@ install-strip:
 mostlyclean-generic:
 
 clean-generic:
-	-test -z "$(CLEANFILES)" || rm -f $(CLEANFILES)
 
 distclean-generic:
 	-test -z "$(CONFIG_CLEAN_FILES)" || rm -f $(CONFIG_CLEAN_FILES)
@@ -478,7 +550,7 @@ maintainer-clean-generic:
 	@echo "it deletes files that may require special tools to rebuild."
 clean: clean-am
 
-clean-am: clean-generic clean-libLIBRARIES clean-libtool \
+clean-am: clean-generic clean-libLTLIBRARIES clean-libtool \
 	mostlyclean-am
 
 distclean: distclean-am
@@ -499,7 +571,9 @@ info-am:
 
 install-data-am:
 
-install-exec-am: install-libLIBRARIES
+install-exec-am: install-libLTLIBRARIES
+	@$(NORMAL_INSTALL)
+	$(MAKE) $(AM_MAKEFLAGS) install-exec-hook
 
 install-info: install-info-am
 
@@ -525,24 +599,27 @@ ps: ps-am
 
 ps-am:
 
-uninstall-am: uninstall-info-am uninstall-libLIBRARIES
+uninstall-am: uninstall-info-am uninstall-libLTLIBRARIES
 
 .PHONY: CTAGS GTAGS all all-am check check-am clean clean-generic \
-	clean-libLIBRARIES clean-libtool ctags distclean \
+	clean-libLTLIBRARIES clean-libtool ctags distclean \
 	distclean-compile distclean-generic distclean-libtool \
 	distclean-tags distdir dvi dvi-am html html-am info info-am \
 	install install-am install-data install-data-am install-exec \
-	install-exec-am install-info install-info-am \
-	install-libLIBRARIES install-man install-strip installcheck \
+	install-exec-am install-exec-hook install-info install-info-am \
+	install-libLTLIBRARIES install-man install-strip installcheck \
 	installcheck-am installdirs maintainer-clean \
 	maintainer-clean-generic mostlyclean mostlyclean-compile \
 	mostlyclean-generic mostlyclean-libtool pdf pdf-am ps ps-am \
 	tags uninstall uninstall-am uninstall-info-am \
-	uninstall-libLIBRARIES
+	uninstall-libLTLIBRARIES
 
 
-$(nodist_libvxworks_a_SOURCES) defs.h: Makefile
-	$(LN_S) -f $(top_srcdir)/ksrc/skins/vxworks/$@
+install-exec-hook:
+	for la in $(lib_LTLIBRARIES); do \
+	    sed -e 's/shouldnotlink=yes/shouldnotlink=no/' $(DESTDIR)$(libdir)/$$la > $(DESTDIR)$(libdir)/$$la.patched; \
+	    mv $(DESTDIR)$(libdir)/$$la.patched $(DESTDIR)$(libdir)/$$la; \
+	done
 # Tell versions [3.59,3.63) of GNU make to not export all variables.
 # Otherwise a system limit (for SysV at least) may be exceeded.
 .NOEXPORT:

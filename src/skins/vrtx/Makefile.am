@@ -1,11 +1,12 @@
+lib_LTLIBRARIES = libvrtx.la
 
-lib_LIBRARIES = libvrtx.a
+libvrtx_la_LDFLAGS = -module -version-info 0:0:0 -lpthread
 
-nodist_libvrtx_a_SOURCES = \
+libvrtx_la_SOURCES = \
 	event.c \
 	heap.c \
+	init.c \
 	mb.c \
-	module.c \
 	mx.c \
 	pt.c \
 	queue.c \
@@ -13,12 +14,12 @@ nodist_libvrtx_a_SOURCES = \
 	task.c \
 	time.c
 
-AM_CPPFLAGS = \
+libvrtx_la_CPPFLAGS = \
 	@XENO_USER_CFLAGS@ \
-	-I$(top_srcdir)/include \
-	-D__XENO_UVM__
+	-I$(top_srcdir)/include
 
-CLEANFILES = $(nodist_libvrtx_a_SOURCES)
-
-$(nodist_libvrtx_a_SOURCES): Makefile
-	$(LN_S) -f $(top_srcdir)/ksrc/skins/vrtx/$@
+install-exec-hook:
+	for la in $(lib_LTLIBRARIES); do \
+	    sed -e 's/shouldnotlink=yes/shouldnotlink=no/' $(DESTDIR)$(libdir)/$$la > $(DESTDIR)$(libdir)/$$la.patched; \
+	    mv $(DESTDIR)$(libdir)/$$la.patched $(DESTDIR)$(libdir)/$$la; \
+	done

@@ -1,31 +1,25 @@
 #ifndef MMAN_H
 #define MMAN_H
 
-#include <nucleus/queue.h>
+#include <posix/registry.h>     /* For associative lists. */
 
-struct mm_struct;
+#if defined(__KERNEL__) && defined(CONFIG_XENO_OPT_PERVASIVE)
 
-typedef xnqueue_t pse51_assocq_t;
+typedef struct {
+    void *kaddr;
+    unsigned long len;
+    pse51_assoc_t assoc;
 
-extern pse51_assocq_t pse51_umaps; /* List of user-space mappings. */
-extern pse51_assocq_t pse51_ufds; /* List of user-space descriptors. */
-
-#define pse51_assocq_init(q) (initq(q))
-
-void pse51_assocq_destroy(pse51_assocq_t *q, void (*destroy)(u_long kobj));
-
-int pse51_assoc_create(pse51_assocq_t *q,
-                       u_long kobj,
-                       struct mm_struct *mm,
-                       u_long uobj);
-
-int pse51_assoc_lookup(pse51_assocq_t *q,
-                       u_long *kobj,
-                       struct mm_struct *mm,
-                       u_long uobj,
-                       int destroy);
+#define assoc2umap(laddr) \
+    ((pse51_umap_t *)((unsigned long) (laddr) - offsetof(pse51_umap_t, assoc)))
+} pse51_umap_t;
 
 int pse51_xnheap_get(xnheap_t **pheap, void *addr);
+
+void pse51_shm_ufds_cleanup(pse51_queues_t *q);
+
+void pse51_shm_umaps_cleanup(pse51_queues_t *q);
+#endif /* __KERNEL__ && CONFIG_XENO_OPT_PERVASIVE */
 
 int pse51_shm_pkg_init(void);
 

@@ -46,6 +46,7 @@
 #define T_NOSIG    XNASDI
 #define T_SHIELD   XNSHIELD
 #define T_WARNSW   XNTRAPSW
+#define T_RPIOFF   XNRPIOFF
 #define T_PRIMARY  0x00000200	/* Recycle internal bits status which */
 #define T_JOINABLE 0x00000400	/* won't be passed to the nucleus.  */
 
@@ -75,7 +76,7 @@ typedef struct rt_task_info {
 
     unsigned status;		/* !< Status. */
 
-    RTIME relpoint;		/* !< Next periodic release point. */
+    RTIME relpoint;		/* !< Periodic release point. */
 
     char name[XNOBJECT_NAME_LEN]; /* !< Symbolic name. */
 
@@ -107,6 +108,8 @@ typedef struct rt_task {
 
 #define link2rtask(laddr) \
 ((RT_TASK *)(((char *)laddr) - (int)(&((RT_TASK *)0)->link)))
+
+    xntimer_t timer;
 
     xnthread_t thread_base;
 
@@ -167,9 +170,9 @@ static inline RT_TASK *thread2rtask (xnthread_t *t)
 extern "C" {
 #endif
 
-u_long __native_task_safe(void);
+void __native_task_safe(void);
 
-u_long __native_task_unsafe(void);
+void __native_task_unsafe(void);
 
 int __native_task_safewait(RT_TASK *task);
 
@@ -184,6 +187,8 @@ int rt_task_add_hook(int type,
 
 int rt_task_remove_hook(int type,
 			void (*routine)(void *cookie));
+
+int rt_task_catch(void (*handler)(rt_sigset_t));
 
 #ifdef __cplusplus
 }
@@ -262,8 +267,6 @@ int rt_task_unblock(RT_TASK *task);
 
 int rt_task_inquire(RT_TASK *task,
 		     RT_TASK_INFO *info);
-
-int rt_task_catch(void (*handler)(rt_sigset_t));
 
 int rt_task_notify(RT_TASK *task,
 		   rt_sigset_t signals);

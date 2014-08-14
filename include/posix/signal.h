@@ -28,9 +28,7 @@
 #define sa_sigaction sa_handler
 typedef void (*sighandler_t) (int sig);
 typedef unsigned long sig_atomic_t;
-#define DELAYTIMER_MAX UINT_MAX
-
-#endif /* !__KERNEL__ */
+#endif /* __KERNEL__ */
 
 #ifdef __XENO_SIM__
 #include <posix_overrides.h>
@@ -52,7 +50,6 @@ typedef unsigned long sig_atomic_t;
 #define sigaddset pse51_sigaddset
 #define sigdelset pse51_sigdelset
 #define sigismember pse51_sigismember
-#define sigqueue pse51_sigqueue
 
 #define SIGRTMIN 33
 #define SIGRTMAX 64
@@ -100,20 +97,19 @@ int sigtimedwait(const sigset_t *__restrict__ user_set,
                  siginfo_t *__restrict__ info,
                  const struct timespec *__restrict__ timeout);
 
-/* Depart from POSIX here, we use a thread id instead of a process id. */
-int sigqueue (struct pse51_thread *thread, int sig, union sigval value);
+int pthread_sigqueue_np (struct pse51_thread *thread, int sig, union sigval value);
 
 #ifdef __cplusplus
 }
 #endif
 
-#else /* __KERNEL__ || __XENO_SIM__ */
+#else /* !(__KERNEL__ || __XENO_SIM__) */
 
 #include_next <signal.h>
 /* In case signal.h is included for a side effect of an __need* macro, include
    it a second time to get all definitions. */
 #include_next <signal.h>
 
-#endif /* __KERNEL__ || __XENO_SIM__ */
+#endif /* !(__KERNEL__ || __XENO_SIM__) */
 
 #endif /* _XENO_POSIX_SIGNAL_H */

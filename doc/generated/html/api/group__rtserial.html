@@ -35,13 +35,13 @@ This is a <b>preliminary</b> version of the common interface a RTDM-compliant se
  Specific return values: none <br>
  <br>
  <b>IOCTL</b> <br>
- Mandatory Environments: see <a class="el" href="group__rtserial.html#IOCTLs">below</a> <br>
- Specific return values: see <a class="el" href="group__rtserial.html#IOCTLs">below</a> <br>
+ Mandatory Environments: see <a class="el" href="group__rttesting.html#IOCTLs">below</a> <br>
+ Specific return values: see <a class="el" href="group__rttesting.html#IOCTLs">below</a> <br>
  <br>
  <b>Read</b> <br>
  Environments: RT (non-RT optional)<br>
  Specific return values:<ul>
-<li>-ETIMEDOUT</li><li>-EINTR (interrupted explicitly or by signal)</li><li>-EAGAIN (no data available in non-blocking mode)</li><li>-EBADF (device has been closed while reading)</li></ul>
+<li>-ETIMEDOUT</li><li>-EINTR (interrupted explicitly or by signal)</li><li>-EAGAIN (no data available in non-blocking mode)</li><li>-EBADF (device has been closed while reading)</li><li>-EIO (hardware error or broken bit stream)</li></ul>
 <br>
  <b>Write</b> <br>
  Environments: RT (non-RT optional)<br>
@@ -554,7 +554,7 @@ This service can be called from:<p>
 Rescheduling: possible.     </td>
   </tr>
 </table>
-<hr size="1"><address style="align: right;"><small>Generated on Thu Apr 6 14:44:26 2006 for Xenomai API by&nbsp;
+<hr size="1"><address style="align: right;"><small>Generated on Sat Jul 15 14:58:06 2006 for Xenomai API by&nbsp;
 <a href="http://www.doxygen.org/index.html">
 <img src="doxygen.png" alt="doxygen" align="middle" border="0"></a> 1.4.2 </small></address>
 </body>

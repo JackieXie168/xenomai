@@ -20,8 +20,6 @@
 
 #include <vxworks/vxworks.h>
 
-MODULE_LICENSE("GPL");
-
 #define CONSUMER_TASK_PRI    115
 #define CONSUMER_STACK_SIZE  24*1024
 
@@ -30,6 +28,39 @@ MODULE_LICENSE("GPL");
 
 #define CONSUMER_WAIT 150
 #define PRODUCER_TRIG 40
+
+int root_thread_init(void);
+void root_thread_exit(void);
+
+#if !defined(__KERNEL__) && !defined(__XENO_UVM__) && !defined(__XENO_SIM__)
+
+#include <sys/mman.h>
+#include <stdlib.h>
+#include <stdio.h>
+#include <unistd.h>
+
+#define MODULE_LICENSE(x)
+
+#define xnprintf printf
+
+int main (int argc, char *argv[])
+{
+    int err;
+
+    mlockall(MCL_CURRENT|MCL_FUTURE);
+
+    atexit(&root_thread_exit);
+    err = root_thread_init();
+
+    if (!err)
+	pause();
+
+    return err;
+}
+
+#endif /* Native, user-space execution */
+
+MODULE_LICENSE("GPL");
 
 static const char *satch_s_tunes[] = {
     "Surfing With The Alien",

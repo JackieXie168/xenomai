@@ -28,6 +28,8 @@
  * drivers. Specifically, it addresses the constraints of mixed
  * RT/non-RT systems like Xenomai. RTDM conforms to POSIX
  * semantics (IEEE Std 1003.1) where available and applicable.
+ *
+ * @b API @b Revision: 4
  */
 
 /*!
@@ -46,7 +48,6 @@
 #include <rtdm/syscall.h>
 #endif /* __KERNEL__ */
 
-#include "rtdm/core.h"
 #include "rtdm/device.h"
 #include "rtdm/proc.h"
 
@@ -60,9 +61,8 @@ static xnpod_t __rtdm_pod;
 #endif /* !__KERNEL__ && CONFIG_XENO_OPT_PERVASIVE) */
 
 
-static void rtdm_skin_shutdown(int xtype)
+static void __exit rtdm_skin_shutdown(int xtype)
 {
-    rtdm_core_cleanup();
     rtdm_dev_cleanup();
 
 #ifdef CONFIG_PROC_FS
@@ -78,7 +78,7 @@ static void rtdm_skin_shutdown(int xtype)
 }
 
 
-int SKIN_INIT(rtdm)
+int __init SKIN_INIT(rtdm)
 {
     int err;
 
@@ -97,14 +97,10 @@ int SKIN_INIT(rtdm)
     if (err)
         goto cleanup_pod;
 
-    err = rtdm_core_init();
-    if (err)
-        goto cleanup_dev;
-
 #ifdef CONFIG_PROC_FS
     err = rtdm_proc_init();
     if (err)
-        goto cleanup_core;
+        goto cleanup_dev;
 #endif /* CONFIG_PROC_FS */
 
 #if defined(__KERNEL__) && defined(CONFIG_XENO_OPT_PERVASIVE)
@@ -112,6 +108,10 @@ int SKIN_INIT(rtdm)
     if (err)
         goto cleanup_proc;
 #endif /* __KERNEL__ && CONFIG_XENO_OPT_PERVASIVE */
+
+#ifndef MODULE
+    rtdm_initialised = 1;
+#endif /* !MODULE */
 
     xnprintf("starting RTDM services.\n");
 
@@ -124,12 +124,9 @@ int SKIN_INIT(rtdm)
 #ifdef CONFIG_PROC_FS
     rtdm_proc_cleanup();
 
-  cleanup_core:
+  cleanup_dev:
 #endif /* CONFIG_PROC_FS */
 
-    rtdm_core_cleanup();
-
-  cleanup_dev:
     rtdm_dev_cleanup();
 
   cleanup_pod:
@@ -146,7 +143,7 @@ int SKIN_INIT(rtdm)
     return err;
 }
 
-void SKIN_EXIT(rtdm)
+void __exit SKIN_EXIT(rtdm)
 {
     xnprintf("stopping RTDM services.\n");
     rtdm_skin_shutdown(XNPOD_NORMAL_EXIT);

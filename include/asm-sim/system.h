@@ -22,6 +22,7 @@
 #ifndef _XENO_ASM_SIM_SYSTEM_H
 #define _XENO_ASM_SIM_SYSTEM_H
 
+#include <asm/param.h>
 #include <errno.h>
 #include <string.h>
 #include <malloc.h>
@@ -55,6 +56,7 @@ typedef void *xnarch_fltinfo_t;	/* Unused but required */
 #define xnarch_fault_code(fi)   0
 #define xnarch_fault_pc(fi)     0L
 #define xnarch_fault_notify(fi) 1
+#define xnarch_fault_um(fi)     0
 
 typedef int spl_t;
 
@@ -68,6 +70,8 @@ typedef unsigned long xnlock_t;
 #define XNARCH_LOCK_UNLOCKED 0
 
 #define xnlock_init(lock)              do { } while(0)
+#define xnlock_get(lock)               do { } while(0)
+#define xnlock_put(lock)               do { } while(0)
 #define xnlock_get_irqsave(lock,x)     ((x) = mvm_set_irqmask(-1))
 #define xnlock_put_irqrestore(lock,x)  mvm_set_irqmask(x)
 #define xnlock_clear_irqoff(lock)      mvm_set_irqmask(-1)
@@ -112,7 +116,6 @@ typedef unsigned long xnarch_cpumask_t;
                                         xnarch_uldivrem(ull,d,&_rem); _rem; })
 
 static inline int xnarch_imuldiv(int i, int mult, int div)
-
 {
     unsigned long long ull = (unsigned long long) (unsigned) i * (unsigned) mult;
     return ull / (unsigned) div;
@@ -121,7 +124,6 @@ static inline int xnarch_imuldiv(int i, int mult, int div)
 static inline unsigned long long __xnarch_ullimd(unsigned long long ull,
                                                  u_long m,
                                                  u_long d)
-
 {
     unsigned long long mh, ml;
     u_long h, l, mlh, mll, qh, r, ql;
@@ -140,7 +142,6 @@ static inline unsigned long long __xnarch_ullimd(unsigned long long ull,
 }
 
 static inline long long xnarch_llimd(long long ll, u_long m, u_long d)
-
 {
     if (ll < 0)
         return -__xnarch_ullimd(-ll, m, d);
@@ -164,7 +165,8 @@ static inline unsigned long long xnarch_ulldiv (unsigned long long ull,
     return ull / uld;
 }
 
-static inline unsigned long ffnz (unsigned long word) {
+static inline unsigned long ffnz (unsigned long word)
+{
     return ffs((int)word) - 1;
 }
 
@@ -204,7 +206,6 @@ static inline void xnarch_init_heapcb (xnarch_heapcb_t *cb) {
 
 static inline int __attribute__ ((unused))
 xnarch_read_environ (const char *name, const char **ptype, void *pvar)
-
 {
     char *value;
 
@@ -397,8 +398,9 @@ static inline int xnarch_end_irq (unsigned irq)
 }
                                                                                 
 static inline void xnarch_chain_irq (unsigned irq)
-
-{ /* Nop */ }
+{
+    /* empty */
+}
 
 static inline unsigned long xnarch_set_irq_affinity (unsigned irq,
 						     unsigned long affinity)
@@ -420,13 +422,14 @@ static inline void xnarch_announce_tick(void)
 
 #ifdef XENO_TIMER_MODULE
 
-static inline void xnarch_program_timer_shot (unsigned long delay) {
-
+static inline void xnarch_program_timer_shot (unsigned long delay)
+{
     /* 1 tsc unit of the virtual CPU == 1 ns. */
     mvm_program_timer(delay);
 }
 
-static inline int xnarch_send_timer_ipi (xnarch_cpumask_t mask) {
+static inline int xnarch_send_timer_ipi (xnarch_cpumask_t mask)
+{
     return -1;
 }
 
@@ -446,15 +449,16 @@ int __xeno_user_init(void);
 
 void __xeno_user_exit(void);
 
-static inline int xnarch_init (void) {
+static inline int xnarch_init (void)
+{
     return 0;
 }
 
-static inline void xnarch_exit (void) {
+static inline void xnarch_exit (void)
+{
 }
 
 void mvm_root (void *cookie)
-
 {
     int err;
 
@@ -479,7 +483,6 @@ void mvm_root (void *cookie)
 }
 
 int main (int argc, char *argv[])
-
 {
     xnarchtcb_t tcb;
     int err;
@@ -505,7 +508,8 @@ int main (int argc, char *argv[])
 #ifdef XENO_POD_MODULE
 
 static inline int xnarch_start_timer (unsigned long nstick,
-				      void (*tickhandler)(void)) {
+				      void (*tickhandler)(void))
+{
     return mvm_start_timer(nstick,tickhandler);
 }
 
@@ -514,35 +518,38 @@ static inline void xnarch_stop_timer (void)
     mvm_stop_timer();
 }
 
-static inline void xnarch_leave_root(xnarchtcb_t *rootcb) {
+static inline void xnarch_leave_root(xnarchtcb_t *rootcb)
+{
     /* Empty */
 }
 
-static inline void xnarch_enter_root(xnarchtcb_t *rootcb) {
+static inline void xnarch_enter_root(xnarchtcb_t *rootcb)
+{
     /* Empty */
 }
 
 static inline void xnarch_switch_to (xnarchtcb_t *out_tcb,
-				     xnarchtcb_t *in_tcb) {
-
+				     xnarchtcb_t *in_tcb)
+{
     __mvm_breakable(mvm_switch_threads)(out_tcb->vmthread,in_tcb->vmthread);
 }
 
 static inline void xnarch_finalize_and_switch (xnarchtcb_t *dead_tcb,
-					       xnarchtcb_t *next_tcb) {
-
+					       xnarchtcb_t *next_tcb)
+{
     mvm_finalize_switch_threads(dead_tcb->vmthread,next_tcb->vmthread);
 }
 
-static inline void xnarch_finalize_no_switch (xnarchtcb_t *dead_tcb) {
-
+static inline void xnarch_finalize_no_switch (xnarchtcb_t *dead_tcb)
+{
     if (dead_tcb->vmthread)	/* Might be unstarted. */
 	mvm_finalize_thread(dead_tcb->vmthread);
 }
 
 static inline void xnarch_init_root_tcb (xnarchtcb_t *tcb,
 					 struct xnthread *thread,
-					 const char *name) {
+					 const char *name)
+{
     tcb->vmthread = mvm_thread_self();
 }
 
@@ -567,43 +574,48 @@ static inline void xnarch_init_thread (xnarchtcb_t *tcb,
     tcb->vmthread = mvm_spawn_thread(tcb,(void *)entry,name);
 }
 
-static inline void xnarch_enable_fpu(xnarchtcb_t *current_tcb) {
+static inline void xnarch_enable_fpu(xnarchtcb_t *current_tcb)
+{
     /* Nop */
 }
 
-static inline void xnarch_init_fpu(xnarchtcb_t *tcb) {
+static inline void xnarch_init_fpu(xnarchtcb_t *tcb)
+{
     /* Nop */
 }
 
-static inline void xnarch_save_fpu(xnarchtcb_t *tcb) {
+static inline void xnarch_save_fpu(xnarchtcb_t *tcb)
+{
     /* Nop */
 }
 
-static inline void xnarch_restore_fpu(xnarchtcb_t *tcb) {
+static inline void xnarch_restore_fpu(xnarchtcb_t *tcb)
+{
     /* Nop */
 }
 
-int xnarch_setimask (int imask) {
+int xnarch_setimask (int imask)
+{
     return mvm_set_irqmask(imask);
 }
 
-static inline int xnarch_send_ipi (unsigned cpumask) {
-
+static inline int xnarch_send_ipi (unsigned cpumask)
+{
     return 0;
 }
 
-static inline int xnarch_hook_ipi (void (*handler)(void)) {
-
+static inline int xnarch_hook_ipi (void (*handler)(void))
+{
     return 0;
 }
 
-static inline int xnarch_release_ipi (void) {
-
+static inline int xnarch_release_ipi (void)
+{
     return 0;
 }
 
-static inline void xnarch_escalate (void) {
-
+static inline void xnarch_escalate (void)
+{
     void xnpod_schedule_handler(void);
     xnpod_schedule_handler();
 }
@@ -640,35 +652,47 @@ static inline void xnarch_init_tcb (xnarchtcb_t *tcb)
 
 #endif /* XENO_THREAD_MODULE */
 
-static inline unsigned long long xnarch_tsc_to_ns (unsigned long long ts) {
+static inline unsigned long long xnarch_tsc_to_ns (unsigned long long ts)
+{
     return ts;
 }
 
-static inline unsigned long long xnarch_ns_to_tsc (unsigned long long ns) {
+static inline unsigned long long xnarch_ns_to_tsc (unsigned long long ns)
+{
     return ns;
 }
 
-static inline unsigned long long xnarch_get_cpu_time (void) {
+static inline unsigned long long xnarch_get_cpu_time (void)
+{
     return mvm_get_cpu_time();
 }
 
-static inline unsigned long long xnarch_get_cpu_tsc (void) {
+static inline unsigned long long xnarch_get_cpu_tsc (void)
+{
     return mvm_get_cpu_time();
 }
 
-static inline unsigned long xnarch_get_cpu_freq (void) {
+static inline unsigned long xnarch_get_cpu_freq (void)
+{
     return mvm_get_cpu_freq();
 }
 
-static inline void xnarch_halt (const char *emsg) {
+static inline void xnarch_halt (const char *emsg)
+{
     __mvm_breakable(mvm_fatal)("%s",emsg);
 }
 
-static inline void *xnarch_sysalloc (u_long bytes) {
-    return malloc(bytes);
+static inline void *xnarch_sysalloc (u_long bytes)
+{
+    void *chunk = malloc(bytes);
+    if (chunk)
+	    memset(chunk, 0xa5, bytes);
+    return chunk;
 }
 
-static inline void xnarch_sysfree (void *chunk, u_long bytes) {
+static inline void xnarch_sysfree (void *chunk, u_long bytes)
+{
+    memset(chunk, 0xdb, bytes);
     free(chunk);
 }
 
@@ -743,8 +767,18 @@ if (cond) \
 __mvm_breakable(mvm_post_graph)(&(obj)->__mvm_display_context,state); \
 while(0)
 
-/* Ipipe-tracer */
-#define ipipe_trace_panic_freeze()
+/* Tracer interface */
+#define xnarch_trace_max_begin(v)		({int err = -ENOSYS; err; })
+#define xnarch_trace_max_end(v)			({int err = -ENOSYS; err; })
+#define xnarch_trace_max_reset()		({int err = -ENOSYS; err; })
+#define xnarch_trace_user_start()		({int err = -ENOSYS; err; })
+#define xnarch_trace_user_stop(v)		({int err = -ENOSYS; err; })
+#define xnarch_trace_user_freeze(v, once)	({int err = -ENOSYS; err; })
+#define xnarch_trace_special(id, v)		({int err = -ENOSYS; err; })
+#define xnarch_trace_special_u64(id, v)		({int err = -ENOSYS; err; })
+#define xnarch_trace_pid(pid, prio)		({int err = -ENOSYS; err; })
+#define xnarch_trace_panic_freeze()		({int err = -ENOSYS; err; })
+#define xnarch_trace_panic_dump()		({int err = -ENOSYS; err; })
 
 #ifndef PAGE_SIZE
 #define PAGE_SIZE sysconf(_SC_PAGESIZE)

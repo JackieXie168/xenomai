@@ -22,20 +22,18 @@
 
 #include <nucleus/compiler.h>
 
-#ifndef CONFIG_XENO_OPT_DEBUG_LEVEL
-#define CONFIG_XENO_OPT_DEBUG_LEVEL  0
-#endif
-
-#if CONFIG_XENO_OPT_DEBUG_LEVEL > 0
-#define XENO_ASSERT(cond,action)  do { \
-if (unlikely((cond) != 0)) \
-	do { action; } while(0); \
+#define XENO_ASSERT(subsystem,cond,action)  do { \
+    if (unlikely(CONFIG_XENO_OPT_DEBUG_##subsystem > 0 && !(cond))) { \
+        xnarch_trace_panic_freeze(); \
+        xnlogerr("assertion failed at %s:%d (%s)\n", __FILE__, __LINE__, (#cond)); \
+        xnarch_trace_panic_dump(); \
+        action; \
+    } \
 } while(0)
-#else  /* CONFIG_XENO_OPT_DEBUG_LEVEL == 0 */
-#define XENO_ASSERT(cond,action) do { } while(0)
-#endif /* CONFIG_XENO_OPT_DEBUG_LEVEL > 0 */
 
-#define XENO_BUGON(cond)  \
-    XENO_ASSERT(cond,xnpod_fatal("assertion failed at %s:%d",__FILE__,__LINE__))
+#define XENO_BUGON(subsystem,cond)  do { \
+    if (unlikely(CONFIG_XENO_OPT_DEBUG_##subsystem > 0 && (cond))) \
+        xnpod_fatal("bug at %s:%d (%s)", __FILE__, __LINE__, (#cond)); \
+} while(0)
 
 #endif /* !_XENO_NUCLEUS_ASSERT_H */

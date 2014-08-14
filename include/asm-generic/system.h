@@ -35,17 +35,28 @@
 #include <asm/uaccess.h>
 #include <asm/param.h>
 #include <asm/mmu_context.h>
+#include <asm/ptrace.h>
 #include <linux/config.h>
 #include <asm/xenomai/hal.h>
 #include <asm/xenomai/atomic.h>
 #include <nucleus/shadow.h>
 
-#ifdef CONFIG_IPIPE_TRACE
-#include <linux/ipipe_trace.h>
-#else /* !CONFIG_IPIPE_TRACE */
-#define ipipe_trace_panic_freeze()
-#define ipipe_trace_panic_dump()
-#endif /* CONFIG_IPIPE_TRACE */
+/* Tracer interface */
+#define xnarch_trace_max_begin(v)		rthal_trace_max_begin(v)
+#define xnarch_trace_max_end(v)		rthal_trace_max_end(v)
+#define xnarch_trace_max_reset()		rthal_trace_max_reset()
+#define xnarch_trace_user_start()		rthal_trace_user_start()
+#define xnarch_trace_user_stop(v)		rthal_trace_user_stop(v)
+#define xnarch_trace_user_freeze(v, once) 	rthal_trace_user_freeze(v, once)
+#define xnarch_trace_special(id, v)		rthal_trace_special(id, v)
+#define xnarch_trace_special_u64(id, v)	rthal_trace_special_u64(id, v)
+#define xnarch_trace_pid(pid, prio)		rthal_trace_pid(pid, prio)
+#define xnarch_trace_panic_freeze()		rthal_trace_panic_freeze()
+#define xnarch_trace_panic_dump()		rthal_trace_panic_dump()
+
+#ifndef xnarch_fault_um
+#define xnarch_fault_um(fi) user_mode(fi->regs)
+#endif
 
 #define module_param_value(parm) (parm)
 
@@ -60,7 +71,6 @@ typedef unsigned long spl_t;
 #define splnone()   rthal_local_irq_enable()
 #define spltest()   rthal_local_irq_test()
 #define splget(x)   rthal_local_irq_flags(x)
-#define splsync(x)  rthal_local_irq_sync(x)
 
 #if defined(CONFIG_SMP) && \
     (defined(CONFIG_XENO_OPT_STATS) || defined(CONFIG_XENO_OPT_DEBUG))
@@ -166,23 +176,28 @@ typedef struct xnarch_heapcb {
 extern "C" {
 #endif
 
-static inline long long xnarch_tsc_to_ns (long long ts) {
+static inline long long xnarch_tsc_to_ns (long long ts)
+{
     return xnarch_llimd(ts,1000000000,RTHAL_CPU_FREQ);
 }
 
-static inline long long xnarch_ns_to_tsc (long long ns) {
+static inline long long xnarch_ns_to_tsc (long long ns)
+{
     return xnarch_llimd(ns,RTHAL_CPU_FREQ,1000000000);
 }
 
-static inline unsigned long long xnarch_get_cpu_time (void) {
+static inline unsigned long long xnarch_get_cpu_time (void)
+{
     return xnarch_tsc_to_ns(xnarch_get_cpu_tsc());
 }
 
-static inline unsigned long long xnarch_get_cpu_freq (void) {
+static inline unsigned long long xnarch_get_cpu_freq (void)
+{
     return RTHAL_CPU_FREQ;
 }
 
-static inline unsigned xnarch_current_cpu (void) {
+static inline unsigned xnarch_current_cpu (void)
+{
     return rthal_processor_id();
 }
 
@@ -195,12 +210,11 @@ do { \
     rthal_emergency_console(); \
     xnarch_logerr("fatal: %s\n",emsg); \
     show_stack(NULL,NULL);			\
-    ipipe_trace_panic_dump();			\
+    xnarch_trace_panic_dump();			\
     for (;;) cpu_relax();			\
 } while(0)
 
 static inline int xnarch_setimask (int imask)
-
 {
     spl_t s;
     splhigh(s);
@@ -211,22 +225,120 @@ static inline int xnarch_setimask (int imask)
 #ifdef CONFIG_SMP
 
 #ifdef CONFIG_XENO_SPINLOCK_DEBUG
+#define xnlock_get(lock) \
+    __xnlock_get(lock, __FILE__, __LINE__,__FUNCTION__)
 #define xnlock_get_irqsave(lock,x) \
     ((x) = __xnlock_get_irqsave(lock, __FILE__, __LINE__,__FUNCTION__))
 #else /* !CONFIG_XENO_SPINLOCK_DEBUG */
+#define xnlock_get(lock)            __xnlock_get(lock)
 #define xnlock_get_irqsave(lock,x)  ((x) = __xnlock_get_irqsave(lock))
 #endif /* CONFIG_XENO_SPINLOCK_DEBUG */
 #define xnlock_clear_irqoff(lock)   xnlock_put_irqrestore(lock,1)
 #define xnlock_clear_irqon(lock)    xnlock_put_irqrestore(lock,0)
 
-static inline void xnlock_init (xnlock_t *lock) {
-
+static inline void xnlock_init (xnlock_t *lock)
+{
     *lock = XNARCH_LOCK_UNLOCKED;
 }
 
 #ifdef CONFIG_XENO_SPINLOCK_DEBUG
 
 #define XNARCH_DEBUG_SPIN_LIMIT 3000000
+
+static inline void __xnlock_get (xnlock_t *lock,
+				 const char *file,
+				 unsigned line,
+				 const char *function)
+{
+    unsigned spin_count = 0;
+#else /* !CONFIG_XENO_SPINLOCK_DEBUG */
+static inline void __xnlock_get (xnlock_t *lock)
+{
+#endif /* CONFIG_XENO_SPINLOCK_DEBUG */
+    rthal_declare_cpuid;
+
+    rthal_load_cpuid();
+
+    if (!test_and_set_bit(cpuid,&lock->lock))
+        {
+#ifdef CONFIG_XENO_SPINLOCK_DEBUG
+        unsigned long long lock_date = rthal_rdtsc();
+#endif /* CONFIG_XENO_SPINLOCK_DEBUG */
+        while (test_and_set_bit(BITS_PER_LONG - 1,&lock->lock))
+            /* Use an non-locking test in the inner loop, as Linux'es
+               bit_spin_lock. */
+            while (test_bit(BITS_PER_LONG - 1,&lock->lock))
+                {
+                cpu_relax();
+
+#ifdef CONFIG_XENO_SPINLOCK_DEBUG
+                if (++spin_count == XNARCH_DEBUG_SPIN_LIMIT)
+                    {
+                    rthal_emergency_console();
+                    printk(KERN_ERR
+                           "Xenomai: stuck on nucleus lock %p\n"
+                           "       waiter = %s:%u (%s(), CPU #%d)\n"
+                           "       owner  = %s:%u (%s(), CPU #%d)\n",
+                           lock,file,line,function,cpuid,
+                           lock->file,lock->line,lock->function,lock->cpu);
+                    show_stack(NULL,NULL);
+                    for (;;)
+                        cpu_relax();
+                    }
+#endif /* CONFIG_XENO_SPINLOCK_DEBUG */
+                }
+
+#ifdef CONFIG_XENO_SPINLOCK_DEBUG
+        lock->spin_time = rthal_rdtsc() - lock_date;
+        lock->lock_date = lock_date;
+        lock->file = file;
+        lock->function = function;
+        lock->line = line;
+        lock->cpu = cpuid;
+#endif /* CONFIG_XENO_SPINLOCK_DEBUG */
+        }
+}
+
+static inline void xnlock_put (xnlock_t *lock)
+{
+    rthal_declare_cpuid;
+
+    rthal_load_cpuid();
+    if (test_and_clear_bit(cpuid,&lock->lock))
+	{
+#ifdef CONFIG_XENO_OPT_STATS
+	extern xnlockinfo_t xnlock_stats[];
+
+	unsigned long long lock_time = rthal_rdtsc() - lock->lock_date;
+
+	if (lock_time > xnlock_stats[cpuid].lock_time)
+	    {
+	    xnlock_stats[cpuid].lock_time = lock_time;
+	    xnlock_stats[cpuid].spin_time = lock->spin_time;
+	    xnlock_stats[cpuid].file = lock->file;
+	    xnlock_stats[cpuid].function = lock->function;
+	    xnlock_stats[cpuid].line = lock->line;
+	    }
+#endif /* CONFIG_XENO_OPT_STATS */
+
+	clear_bit(BITS_PER_LONG - 1,&lock->lock);
+	}
+#ifdef CONFIG_XENO_SPINLOCK_DEBUG
+    else
+	{
+	rthal_emergency_console();
+	printk(KERN_ERR
+	       "Xenomai: unlocking unlocked nucleus lock %p\n"
+	       "       owner  = %s:%u (%s(), CPU #%d)\n",
+	       lock,lock->file,lock->line,lock->function,lock->cpu);
+	show_stack(NULL,NULL);
+	for (;;)
+	    cpu_relax();
+	}
+#endif
+}
+
+#ifdef CONFIG_XENO_SPINLOCK_DEBUG
 
 static inline spl_t __xnlock_get_irqsave (xnlock_t *lock,
                                           const char *file,
@@ -290,7 +402,6 @@ static inline spl_t __xnlock_get_irqsave (xnlock_t *lock)
 }
 
 static inline void xnlock_put_irqrestore (xnlock_t *lock, spl_t flags)
-
 {
     if (!(flags & 2))
         {
@@ -339,6 +450,8 @@ static inline void xnlock_put_irqrestore (xnlock_t *lock, spl_t flags)
 #else /* !CONFIG_SMP */
 
 #define xnlock_init(lock)              do { } while(0)
+#define xnlock_get(lock)               do { } while(0)
+#define xnlock_put(lock)               do { } while(0)
 #define xnlock_get_irqsave(lock,x)     rthal_local_irq_save(x)
 #define xnlock_put_irqrestore(lock,x)  rthal_local_irq_restore(x)
 #define xnlock_clear_irqoff(lock)      rthal_local_irq_disable()
@@ -366,24 +479,22 @@ static inline int xnarch_remap_io_page_range(struct vm_area_struct *vma,
 
 #ifdef CONFIG_SMP
 
-static inline int xnarch_send_ipi (xnarch_cpumask_t cpumask) {
-
+static inline int xnarch_send_ipi (xnarch_cpumask_t cpumask)
+{
     return rthal_send_ipi(RTHAL_SERVICE_IPI0, cpumask);
 }
 
 static inline int xnarch_hook_ipi (void (*handler)(void))
-
 {
     return rthal_virtualize_irq(&rthal_domain,
 				RTHAL_SERVICE_IPI0,
 				(rthal_irq_handler_t) handler,
 				NULL,
 				NULL,
-				IPIPE_HANDLE_MASK);
+				IPIPE_HANDLE_MASK | IPIPE_WIRED_MASK);
 }
 
 static inline int xnarch_release_ipi (void)
-
 {
     return rthal_virtualize_irq(&rthal_domain,
 				RTHAL_SERVICE_IPI0,
@@ -401,7 +512,6 @@ static void xnarch_finalize_cpu(unsigned irq)
 }
 
 static inline void xnarch_notify_halt(void)
-    
 {
     xnarch_cpumask_t other_cpus = cpu_online_map;
     unsigned cpu, nr_cpus = num_online_cpus();
@@ -441,18 +551,18 @@ static inline void xnarch_notify_halt(void)
 
 #else /* !CONFIG_SMP */
 
-static inline int xnarch_send_ipi (xnarch_cpumask_t cpumask) {
-
+static inline int xnarch_send_ipi (xnarch_cpumask_t cpumask)
+{
     return 0;
 }
 
-static inline int xnarch_hook_ipi (void (*handler)(void)) {
-
+static inline int xnarch_hook_ipi (void (*handler)(void))
+{
     return 0;
 }
 
-static inline int xnarch_release_ipi (void) {
-
+static inline int xnarch_release_ipi (void)
+{
     return 0;
 }
 
@@ -461,7 +571,6 @@ static inline int xnarch_release_ipi (void) {
 #endif /* CONFIG_SMP */
 
 static inline void xnarch_notify_shutdown(void)
-
 {
 #ifdef CONFIG_SMP
     /* The HAL layer also sets the same CPU affinity so that both
@@ -478,7 +587,6 @@ static inline void xnarch_notify_shutdown(void)
 }
 
 static void xnarch_notify_ready (void)
-
 {
     rthal_grab_control();
 #ifdef CONFIG_XENO_OPT_PERVASIVE    
@@ -506,31 +614,26 @@ static inline int xnarch_hook_irq (unsigned irq,
 }
 
 static inline int xnarch_release_irq (unsigned irq)
-
 {
     return rthal_irq_release(irq);
 }
 
 static inline int xnarch_enable_irq (unsigned irq)
-
 {
     return rthal_irq_enable(irq);
 }
 
 static inline int xnarch_disable_irq (unsigned irq)
-
 {
     return rthal_irq_disable(irq);
 }
 
 static inline int xnarch_end_irq (unsigned irq)
-
 {
      return rthal_irq_end(irq);
 }
                                                                                 
 static inline void xnarch_chain_irq (unsigned irq)
-
 {
     rthal_irq_host_pend(irq);
 }

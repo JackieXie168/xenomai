@@ -1,10 +1,19 @@
 Overview
 ========
 
-The POSIX emulation module on top of Xenomai aims at providing an
-(almost) PSE51 compatible API. In order to help porting applications
-from other PSE51 compatible APIS (like RTLinux) it will contain some
-non portable extensions to the POSIX specification.
+The POSIX module on top of Xenomai is currently available to
+kernel-based applications, and to user-space applications through a
+direct call interface to the module. The POSIX module can also be used
+over the event-driven simulation engine.
+
+ xeno_posix.ko: POSIX module in kernel space.
+libpthread_rt.so: Direct call interface.
+libposix_sim.a: POSIX module over the event-driven simulator.
+
+The POSIX module on top of Xenomai aims at providing an (almost) PSE51
+compatible API. In order to help porting applications from other PSE51
+compatible APIs (like RTLinux) it will contain some non portable
+extensions to the POSIX specification.
 
 This skin already contains most basic features :
 - threads,
@@ -145,7 +154,6 @@ TODO List
 The PSE51 skin is still a work in progress, it lacks some features which will be 
 added gradually :
 - spinlocks/rwlocks/barriers ;
-- add support for mq_notify, now that real-time signals are working ;
 - add support for real-time signals for user-space threads.
 - dimensioning constants are scattered all over the skin sources, they should be
   centralized, and made configurable through configure.
@@ -154,4 +162,8 @@ added gradually :
 Module parameters
 =================
 
-None.
+The following parameters can be passed at startup to the POSIX skin module:
+
+- "time_slice_arg", duration, as a count of system clock ticks, of the
+  round-robin time slice. Defaults to 1 tick. Only effective when system timer
+  is set to periodic mode.

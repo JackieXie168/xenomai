@@ -18,18 +18,14 @@
 
 /**
  * @ingroup posix
- * @defgroup posix_time Clocks and timers.
+ * @defgroup posix_time Clocks and timers services.
  *
  * Clocks and timers services.
  *
- * Xenomai POSIX skin supports two clocks.
+ * Xenomai POSIX skin supports two clocks:
  *
  * CLOCK_REALTIME maps to the nucleus system clock, keeping time as the amount
- * of time since the Epoch, with a resolution of one system clock tick. The
- * duration of the system clock tick depends on the settings of the nucleus
- * (configurable at compile-time with @a CONFIG_XENO_OPT_TIMING_PERIOD, and at
- * run-time with the module parameter @a tick_arg). When the system timer is set
- * to aperiodic mode, the default, the system clock tick is one nanosecond.
+ * of time since the Epoch, with a resolution of one system clock tick.
  *
  * CLOCK_MONOTONIC maps to an architecture-dependent high resolution counter, so
  * is suitable for measuring short time intervals. However, when used for
@@ -43,7 +39,16 @@
  * the two clocks, but the resolution of these timers is one system clock tick,
  * as is the case for clock_nanosleep().
  *
- * @see http://www.opengroup.org/onlinepubs/000095399/functions/xsh_chap02_08.html#tag_02_08_05
+ * @note The duration of the system clock tick depends on the settings of the
+ * nucleus system timer (configurable at compile-time with the constant @a
+ * CONFIG_XENO_OPT_TIMING_PERIOD, and at run-time with the @a xeno_nucleus
+ * module parameter @a tick_arg). When the system timer is set to aperiodic
+ * mode, the default, the system clock tick is one nanosecond.
+ *
+ * @see
+ * <a href="http://www.opengroup.org/onlinepubs/000095399/functions/xsh_chap02_08.html#tag_02_08_05">
+ * Specification.</a>
+ *
  *@{*/
 
 #include <posix/thread.h>
@@ -66,22 +71,22 @@
  * @retval -1 with @a errno set if:
  * - EINVAL, @a clock_id is invalid;
  *
- * @see http://www.opengroup.org/onlinepubs/000095399/functions/clock_getres.html
+ * @see
+ * <a href="http://www.opengroup.org/onlinepubs/000095399/functions/clock_getres.html">
+ * Specification.</a>
  * 
  */
-int clock_getres (clockid_t clock_id, struct timespec *res)
-
+int clock_getres(clockid_t clock_id, struct timespec *res)
 {
-    if (clock_id != CLOCK_MONOTONIC && clock_id != CLOCK_REALTIME)
-        {
-        thread_set_errno(EINVAL);
-        return -1;
-        }
+	if (clock_id != CLOCK_MONOTONIC && clock_id != CLOCK_REALTIME) {
+		thread_set_errno(EINVAL);
+		return -1;
+	}
 
-    if(res)
-        ticks2ts(res, 1);
+	if (res)
+		ticks2ts(res, 1);
 
-    return 0;
+	return 0;
 }
 
 /**
@@ -103,31 +108,32 @@ int clock_getres (clockid_t clock_id, struct timespec *res)
  * @retval -1 with @a errno set if:
  * - EINVAL, @a clock_id is invalid.
  * 
- * @see http://www.opengroup.org/onlinepubs/000095399/functions/clock_gettime.html
+ * @see
+ * <a href="http://www.opengroup.org/onlinepubs/000095399/functions/clock_gettime.html">
+ * Specification.</a>
  * 
  */
-int clock_gettime (clockid_t clock_id, struct timespec *tp)
-
+int clock_gettime(clockid_t clock_id, struct timespec *tp)
 {
-    xnticks_t cpu_time;
+	xnticks_t cpu_time;
 
-    switch(clock_id)
-        {
-        case CLOCK_REALTIME:
-            ticks2ts(tp, xnpod_get_time());
-            break;
+	switch (clock_id) {
+	case CLOCK_REALTIME:
+		ticks2ts(tp, xnpod_get_time());
+		break;
 
-        case CLOCK_MONOTONIC:
-            cpu_time = xnpod_get_cpu_time();
-            tp->tv_sec = xnarch_uldivrem(cpu_time, ONE_BILLION, &tp->tv_nsec);
-            break;
+	case CLOCK_MONOTONIC:
+		cpu_time = xnpod_get_cpu_time();
+		tp->tv_sec =
+		    xnarch_uldivrem(cpu_time, ONE_BILLION, &tp->tv_nsec);
+		break;
 
-        default:
-            thread_set_errno(EINVAL);
-            return -1;
-        }
+	default:
+		thread_set_errno(EINVAL);
+		return -1;
+	}
 
-    return 0;    
+	return 0;
 }
 
 /**
@@ -135,20 +141,21 @@ int clock_gettime (clockid_t clock_id, struct timespec *tp)
  *
  * This service is not supported.
  *
- * @see http://www.opengroup.org/onlinepubs/000095399/functions/clock_settime.html
+ * @see
+ * <a href="http://www.opengroup.org/onlinepubs/000095399/functions/clock_settime.html">
+ * Specification.</a>
  * 
  */
 int clock_settime(clockid_t clock_id, const struct timespec *tp)
-
 {
-    if (clock_id != CLOCK_REALTIME || (unsigned long) tp->tv_nsec >= ONE_BILLION)
-        {
-        thread_set_errno(EINVAL);
-        return -1;
-        }
+	if (clock_id != CLOCK_REALTIME
+	    || (unsigned long)tp->tv_nsec >= ONE_BILLION) {
+		thread_set_errno(EINVAL);
+		return -1;
+	}
 
-    thread_set_errno(ENOTSUP);
-    return -1;
+	thread_set_errno(ENOTSUP);
+	return -1;
 }
 
 /**
@@ -189,79 +196,77 @@ int clock_settime(clockid_t clock_id, const struct timespec *tp)
  * - Xenomai kernel-space thread,
  * - Xenomai user-space thread (switches to primary mode).
  *
- * @see http://www.opengroup.org/onlinepubs/000095399/functions/clock_nanosleep.html
+ * @see
+ * <a href="http://www.opengroup.org/onlinepubs/000095399/functions/clock_nanosleep.html">
+ * Specification.</a>
  * 
  */
-int clock_nanosleep (clockid_t clock_id,
-		     int flags,
-		     const struct timespec *rqtp,
-		     struct timespec *rmtp)
+int clock_nanosleep(clockid_t clock_id,
+		    int flags,
+		    const struct timespec *rqtp, struct timespec *rmtp)
 {
-    xnticks_t start, timeout;
-    xnthread_t *cur;
-    spl_t s;
-    int err = 0;
+	xnticks_t start, timeout;
+	xnthread_t *cur;
+	spl_t s;
+	int err = 0;
 
-    if (xnpod_unblockable_p())
-        return EPERM;
+	if (xnpod_unblockable_p())
+		return EPERM;
 
-    if (clock_id != CLOCK_MONOTONIC && clock_id != CLOCK_REALTIME)
-        return ENOTSUP;
-    
-    if ((unsigned long) rqtp->tv_nsec >= ONE_BILLION)
-        return EINVAL;
+	if (clock_id != CLOCK_MONOTONIC && clock_id != CLOCK_REALTIME)
+		return ENOTSUP;
 
-    cur = xnpod_current_thread();
+	if ((unsigned long)rqtp->tv_nsec >= ONE_BILLION)
+		return EINVAL;
 
-    xnlock_get_irqsave(&nklock, s);
+	cur = xnpod_current_thread();
 
-    start = clock_get_ticks(clock_id);
-    timeout = ts2ticks_ceil(rqtp);
+	xnlock_get_irqsave(&nklock, s);
 
-    switch (flags)
-	{
+	start = clock_get_ticks(clock_id);
+	timeout = ts2ticks_ceil(rqtp);
+
+	switch (flags) {
 	default:
-            err = EINVAL;
-            goto unlock_and_return;
+		err = EINVAL;
+		goto unlock_and_return;
 
 	case TIMER_ABSTIME:
-	    timeout -= start;
-            if((xnsticks_t) timeout < 0)
-                {
-                err = 0;
-                goto unlock_and_return;
-                }
+		timeout -= start;
+		if ((xnsticks_t)timeout < 0) {
+			err = 0;
+			goto unlock_and_return;
+		}
 
-	    break;
+		break;
 
 	case 0:
-	    break;
+		break;
 	}
 
-    thread_cancellation_point(cur);
+	thread_cancellation_point(cur);
 
-    xnpod_suspend_thread(cur, XNDELAY, timeout+1, NULL);
+	xnpod_suspend_thread(cur, XNDELAY, timeout + 1, NULL);
 
-    thread_cancellation_point(cur);
+	thread_cancellation_point(cur);
 
-    if (xnthread_test_flags(cur, XNBREAK))
-	{
-        xnlock_put_irqrestore(&nklock, s);
+	if (xnthread_test_flags(cur, XNBREAK)) {
+		xnlock_put_irqrestore(&nklock, s);
 
-        if (flags == 0 && rmtp)
-            {
-            xnsticks_t rem  = timeout - (clock_get_ticks(clock_id) - start);
+		if (flags == 0 && rmtp) {
+			xnsticks_t rem =
+			    timeout - (clock_get_ticks(clock_id) - start);
 
-            ticks2ts(rmtp, rem > 0 ? rem : 0);
-            }
+			ticks2ts(rmtp, rem > 0 ? rem : 0);
+		}
 
-        return EINTR;
+		return EINTR;
 	}
 
-  unlock_and_return:
-    xnlock_put_irqrestore(&nklock, s);
-    
-    return err;
+      unlock_and_return:
+	xnlock_put_irqrestore(&nklock, s);
+
+	return err;
 }
 
 /**
@@ -292,18 +297,20 @@ int clock_nanosleep (clockid_t clock_id,
  * - Xenomai kernel-space thread,
  * - Xenomai user-space thread (switches to primary mode).
  *
- * @see http://www.opengroup.org/onlinepubs/000095399/functions/nanosleep.html
+ * @see
+ * <a href="http://www.opengroup.org/onlinepubs/000095399/functions/nanosleep.html">
+ * Specification.</a>
  * 
  */
 int nanosleep(const struct timespec *rqtp, struct timespec *rmtp)
 {
-    int err = clock_nanosleep(CLOCK_REALTIME, 0, rqtp, rmtp);
+	int err = clock_nanosleep(CLOCK_REALTIME, 0, rqtp, rmtp);
 
-    if(!err)
-        return 0;
+	if (!err)
+		return 0;
 
-    thread_set_errno(err);
-    return -1;
+	thread_set_errno(err);
+	return -1;
 }
 
 /*@}*/

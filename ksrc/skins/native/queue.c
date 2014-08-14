@@ -47,80 +47,75 @@
 
 #ifdef CONFIG_XENO_EXPORT_REGISTRY
 
-static int __queue_read_proc (char *page,
-			      char **start,
-			      off_t off,
-			      int count,
-			      int *eof,
-			      void *data)
+static int __queue_read_proc(char *page,
+			     char **start,
+			     off_t off, int count, int *eof, void *data)
 {
-    RT_QUEUE *q = (RT_QUEUE *)data;
-    char *p = page;
-    int len;
-    spl_t s;
+	RT_QUEUE *q = (RT_QUEUE *)data;
+	char *p = page;
+	int len;
+	spl_t s;
 
-    p += sprintf(p,"type=%s:poolsz=%lu:limit=%d:mcount=%d\n",
-		 q->mode & Q_SHARED ? "shared" : "local",
-		 xnheap_size(&q->bufpool),
-		 q->qlimit,
-		 countq(&q->pendq));
+	p += sprintf(p, "type=%s:poolsz=%lu:limit=%d:mcount=%d\n",
+		     q->mode & Q_SHARED ? "shared" : "local",
+		     xnheap_size(&q->bufpool), q->qlimit, countq(&q->pendq));
 
-    xnlock_get_irqsave(&nklock,s);
+	xnlock_get_irqsave(&nklock, s);
 
-    if (xnsynch_nsleepers(&q->synch_base) > 0)
-	{
-	xnpholder_t *holder;
-	
-	/* Pended queue -- dump waiters. */
+	if (xnsynch_nsleepers(&q->synch_base) > 0) {
+		xnpholder_t *holder;
 
-	holder = getheadpq(xnsynch_wait_queue(&q->synch_base));
+		/* Pended queue -- dump waiters. */
 
-	while (holder)
-	    {
-	    xnthread_t *sleeper = link2thread(holder,plink);
-	    p += sprintf(p,"+%s\n",xnthread_name(sleeper));
-	    holder = nextpq(xnsynch_wait_queue(&q->synch_base),holder);
-	    }
+		holder = getheadpq(xnsynch_wait_queue(&q->synch_base));
+
+		while (holder) {
+			xnthread_t *sleeper = link2thread(holder, plink);
+			p += sprintf(p, "+%s\n", xnthread_name(sleeper));
+			holder =
+			    nextpq(xnsynch_wait_queue(&q->synch_base), holder);
+		}
 	}
 
-    xnlock_put_irqrestore(&nklock,s);
+	xnlock_put_irqrestore(&nklock, s);
 
-    len = (p - page) - off;
-    if (len <= off + count) *eof = 1;
-    *start = page + off;
-    if(len > count) len = count;
-    if(len < 0) len = 0;
+	len = (p - page) - off;
+	if (len <= off + count)
+		*eof = 1;
+	*start = page + off;
+	if (len > count)
+		len = count;
+	if (len < 0)
+		len = 0;
 
-    return len;
+	return len;
 }
 
 extern xnptree_t __native_ptree;
 
 static xnpnode_t __queue_pnode = {
 
-    .dir = NULL,
-    .type = "queues",
-    .entries = 0,
-    .read_proc = &__queue_read_proc,
-    .write_proc = NULL,
-    .root = &__native_ptree,
+	.dir = NULL,
+	.type = "queues",
+	.entries = 0,
+	.read_proc = &__queue_read_proc,
+	.write_proc = NULL,
+	.root = &__native_ptree,
 };
 
 #elif defined(CONFIG_XENO_OPT_REGISTRY)
 
 static xnpnode_t __queue_pnode = {
 
-    .type = "queues"
+	.type = "queues"
 };
 
 #endif /* CONFIG_XENO_EXPORT_REGISTRY */
 
-static void __queue_flush_private (xnheap_t *heap,
-				   void *poolmem,
-				   u_long poolsize,
-				   void *cookie)
+static void __queue_flush_private(xnheap_t *heap,
+				  void *poolmem, u_long poolsize, void *cookie)
 {
-    xnarch_sysfree(poolmem,poolsize);
+	xnarch_sysfree(poolmem, poolsize);
 }
 
 /**
@@ -208,103 +203,92 @@ static void __queue_flush_private (xnheap_t *heap,
  * Rescheduling: possible.
  */
 
-int rt_queue_create (RT_QUEUE *q,
-		     const char *name,
-		     size_t poolsize,
-		     size_t qlimit,
-		     int mode)
+int rt_queue_create(RT_QUEUE *q,
+		    const char *name, size_t poolsize, size_t qlimit, int mode)
 {
-    int err;
+	int err;
 
-    if (!xnpod_root_p())
-	return -EPERM;
+	if (!xnpod_root_p())
+		return -EPERM;
 
-    if (poolsize == 0)
-	return -EINVAL;
+	if (poolsize == 0)
+		return -EINVAL;
 
-    /* Make sure we won't hit trivial argument errors when calling
-       xnheap_init(). */
+	/* Make sure we won't hit trivial argument errors when calling
+	   xnheap_init(). */
 
-    if (poolsize < 2 * PAGE_SIZE)
-	poolsize = 2 * PAGE_SIZE;
+	if (poolsize < 2 * PAGE_SIZE)
+		poolsize = 2 * PAGE_SIZE;
 
-    /* Account for the overhead so that the actual free space is large
-       enough to match the requested size. */
+	/* Account for the overhead so that the actual free space is large
+	   enough to match the requested size. */
 
-    poolsize += xnheap_overhead(poolsize,PAGE_SIZE);
-    poolsize = PAGE_ALIGN(poolsize);
+	poolsize = xnheap_rounded_size(poolsize, PAGE_SIZE);
 
 #ifdef __KERNEL__
-    if (mode & Q_SHARED)
-	{
-	if (!name || !*name)
-	    return -EINVAL;
+	if (mode & Q_SHARED) {
+		if (!name || !*name)
+			return -EINVAL;
 
 #ifdef CONFIG_XENO_OPT_PERVASIVE
-	err = xnheap_init_mapped(&q->bufpool,
-				 poolsize,
-				 (mode & Q_DMA) ? GFP_DMA : 0);
-	if (err)
-	    return err;
+		err = xnheap_init_mapped(&q->bufpool,
+					 poolsize,
+					 (mode & Q_DMA) ? GFP_DMA : 0);
+		if (err)
+			return err;
 
-	q->cpid = 0;
+		q->cpid = 0;
 #else /* !CONFIG_XENO_OPT_PERVASIVE */
-	return -ENOSYS;
+		return -ENOSYS;
 #endif /* CONFIG_XENO_OPT_PERVASIVE */
-	}
-    else
+	} else
 #endif /* __KERNEL__ */
 	{
-	void *poolmem = xnarch_sysalloc(poolsize);
+		void *poolmem = xnarch_sysalloc(poolsize);
 
-	if (!poolmem)
-	    return -ENOMEM;
+		if (!poolmem)
+			return -ENOMEM;
 
-	err = xnheap_init(&q->bufpool,
-			  poolmem,
-			  poolsize,
-			  PAGE_SIZE); /* Use natural page size */
-	if (err)
-	    {
-	    xnarch_sysfree(poolmem,poolsize);
-	    return err;
-	    }
+		err = xnheap_init(&q->bufpool, poolmem, poolsize, PAGE_SIZE);	/* Use natural page size */
+		if (err) {
+			xnarch_sysfree(poolmem, poolsize);
+			return err;
+		}
 	}
 
-    xnsynch_init(&q->synch_base,mode & (Q_PRIO|Q_FIFO));
-    initq(&q->pendq);
-    q->handle = 0;  /* i.e. (still) unregistered queue. */
-    q->magic = XENO_QUEUE_MAGIC;
-    q->qlimit = qlimit;
-    q->mode = mode;
-    xnobject_copy_name(q->name,name);
+	xnsynch_init(&q->synch_base, mode & (Q_PRIO | Q_FIFO));
+	initq(&q->pendq);
+	q->handle = 0;		/* i.e. (still) unregistered queue. */
+	q->magic = XENO_QUEUE_MAGIC;
+	q->qlimit = qlimit;
+	q->mode = mode;
+	xnobject_copy_name(q->name, name);
 
 #ifdef CONFIG_XENO_OPT_REGISTRY
-    /* <!> Since xnregister_enter() may reschedule, only register
-       complete objects, so that the registry cannot return handles to
-       half-baked objects... */
+	/* <!> Since xnregister_enter() may reschedule, only register
+	   complete objects, so that the registry cannot return handles to
+	   half-baked objects... */
 
-    if (name)
-        {
-	xnpnode_t *pnode = &__queue_pnode;
-	
-	if (!*name)
-	    {
-	    /* Since this is an anonymous object (empty name on entry)
-	       from user-space, it gets registered under an unique
-	       internal name but is not exported through /proc. */
-	    xnobject_create_name(q->name,sizeof(q->name),(void*)q);
-	    pnode = NULL;
-	    }
-	    
-        err = xnregistry_enter(q->name,q,&q->handle,pnode);
+	if (name) {
+		xnpnode_t *pnode = &__queue_pnode;
 
-        if (err)
-            rt_queue_delete(q);
-        }
+		if (!*name) {
+			/* Since this is an anonymous object (empty name on entry)
+			   from user-space, it gets registered under an unique
+			   internal name but is not exported through /proc. */
+			xnobject_create_name(q->name, sizeof(q->name),
+					     (void *)q);
+			pnode = NULL;
+		}
+
+		err = xnregistry_enter(q->name, q, &q->handle, pnode);
+
+		if (err)
+			rt_queue_delete(q);
+	}
 #endif /* CONFIG_XENO_OPT_REGISTRY */
 
-    return err;
+	return err;
 }
 
 /**
@@ -338,58 +322,56 @@ int rt_queue_create (RT_QUEUE *q,
  * Rescheduling: possible.
  */
 
-int rt_queue_delete (RT_QUEUE *q)
-
+int rt_queue_delete(RT_QUEUE *q)
 {
-    int err = 0, rc;
-    spl_t s;
+	int err = 0, rc;
+	spl_t s;
 
-    if (xnpod_asynch_p())
-	return -EPERM;
+	if (xnpod_asynch_p())
+		return -EPERM;
 
-    xnlock_get_irqsave(&nklock,s);
+	xnlock_get_irqsave(&nklock, s);
 
-    q = xeno_h2obj_validate(q,XENO_QUEUE_MAGIC,RT_QUEUE);
+	q = xeno_h2obj_validate(q, XENO_QUEUE_MAGIC, RT_QUEUE);
 
-    if (!q)
-        {
-        err = xeno_handle_error(q,XENO_QUEUE_MAGIC,RT_QUEUE);
-	xnlock_put_irqrestore(&nklock,s);
-        return err;
-        }
+	if (!q) {
+		err = xeno_handle_error(q, XENO_QUEUE_MAGIC, RT_QUEUE);
+		xnlock_put_irqrestore(&nklock, s);
+		return err;
+	}
 
-    rc = xnsynch_destroy(&q->synch_base);
+	rc = xnsynch_destroy(&q->synch_base);
 
 #ifdef CONFIG_XENO_OPT_REGISTRY
-    if (q->handle)
-        xnregistry_remove(q->handle);
+	if (q->handle)
+		xnregistry_remove(q->handle);
 #endif /* CONFIG_XENO_OPT_REGISTRY */
 
-    xeno_mark_deleted(q);
+	xeno_mark_deleted(q);
 
-    /* Get out of the nklocked section before releasing the heap
-       memory, since we are about to invoke Linux kernel services. */
+	/* Get out of the nklocked section before releasing the heap
+	   memory, since we are about to invoke Linux kernel services. */
 
-    xnlock_put_irqrestore(&nklock,s);
+	xnlock_put_irqrestore(&nklock, s);
 
-    /* The queue descriptor has been marked as deleted before we
-       released the superlock thus preventing any sucessful subsequent
-       calls of rt_queue_delete(), so now we can actually destroy the
-       associated heap safely. */
+	/* The queue descriptor has been marked as deleted before we
+	   released the superlock thus preventing any sucessful subsequent
+	   calls of rt_queue_delete(), so now we can actually destroy the
+	   associated heap safely. */
 
 #if defined(__KERNEL__) && defined(CONFIG_XENO_OPT_PERVASIVE)
-    if (q->mode & Q_SHARED)
-	err = xnheap_destroy_mapped(&q->bufpool);
-    else
+	if (q->mode & Q_SHARED)
+		err = xnheap_destroy_mapped(&q->bufpool);
+	else
 #endif /* __KERNEL__ && CONFIG_XENO_OPT_PERVASIVE */
-	err = xnheap_destroy(&q->bufpool,&__queue_flush_private,NULL);
+		err = xnheap_destroy(&q->bufpool, &__queue_flush_private, NULL);
 
-    if (rc == XNSYNCH_RESCHED)
-        /* Some task has been woken up as a result of the deletion:
-           reschedule now. */
-        xnpod_schedule();
+	if (rc == XNSYNCH_RESCHED)
+		/* Some task has been woken up as a result of the deletion:
+		   reschedule now. */
+		xnpod_schedule();
 
-    return err;
+	return err;
 }
 
 /**
@@ -422,49 +404,47 @@ int rt_queue_delete (RT_QUEUE *q)
  * Rescheduling: never.
  */
 
-void *rt_queue_alloc (RT_QUEUE *q,
-		      size_t size)
+void *rt_queue_alloc(RT_QUEUE *q, size_t size)
 {
-    rt_queue_msg_t *msg;
-    spl_t s;
+	rt_queue_msg_t *msg;
+	spl_t s;
 
-    xnlock_get_irqsave(&nklock,s);
+	xnlock_get_irqsave(&nklock, s);
 
-    q = xeno_h2obj_validate(q,XENO_QUEUE_MAGIC,RT_QUEUE);
+	q = xeno_h2obj_validate(q, XENO_QUEUE_MAGIC, RT_QUEUE);
 
-    if (!q)
-        {
-	xnlock_put_irqrestore(&nklock,s);
-	return NULL;
-        }
-    
-    msg = (rt_queue_msg_t *)xnheap_alloc(&q->bufpool,size + sizeof(rt_queue_msg_t));
-
-    if (msg)
-	{
-	inith(&msg->link);
-	msg->size = size;	/* Zero is ok. */
-	msg->refcount = 1;
-	++msg;
+	if (!q) {
+		xnlock_put_irqrestore(&nklock, s);
+		return NULL;
 	}
 
-    xnlock_put_irqrestore(&nklock,s);
+	msg =
+	    (rt_queue_msg_t *) xnheap_alloc(&q->bufpool,
+					    size + sizeof(rt_queue_msg_t));
 
-    return msg;
+	if (msg) {
+		inith(&msg->link);
+		msg->size = size;	/* Zero is ok. */
+		msg->refcount = 1;
+		++msg;
+	}
+
+	xnlock_put_irqrestore(&nklock, s);
+
+	return msg;
 }
 
-static int __queue_check_msg (void *p)
-
+static int __queue_check_msg(void *p)
 {
-    rt_queue_msg_t *msg = (rt_queue_msg_t *)p;
+	rt_queue_msg_t *msg = (rt_queue_msg_t *) p;
 
-    if (msg->refcount == 0)
-	return -EINVAL;
+	if (msg->refcount == 0)
+		return -EINVAL;
 
-    if (--msg->refcount > 0)
-	return -EBUSY;
+	if (--msg->refcount > 0)
+		return -EBUSY;
 
-    return 0;
+	return 0;
 }
 
 /**
@@ -472,8 +452,8 @@ static int __queue_check_msg (void *p)
  *
  * @brief Free a message queue buffer.
  *
- * This service releases a message buffer returned by rt_queue_recv()
- * to the queue's internal pool.
+ * This service releases a message buffer returned by
+ * rt_queue_receive() to the queue's internal pool.
  *
  * @param q The descriptor address of the affected queue.
  *
@@ -485,7 +465,7 @@ static int __queue_check_msg (void *p)
  * @return 0 is returned upon success, or -EINVAL if @a buf is not a
  * valid message buffer previously allocated by the rt_queue_alloc()
  * service, or the caller did not get ownership of the message through
- * a successful return from rt_queue_recv().
+ * a successful return from rt_queue_receive().
  *
  * Environments:
  *
@@ -499,55 +479,54 @@ static int __queue_check_msg (void *p)
  * Rescheduling: never.
  */
 
-int rt_queue_free (RT_QUEUE *q,
-		   void *buf)
+int rt_queue_free(RT_QUEUE *q, void *buf)
 {
-    int err;
-    spl_t s;
+	int err;
+	spl_t s;
 
-    if (buf == NULL)
-	return -EINVAL;
+	if (buf == NULL)
+		return -EINVAL;
 
-    xnlock_get_irqsave(&nklock,s);
+	xnlock_get_irqsave(&nklock, s);
 
-    q = xeno_h2obj_validate(q,XENO_QUEUE_MAGIC,RT_QUEUE);
+	q = xeno_h2obj_validate(q, XENO_QUEUE_MAGIC, RT_QUEUE);
 
-    if (!q)
-        {
-        err = xeno_handle_error(q,XENO_QUEUE_MAGIC,RT_QUEUE);
-        goto unlock_and_exit;
-        }
-    
-    err = xnheap_test_and_free(&q->bufpool,
-			       ((rt_queue_msg_t *)buf) - 1,
-			       &__queue_check_msg);
-    if (err == -EBUSY)
-	/* Release failed due to non-zero refcount; this is not an
-	 * error from the interface POV. */
-	err = 0;
+	if (!q) {
+		err = xeno_handle_error(q, XENO_QUEUE_MAGIC, RT_QUEUE);
+		goto unlock_and_exit;
+	}
 
- unlock_and_exit:
+	err = xnheap_test_and_free(&q->bufpool,
+				   ((rt_queue_msg_t *) buf) - 1,
+				   &__queue_check_msg);
+	if (err == -EBUSY)
+		/* Release failed due to non-zero refcount; this is not an
+		 * error from the interface POV. */
+		err = 0;
 
-    xnlock_put_irqrestore(&nklock,s);
+      unlock_and_exit:
 
-    return err;
+	xnlock_put_irqrestore(&nklock, s);
+
+	return err;
 }
 
 /**
- * @fn int rt_queue_send(RT_QUEUE *q,void *buf,size_t size,int mode)
+ * @fn int rt_queue_send(RT_QUEUE *q,void *mbuf,size_t size,int mode)
  *
  * @brief Send a message to a queue.
  *
- * This service sends a complete message to a given queue.
+ * This service sends a complete message to a given queue. The message
+ * must have been allocated by a previous call to rt_queue_alloc().
  *
  * @param q The descriptor address of the message queue to send to.
  *
- * @param buf The address of the message to be sent.  The message
- * space must have been allocated using the rt_queue_alloc() service.
- * Once passed to rt_queue_send(), the memory pointed to by @a buf is
- * no more under the control of the sender and thus should not be
- * referenced by it anymore; deallocation of this memory must be
- * handled on the receiving side.
+ * @param mbuf The address of the message buffer to be sent.  The
+ * message buffer must have been allocated using the rt_queue_alloc()
+ * service.  Once passed to rt_queue_send(), the memory pointed to by
+ * @a mbuf is no more under the control of the sender and thus should
+ * not be referenced by it anymore; deallocation of this memory must
+ * be handled on the receiving side.
  *
  * @param size The size in bytes of the message. Zero is a valid
  * value, in which case an empty message will be sent.
@@ -574,7 +553,7 @@ int rt_queue_free (RT_QUEUE *q,
  * codes is returned:
  *
  * - -EINVAL is returned if @a q is not a message queue descriptor, or
- * @a buf is not a valid message buffer obtained from a previous call
+ * @a mbuf is not a valid message buffer obtained from a previous call
  * to rt_queue_alloc().
  *
  * - -EIDRM is returned if @a q is a deleted queue descriptor.
@@ -594,88 +573,149 @@ int rt_queue_free (RT_QUEUE *q,
  * Rescheduling: possible.
  */
 
-int rt_queue_send (RT_QUEUE *q,
-		   void *buf,
-		   size_t size,
-		   int mode)
+int rt_queue_send(RT_QUEUE *q, void *mbuf, size_t size, int mode)
 {
-    xnthread_t *sleeper;
-    rt_queue_msg_t *msg;
-    int err, nrecv = 0;
-    spl_t s;
+	xnthread_t *sleeper;
+	rt_queue_msg_t *msg;
+	int err, nrecv = 0;
+	spl_t s;
 
-    if (buf == NULL)
-	return -EINVAL;
+	xnlock_get_irqsave(&nklock, s);
 
-    xnlock_get_irqsave(&nklock,s);
+	q = xeno_h2obj_validate(q, XENO_QUEUE_MAGIC, RT_QUEUE);
 
-    q = xeno_h2obj_validate(q,XENO_QUEUE_MAGIC,RT_QUEUE);
-
-    if (!q)
-        {
-        err = xeno_handle_error(q,XENO_QUEUE_MAGIC,RT_QUEUE);
-        goto unlock_and_exit;
-        }
-
-    if (q->qlimit != Q_UNLIMITED && countq(&q->pendq) >= q->qlimit)
-	{
-	err = -ENOMEM;
-	goto unlock_and_exit;
+	if (!q) {
+		err = xeno_handle_error(q, XENO_QUEUE_MAGIC, RT_QUEUE);
+		goto unlock_and_exit;
 	}
 
-    msg = ((rt_queue_msg_t *)buf) - 1;
-
-    if (xnheap_check_block(&q->bufpool,msg) || msg->refcount == 0)
-	{
-	/* In case of invalid block or if the sender does not own the
-	   message, just bail out. */
-	err = -EINVAL;
-	goto unlock_and_exit;
+	if (q->qlimit != Q_UNLIMITED && countq(&q->pendq) >= q->qlimit) {
+		err = -ENOMEM;
+		goto unlock_and_exit;
 	}
 
-    /* Message buffer ownership is being transferred from the sender to
-       the receiver(s) here; so we need to update the reference count
-       appropriately. */
-    msg->refcount--;
-    msg->size = size;
+	msg = ((rt_queue_msg_t *) mbuf) - 1;
 
-    do
-	{
-	sleeper = xnsynch_wakeup_one_sleeper(&q->synch_base);
-    
-	if (!sleeper)
-	    break;
-
-	thread2rtask(sleeper)->wait_args.qmsg = msg;
-	msg->refcount++;
-	nrecv++;
-	}
-    while (mode & Q_BROADCAST);
-
-    if (nrecv > 0)
-	xnpod_schedule();
-    else if (!(mode & Q_BROADCAST))
-	{
-	/* Messages are never queued in broadcast mode. Otherwise we
-	   need to queue the message if no task is waiting for it. */
-
-	if (mode & Q_URGENT)
-	    prependq(&q->pendq,&msg->link);
-	else
-	    appendq(&q->pendq,&msg->link);
+	if (xnheap_check_block(&q->bufpool, msg) || msg->refcount == 0) {
+		/* In case of invalid block or if the sender does not own the
+		   message, just bail out. */
+		err = -EINVAL;
+		goto unlock_and_exit;
 	}
 
-    err = nrecv;
+	/* Message buffer ownership is being transferred from the sender to
+	   the receiver(s) here; so we need to update the reference count
+	   appropriately. */
+	msg->refcount--;
+	msg->size = size;
 
- unlock_and_exit:
+	do {
+		sleeper = xnsynch_wakeup_one_sleeper(&q->synch_base);
 
-    xnlock_put_irqrestore(&nklock,s);
+		if (!sleeper)
+			break;
 
-    return err;
+		thread2rtask(sleeper)->wait_args.qmsg = msg;
+		msg->refcount++;
+		nrecv++;
+	}
+	while (mode & Q_BROADCAST);
+
+	if (nrecv > 0)
+		xnpod_schedule();
+	else if (!(mode & Q_BROADCAST)) {
+		/* Messages are never queued in broadcast mode. Otherwise we
+		   need to queue the message if no task is waiting for it. */
+
+		if (mode & Q_URGENT)
+			prependq(&q->pendq, &msg->link);
+		else
+			appendq(&q->pendq, &msg->link);
+	}
+
+	err = nrecv;
+
+      unlock_and_exit:
+
+	xnlock_put_irqrestore(&nklock, s);
+
+	return err;
 }
 
 /**
- * @fn ssize_t rt_queue_recv(RT_QUEUE *q,void **bufp,RTIME timeout)
+ * @fn int rt_queue_write(RT_QUEUE *q,const void *buf,size_t size,int mode)
+ *
+ * @brief Write a message to a queue.
+ *
+ * This service writes a complete message to a given queue. This
+ * service differs from rt_queue_send() in that it accepts a pointer
+ * to the raw data to be sent, instead of a canned message
+ * buffer.
+ *
+ * @param q The descriptor address of the message queue to write to.
+ *
+ * @param buf The address of the message data to be written to the
+ * queue. A message buffer will be allocated internally to convey the
+ * data.
+ *
+ * @param size The size in bytes of the message data. Zero is a valid
+ * value, in which case an empty message will be sent.
+ *
+ * @param mode A set of flags affecting the operation:
+ *
+ * - Q_URGENT causes the message to be prepended to the message queue,
+ * ensuring a LIFO ordering.
+ *
+ * - Q_NORMAL causes the message to be appended to the message queue,
+ * ensuring a FIFO ordering.
+ *
+ * - Q_BROADCAST causes the message to be sent to all tasks currently
+ * waiting for messages. The message is not copied; a reference count
+ * is maintained instead so that the message will remain valid until
+ * all receivers get a copy of the message, after which the message
+ * space will be returned to the queue's internal pool.
+ *
+ * @return Upon success, this service returns the number of receivers
+ * which got awaken as a result of the operation. If zero is returned,
+ * no task was waiting on the receiving side of the queue, and the
+ * message has been enqueued. Upon error, one of the following error
+ * codes is returned:
+ *
+ * - -EINVAL is returned if @a q is not a message queue descriptor.
+ *
+ * - -EIDRM is returned if @a q is a deleted queue descriptor.
+ *
+ * - -ENOMEM is returned if queuing the message would exceed the limit
+ * defined for the queue at creation, or if no memory can be obtained
+ * to convey the message data internally.
+ *
+ * Environments:
+ *
+ * This service can be called from:
+ *
+ * - Kernel module initialization/cleanup code
+ * - Interrupt service routine
+ * - Kernel-based task
+ * - User-space task
+ *
+ * Rescheduling: possible.
+ */
+
+int rt_queue_write(RT_QUEUE *q, const void *buf, size_t size, int mode)
+{
+	void *mbuf = rt_queue_alloc(q, size);
+
+	if (!mbuf)
+		return -ENOMEM;
+
+	if (size > 0)
+		memcpy(mbuf, buf, size);
+
+	return rt_queue_send(q, mbuf, size, mode);
+}
+
+/**
+ * @fn ssize_t rt_queue_receive(RT_QUEUE *q,void **bufp,RTIME timeout)
  *
  * @brief Receive a message from a queue.
  *
@@ -740,75 +780,159 @@ int rt_queue_send (RT_QUEUE *q,
  * nanoseconds.
  */
 
-ssize_t rt_queue_recv (RT_QUEUE *q,
-		       void **bufp,
-		       RTIME timeout)
+ssize_t rt_queue_receive(RT_QUEUE *q, void **bufp, RTIME timeout)
 {
-    rt_queue_msg_t *msg = NULL;
-    xnholder_t *holder;
-    ssize_t err = 0;
-    RT_TASK *task;
-    spl_t s;
+	rt_queue_msg_t *msg = NULL;
+	xnholder_t *holder;
+	ssize_t err = 0;
+	RT_TASK *task;
+	spl_t s;
 
-    xnlock_get_irqsave(&nklock,s);
+	xnlock_get_irqsave(&nklock, s);
 
-    q = xeno_h2obj_validate(q,XENO_QUEUE_MAGIC,RT_QUEUE);
+	q = xeno_h2obj_validate(q, XENO_QUEUE_MAGIC, RT_QUEUE);
 
-    if (!q)
-        {
-        err = xeno_handle_error(q,XENO_QUEUE_MAGIC,RT_QUEUE);
-        goto unlock_and_exit;
-        }
-
-    holder = getq(&q->pendq);
-
-    if (holder)
-        {
-	msg = link2rtmsg(holder);
-	msg->refcount++;
-	}
-    else
-	{
-	if (timeout == TM_NONBLOCK)
-	    {
-	    err = -EWOULDBLOCK;;
-	    goto unlock_and_exit;
-	    }
-
-	if (xnpod_unblockable_p())
-	    {
-	    err = -EPERM;
-	    goto unlock_and_exit;
-	    }
-
-	xnsynch_sleep_on(&q->synch_base,timeout);
-
-	task = xeno_current_task();
-
-	if (xnthread_test_flags(&task->thread_base,XNRMID))
-	    err = -EIDRM; /* Queue deleted while pending. */
-	else if (xnthread_test_flags(&task->thread_base,XNTIMEO))
-	    err = -ETIMEDOUT; /* Timeout.*/
-	else if (xnthread_test_flags(&task->thread_base,XNBREAK))
-	    err = -EINTR; /* Unblocked.*/
-	else
-	    {
-	    msg = task->wait_args.qmsg;
-	    task->wait_args.qmsg = NULL;
-	    }
+	if (!q) {
+		err = xeno_handle_error(q, XENO_QUEUE_MAGIC, RT_QUEUE);
+		goto unlock_and_exit;
 	}
 
-    if (msg)
-	{
-	*bufp = msg + 1;
-	err = (ssize_t)msg->size;
+	holder = getq(&q->pendq);
+
+	if (holder) {
+		msg = link2rtmsg(holder);
+		msg->refcount++;
+	} else {
+		if (timeout == TM_NONBLOCK) {
+			err = -EWOULDBLOCK;;
+			goto unlock_and_exit;
+		}
+
+		if (xnpod_unblockable_p()) {
+			err = -EPERM;
+			goto unlock_and_exit;
+		}
+
+		xnsynch_sleep_on(&q->synch_base, timeout);
+
+		task = xeno_current_task();
+
+		if (xnthread_test_flags(&task->thread_base, XNRMID))
+			err = -EIDRM;	/* Queue deleted while pending. */
+		else if (xnthread_test_flags(&task->thread_base, XNTIMEO))
+			err = -ETIMEDOUT;	/* Timeout. */
+		else if (xnthread_test_flags(&task->thread_base, XNBREAK))
+			err = -EINTR;	/* Unblocked. */
+		else {
+			msg = task->wait_args.qmsg;
+			task->wait_args.qmsg = NULL;
+		}
 	}
 
- unlock_and_exit:
+	if (msg) {
+		*bufp = msg + 1;
+		err = (ssize_t) msg->size;
+	}
 
-    xnlock_put_irqrestore(&nklock,s);
+      unlock_and_exit:
 
-    return err;
+	xnlock_put_irqrestore(&nklock, s);
+
+	return err;
+}
+
+/**
+ * @fn ssize_t rt_queue_read(RT_QUEUE *q,void *buf,size_t size,RTIME timeout)
+ *
+ * @brief Read a message from a queue.
+ *
+ * This service retrieves the next message available from the given
+ * queue. Unless otherwise specified, the caller is blocked for a
+ * given amount of time if no message is immediately available on
+ * entry. This services differs from rt_queue_receive() in that it
+ * copies back the payload data to a user-defined memory area, instead
+ * of returning a pointer to the message buffer holding such data.
+ *
+ * @param q The descriptor address of the message queue to read
+ * from.
+ *
+ * @param buf A pointer to a memory area which will be written upon
+ * success with the message contents. The internal message buffer
+ * conveying the data is automatically freed by this call.
+ *
+ * @param size The length in bytes of the memory area pointed to by @a
+ * buf. Messages larger than @a size are truncated appropriately.
+ *
+ * @param timeout The number of clock ticks to wait for some message
+ * to arrive (see note). Passing TM_INFINITE causes the caller to
+ * block indefinitely until some message is eventually
+ * available. Passing TM_NONBLOCK causes the service to return
+ * immediately without waiting if no message is available on entry.
+ *
+ * @return The number of bytes available from the received message is
+ * returned upon success, which might be greater than the actual
+ * number of bytes copied to the destination buffer if the message has
+ * been truncated. Zero is a possible value corresponding to a
+ * zero-sized message passed to rt_queue_send() or
+ * rt_queue_write(). Otherwise:
+ *
+ * - -EINVAL is returned if @a q is not a message queue descriptor.
+ *
+ * - -EIDRM is returned if @a q is a deleted queue descriptor.
+ *
+ * - -ETIMEDOUT is returned if @a timeout is different from
+ * TM_NONBLOCK and no message is available within the specified amount
+ * of time.
+ *
+ * - -EWOULDBLOCK is returned if @a timeout is equal to TM_NONBLOCK
+ * and no message is immediately available on entry.
+ *
+ * - -EINTR is returned if rt_task_unblock() has been called for the
+ * waiting task before any data was available.
+ *
+ * - -EPERM is returned if this service should block, but was called
+ * from a context which cannot sleep (e.g. interrupt, non-realtime or
+ * scheduler locked).
+ *
+ * Environments:
+ *
+ * This service can be called from:
+ *
+ * - Kernel module initialization/cleanup code
+ * - Interrupt service routine
+ *   only if @a timeout is equal to TM_NONBLOCK.
+ *
+ * - Kernel-based task
+ * - User-space task (switches to primary mode)
+ *
+ * Rescheduling: always unless the request is immediately satisfied or
+ * @a timeout specifies a non-blocking operation.
+ *
+ * @note This service is sensitive to the current operation mode of
+ * the system timer, as defined by the CONFIG_XENO_OPT_TIMING_PERIOD
+ * parameter. In periodic mode, clock ticks are interpreted as
+ * periodic jiffies. In oneshot mode, clock ticks are interpreted as
+ * nanoseconds.
+ */
+
+ssize_t rt_queue_read(RT_QUEUE *q, void *buf, size_t size, RTIME timeout)
+{
+	ssize_t rsize;
+	void *mbuf;
+
+	rsize = rt_queue_receive(q, &mbuf, timeout);
+
+	if (rsize < 0)
+		return rsize;
+
+	size = size < rsize ? size : rsize;
+
+	if (size > 0)
+		memcpy(buf, mbuf, size);
+
+	rt_queue_free(q, mbuf);
+
+	return rsize;
 }
 
 /**
@@ -842,34 +966,32 @@ ssize_t rt_queue_recv (RT_QUEUE *q,
  * Rescheduling: never.
  */
 
-int rt_queue_inquire (RT_QUEUE *q,
-                      RT_QUEUE_INFO *info)
+int rt_queue_inquire(RT_QUEUE *q, RT_QUEUE_INFO *info)
 {
-    int err = 0;
-    spl_t s;
+	int err = 0;
+	spl_t s;
 
-    xnlock_get_irqsave(&nklock,s);
+	xnlock_get_irqsave(&nklock, s);
 
-    q = xeno_h2obj_validate(q,XENO_QUEUE_MAGIC,RT_QUEUE);
+	q = xeno_h2obj_validate(q, XENO_QUEUE_MAGIC, RT_QUEUE);
 
-    if (!q)
-        {
-        err = xeno_handle_error(q,XENO_QUEUE_MAGIC,RT_QUEUE);
-        goto unlock_and_exit;
-        }
-    
-    strcpy(info->name,q->name);
-    info->nwaiters = xnsynch_nsleepers(&q->synch_base);
-    info->nmessages = countq(&q->pendq);
-    info->qlimit = q->qlimit;
-    info->poolsize = xnheap_size(&q->bufpool);
-    info->mode = q->mode;
+	if (!q) {
+		err = xeno_handle_error(q, XENO_QUEUE_MAGIC, RT_QUEUE);
+		goto unlock_and_exit;
+	}
 
- unlock_and_exit:
+	strcpy(info->name, q->name);
+	info->nwaiters = xnsynch_nsleepers(&q->synch_base);
+	info->nmessages = countq(&q->pendq);
+	info->qlimit = q->qlimit;
+	info->poolsize = xnheap_size(&q->bufpool);
+	info->mode = q->mode;
 
-    xnlock_put_irqrestore(&nklock,s);
+      unlock_and_exit:
 
-    return err;
+	xnlock_put_irqrestore(&nklock, s);
+
+	return err;
 }
 
 /**
@@ -954,14 +1076,12 @@ int rt_queue_inquire (RT_QUEUE *q,
  * Rescheduling: never.
  */
 
-int __native_queue_pkg_init (void)
-
+int __native_queue_pkg_init(void)
 {
-    return 0;
+	return 0;
 }
 
-void __native_queue_pkg_cleanup (void)
-
+void __native_queue_pkg_cleanup(void)
 {
 }
 
@@ -972,5 +1092,7 @@ EXPORT_SYMBOL(rt_queue_delete);
 EXPORT_SYMBOL(rt_queue_alloc);
 EXPORT_SYMBOL(rt_queue_free);
 EXPORT_SYMBOL(rt_queue_send);
-EXPORT_SYMBOL(rt_queue_recv);
+EXPORT_SYMBOL(rt_queue_write);
+EXPORT_SYMBOL(rt_queue_receive);
+EXPORT_SYMBOL(rt_queue_read);
 EXPORT_SYMBOL(rt_queue_inquire);

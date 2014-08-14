@@ -67,6 +67,8 @@ typedef unsigned long xnlock_t;
 #define XNARCH_LOCK_UNLOCKED 0
 
 #define xnlock_init(lock)              do { } while(0)
+#define xnlock_get(lock)               do { } while(0)
+#define xnlock_put(lock)               do { } while(0)
 #define xnlock_get_irqsave(lock,x)     ((x) = xnarch_lock_irq())
 #define xnlock_put_irqrestore(lock,x)  xnarch_unlock_irq(x)
 #define xnlock_clear_irqoff(lock)      xnarch_lock_irq()
@@ -190,6 +192,7 @@ typedef void *xnarch_fltinfo_t;	/* Unused but required */
 #define xnarch_fault_code(fi)   0
 #define xnarch_fault_pc(fi)     0L
 #define xnarch_fault_notify(fi) 1
+#define xnarch_fault_um(fi)     0
 
 typedef struct xnarch_heapcb {
 
@@ -205,7 +208,6 @@ static inline void xnarch_init_heapcb (xnarch_heapcb_t *cb)
 
 static inline int __attribute__ ((unused))
 xnarch_read_environ (const char *name, const char **ptype, void *pvar)
-
 {
     char *value;
 
@@ -284,25 +286,21 @@ static inline int xnarch_hook_irq (unsigned irq,
 }
 
 static inline int xnarch_release_irq (unsigned irq)
-
 {
     return -ENOSYS;
 }
 
 static inline int xnarch_enable_irq (unsigned irq)
-
 {
     return -ENOSYS;
 }
 
 static inline int xnarch_disable_irq (unsigned irq)
-
 {
     return -ENOSYS;
 }
 
 static inline int xnarch_end_irq (unsigned irq)
-
 {
     return -ENOSYS;
 }
@@ -310,7 +308,9 @@ static inline int xnarch_end_irq (unsigned irq)
 
 static inline void xnarch_chain_irq (unsigned irq)
 
-{ /* Nop */ }
+{
+    /* empty */
+}
 
 static inline unsigned long xnarch_set_irq_affinity (unsigned irq,
 						     unsigned long affinity)
@@ -359,7 +359,6 @@ static void xnarch_restart_handler (int sig)
 }
 
 int main (int argc, char *argv[])
-
 {
     struct sigaction sa;
     int err;
@@ -369,6 +368,8 @@ int main (int argc, char *argv[])
         fprintf(stderr,"This program must be run with root privileges.\n");
 	exit(1);
 	}
+
+    mlockall(MCL_CURRENT|MCL_FUTURE);
 
     err = __xeno_sys_init();
 
@@ -393,8 +394,6 @@ int main (int argc, char *argv[])
         fprintf(stderr,"user_init() failed: %s\n",strerror(-err));
         exit(4);
 	}
-
-    mlockall(MCL_CURRENT|MCL_FUTURE);
 
     sa.sa_handler = &xnarch_restart_handler;
     sigemptyset(&sa.sa_mask);
@@ -455,7 +454,6 @@ struct xnarch_tick_parms {
  */
 
 static void *xnarch_timer_thread (void *cookie)
-
 {
     struct xnarch_tick_parms *p = (struct xnarch_tick_parms *)cookie;
     void (*tickhandler)(void);
@@ -666,7 +664,6 @@ static inline void xnarch_restore_fpu(xnarchtcb_t *tcb)
 }
 
 int xnarch_setimask (int imask)
-
 {
     spl_t s;
     splhigh(s);
@@ -735,7 +732,6 @@ static inline unsigned long long xnarch_ns_to_tsc (unsigned long long ns)
 }
 
 static inline unsigned long long xnarch_get_cpu_time (void)
-
 {
     nanotime_t t;
     uvm_timer_read(&t);
@@ -773,9 +769,9 @@ static inline void xnarch_sysfree (void *chunk, u_long bytes)
 }
 
 #define xnarch_current_cpu()  0
-#define xnarch_declare_cpuid  const int cpuid = 0
-#define xnarch_get_cpu(x)     do  { (x) = (x); } while(0)
-#define xnarch_put_cpu(x)     do { } while(0)
+#define xnarch_declare_cpuid    const int cpuid = 0
+#define xnarch_get_cpu(x)      do  { (void)(x); } while(0)
+#define xnarch_put_cpu(x)      do { } while(0)
 
 #ifdef __cplusplus
 }
@@ -789,7 +785,17 @@ static inline void xnarch_sysfree (void *chunk, u_long bytes)
 #define xnarch_post_graph(obj,state)
 #define xnarch_post_graph_if(obj,state,cond)
 
-/* Ipipe-tracer */
-#define ipipe_trace_panic_freeze()
+/* Tracer interface */
+#define xnarch_trace_max_begin(v)		({int err = -ENOSYS; err; })
+#define xnarch_trace_max_end(v)			({int err = -ENOSYS; err; })
+#define xnarch_trace_max_reset()		({int err = -ENOSYS; err; })
+#define xnarch_trace_user_start()		({int err = -ENOSYS; err; })
+#define xnarch_trace_user_stop(v)		({int err = -ENOSYS; err; })
+#define xnarch_trace_user_freeze(v, once)	({int err = -ENOSYS; err; })
+#define xnarch_trace_special(id, v)		({int err = -ENOSYS; err; })
+#define xnarch_trace_special_u64(id, v)		({int err = -ENOSYS; err; })
+#define xnarch_trace_pid(pid, prio)		({int err = -ENOSYS; err; })
+#define xnarch_trace_panic_freeze()		({int err = -ENOSYS; err; })
+#define xnarch_trace_panic_dump()		({int err = -ENOSYS; err; })
 
 #endif /* !_XENO_ASM_UVM_SYSTEM_H */

@@ -35,6 +35,8 @@ typedef struct pse51_mutex {
 				   mutex. */
 } pse51_mutex_t;
 
+void pse51_mutexq_cleanup(pse51_kqueues_t *q);
+
 void pse51_mutex_pkg_init(void);
 
 void pse51_mutex_pkg_cleanup(void);
@@ -77,29 +79,27 @@ static inline int mutex_timedlock_internal(xnthread_t *cur,
         pse51_mutex_t *mutex = shadow->mutex;
 
         if (xnsynch_owner(&mutex->synchbase) != cur)
-            do
-                {
-                xnticks_t to = abs_to;
+            {
+            xnticks_t to = abs_to;
                 
-                err = clock_adjust_timeout(&to, CLOCK_REALTIME);
+            err = clock_adjust_timeout(&to, CLOCK_REALTIME);
                 
-                if (err)
-                    return err;
-                
-                xnsynch_sleep_on(&mutex->synchbase, to);
-                
-                if (xnthread_test_flags(cur, XNBREAK))
-                    return EINTR;
-                
-                if (xnthread_test_flags(cur, XNRMID))
-                    return EINVAL;
-                
-                if (xnthread_test_flags(cur, XNTIMEO))
-                    return ETIMEDOUT;
-                
-                err = mutex_trylock_internal(cur, shadow);
-                }
-            while (err == EBUSY);
+            if (err)
+                return err;
+            
+            xnsynch_sleep_on(&mutex->synchbase, to);
+            
+            if (xnthread_test_flags(cur, XNBREAK))
+                return EINTR;
+            
+            if (xnthread_test_flags(cur, XNRMID))
+                return EINVAL;
+            
+            if (xnthread_test_flags(cur, XNTIMEO))
+                return ETIMEDOUT;
+
+            mutex->count = 1;
+            }
         }
 
     return err;

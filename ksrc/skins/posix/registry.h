@@ -2,6 +2,7 @@
 #define PSE51_REGISTRY_H
 
 #include <stdarg.h>
+#include <nucleus/queue.h>
 #include <nucleus/synch.h>
 #include <posix/posix.h>
 
@@ -82,5 +83,51 @@ int pse51_desc_destroy(pse51_desc_t *desc);
 #define pse51_desc_fd(desc) ((desc)->fd)
 
 #define PSE51_PERMS_MASK  (O_RDONLY | O_WRONLY | O_RDWR)
+
+
+/* Associative lists, used for association of user-space to kernel-space
+   objects. */
+#if defined(__KERNEL__) && defined(CONFIG_XENO_OPT_PERVASIVE)
+struct mm_struct;
+
+#ifdef CONFIG_SMP
+extern xnlock_t pse51_assoc_lock;
+#endif
+
+typedef xnqueue_t pse51_assocq_t;
+
+typedef struct {
+    u_long key;
+    xnholder_t link;
+
+#define link2assoc(laddr) \
+    ((pse51_assoc_t *)((unsigned long)(laddr) - offsetof(pse51_assoc_t, link)))
+
+} pse51_assoc_t;
+
+typedef struct {
+    unsigned long kfd;
+    pse51_assoc_t assoc;
+    
+#define assoc2ufd(laddr) \
+    ((pse51_ufd_t *)((unsigned long) (laddr) - offsetof(pse51_ufd_t, assoc)))
+} pse51_ufd_t;
+
+#define pse51_assocq_init(q) (initq(q))
+
+#define pse51_assoc_key(assoc) ((assoc)->key)
+
+void pse51_assocq_destroy(pse51_assocq_t *q, void (*destroy)(pse51_assoc_t *));
+
+int pse51_assoc_insert(pse51_assocq_t *q,
+                       pse51_assoc_t *assoc,
+                       u_long key);
+
+pse51_assoc_t *pse51_assoc_lookup(pse51_assocq_t *q,
+                                  u_long key);
+
+pse51_assoc_t *pse51_assoc_remove(pse51_assocq_t *q,
+                                  u_long key);
+#endif /* __KERNEL__ && CONFIG_XENO_OPT_PERVASIVE */    
 
 #endif /* PSE51_REGISTRY_H */

@@ -159,13 +159,6 @@ static inline void xnarch_stop_timer (void)
 static inline void xnarch_leave_root (xnarchtcb_t *rootcb)
 
 {
-    rthal_declare_cpuid;
-
-    rthal_load_cpuid();
-
-    /* rthal_cpu_realtime is only tested for the current processor,
-       and always inside a critical section. */
-    __set_bit(cpuid,&rthal_cpu_realtime);
     /* Remember the preempted Linux task pointer. */
     rootcb->user_task = rootcb->active_task = current;
     rootcb->tsp = &current->thread;
@@ -180,56 +173,55 @@ static inline void xnarch_leave_root (xnarchtcb_t *rootcb)
 
 static inline void xnarch_enter_root (xnarchtcb_t *rootcb)
 {
-    __clear_bit(xnarch_current_cpu(),&rthal_cpu_realtime);
 }
 
 static inline void xnarch_switch_to (xnarchtcb_t *out_tcb,
-				     xnarchtcb_t *in_tcb)
+									 xnarchtcb_t *in_tcb)
 {
     struct task_struct *prev = out_tcb->active_task;
     struct task_struct *next = in_tcb->user_task;
 
-    in_tcb->active_task = next ?: prev;
+    if (likely(next != NULL)) {
+		in_tcb->active_task = next;
+		rthal_clear_foreign_stack(&rthal_domain);
+	} else {
+		in_tcb->active_task = prev;
+		rthal_set_foreign_stack(&rthal_domain);
+	}
 
-    if (next && next != prev) /* Switch to new user-space thread? */
-	{
-	struct mm_struct *mm = next->active_mm;
-
-	/* Switch the mm context.*/
-
+    if (next && next != prev) { /* Switch to new user-space thread? */
+		struct mm_struct *mm = next->active_mm;
+		/* Switch the mm context.*/
 #ifdef CONFIG_ALTIVEC
-	asm volatile (
-		      "dssall;\n"
+		asm volatile (
+			"dssall;\n"
 #if !defined(CONFIG_POWER4) && !defined(CONFIG_PPC64)
-		      "sync;\n"
+			"sync;\n"
 #endif
-		      : : );
+			: : );
 #endif /* CONFIG_ALTIVEC */
 	
 #ifdef CONFIG_PPC64
-	if (!cpu_isset(smp_processor_id(), mm->cpu_vm_mask)) {
-	    cpu_set(smp_processor_id(), mm->cpu_vm_mask);
-	}
+		if (!cpu_isset(smp_processor_id(), mm->cpu_vm_mask))
+			cpu_set(smp_processor_id(), mm->cpu_vm_mask);
 	
-	if (cur_cpu_spec->cpu_features & CPU_FTR_SLB) {
-	    switch_slb(next, mm);
-	}
-	else {
-	    switch_stab(next, mm);
-	}
+		if (cur_cpu_spec->cpu_features & CPU_FTR_SLB)
+			switch_slb(next, mm);
+		else
+			switch_stab(next, mm);
 	
-	flush_tlb_pending();
+		flush_tlb_pending();
 #else /* !CONFIG_PPC64 */
-	next->thread.pgdir = mm->pgd;
-	get_mmu_context(mm);
-	set_context(mm->context,mm->pgd);
-	current = prev;		/* Make sure r2 is valid. */
+		next->thread.pgdir = mm->pgd;
+		get_mmu_context(mm);
+		set_context(mm->context,mm->pgd);
+		current = prev;		/* Make sure r2 is valid. */
 #endif /* CONFIG_PPC64 */
 	}
 
 #ifdef CONFIG_PPC64
     rthal_thread_switch(out_tcb->tsp, in_tcb->tsp, 
-		    in_tcb->user_task == NULL ? 1 : 0);
+						in_tcb->user_task == NULL ? 1 : 0);
 #else /* !CONFIG_PPC64 */
     rthal_thread_switch(out_tcb->tsp, in_tcb->tsp);
 #endif /* CONFIG_PPC64 */
@@ -483,7 +475,7 @@ static inline void xnarch_grab_xirqs (rthal_irq_handler_t handler)
 			     handler,
 			     NULL,
 			     NULL,
-			     IPIPE_DYNAMIC_MASK);
+			     IPIPE_HANDLE_MASK);
 
     /* On this arch, the decrementer trap is not an external IRQ but
        it is instead mapped to a virtual IRQ, so we must grab it
@@ -494,7 +486,7 @@ static inline void xnarch_grab_xirqs (rthal_irq_handler_t handler)
 			 handler,
 			 NULL,
 			 NULL,
-			 IPIPE_DYNAMIC_MASK);
+			 IPIPE_HANDLE_MASK);
 }
 
 static inline void xnarch_lock_xirqs (rthal_pipeline_stage_t *ipd, int cpuid)
@@ -675,29 +667,16 @@ static inline int xnarch_init (void)
 			 (rthal_irq_handler_t)&xnpod_schedule_handler,
 			 NULL,
 			 NULL,
-			 IPIPE_HANDLE_MASK);
+			 IPIPE_HANDLE_MASK | IPIPE_WIRED_MASK);
 
     xnarch_old_trap_handler = rthal_trap_catch(&xnarch_trap_fault);
 
-#ifdef CONFIG_XENO_OPT_PERVASIVE
-    err = xnshadow_mount();
-#endif /* CONFIG_XENO_OPT_PERVASIVE */
-
-    if (err)
-	{
-	rthal_trap_catch(xnarch_old_trap_handler);
-        rthal_free_virq(xnarch_escalation_virq);
-	}
-
-    return err;
+    return 0;
 }
 
 static inline void xnarch_exit (void)
 
 {
-#ifdef CONFIG_XENO_OPT_PERVASIVE
-    xnshadow_cleanup();
-#endif /* CONFIG_XENO_OPT_PERVASIVE */
     rthal_trap_catch(xnarch_old_trap_handler);
     rthal_free_virq(xnarch_escalation_virq);
     rthal_exit();

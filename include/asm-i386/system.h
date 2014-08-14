@@ -135,13 +135,6 @@ static inline void xnarch_stop_timer (void)
 static inline void xnarch_leave_root (xnarchtcb_t *rootcb)
 
 {
-    rthal_declare_cpuid;
-
-    rthal_load_cpuid();
-
-    /* rthal_cpu_realtime is only tested for the current processor,
-       and always inside a critical section. */
-    __set_bit(cpuid,&rthal_cpu_realtime);
     /* Remember the preempted Linux task pointer. */
     rootcb->user_task = rootcb->active_task = current;
     /* So that xnarch_save_fpu() will operate on the right FPU area. */
@@ -150,7 +143,6 @@ static inline void xnarch_leave_root (xnarchtcb_t *rootcb)
 
 static inline void xnarch_enter_root (xnarchtcb_t *rootcb)
 {
-    __clear_bit(xnarch_current_cpu(),&rthal_cpu_realtime);
 }
 
 static inline void __switch_threads(xnarchtcb_t *out_tcb,
@@ -228,26 +220,30 @@ static inline void __switch_threads(xnarchtcb_t *out_tcb,
 static inline void xnarch_switch_to (xnarchtcb_t *out_tcb,
                                      xnarchtcb_t *in_tcb)
 {
-    struct task_struct *outproc = out_tcb->active_task;
-    struct task_struct *inproc = in_tcb->user_task;
+    struct task_struct *prev = out_tcb->active_task;
+    struct task_struct *next = in_tcb->user_task;
     unsigned long fs, gs;
 
-    if (inproc && wrap_test_fpu_used(outproc))
-        /* __switch_to will try and use __unlazy_fpu, so we need to
-           clear the ts bit. */
-        clts();
+    if (likely(next != NULL)) {
+        if (wrap_test_fpu_used(prev))
+	    /* __switch_to will try and use __unlazy_fpu, so we need to
+	       clear the ts bit. */
+	    clts();
+	in_tcb->active_task = next;
+	rthal_clear_foreign_stack(&rthal_domain);
+    } else {
+	in_tcb->active_task = prev;
+	rthal_set_foreign_stack(&rthal_domain);
+    }
     
-    in_tcb->active_task = inproc ?: outproc;
+    if (next && next != prev) {
+        struct mm_struct *oldmm = prev->active_mm;
 
-    if (inproc && inproc != outproc)
-        {
-        struct mm_struct *oldmm = outproc->active_mm;
+        wrap_switch_mm(oldmm,next->active_mm,next);
 
-        wrap_switch_mm(oldmm,inproc->active_mm,inproc);
-
-        if (!inproc->mm)
-            wrap_enter_lazy_tlb(oldmm,inproc);
-        }
+        if (!next->mm)
+            wrap_enter_lazy_tlb(oldmm,next);
+    }
 
     if (out_tcb->user_task) {
        /* Make sure that __switch_to() will always reload the correct
@@ -257,9 +253,9 @@ static inline void xnarch_switch_to (xnarchtcb_t *out_tcb,
 	asm volatile("mov %%gs,%0":"=m" (gs));
     }
 
-    __switch_threads(out_tcb,in_tcb,outproc,inproc);
+    __switch_threads(out_tcb,in_tcb,prev,next);
 
-    if (xnarch_shadow_p(out_tcb,outproc)) {
+    if (xnarch_shadow_p(out_tcb,prev)) {
 
 	loadsegment(fs, fs);
 	loadsegment(gs, gs);
@@ -273,7 +269,7 @@ static inline void xnarch_switch_to (xnarchtcb_t *out_tcb,
            explicitely told the kernel that they would need to perform
            raw I/O ops. */
 
-	wrap_switch_iobitmap(outproc,rthal_processor_id());
+	wrap_switch_iobitmap(prev,rthal_processor_id());
     }
 
     stts();
@@ -549,7 +545,7 @@ static inline void xnarch_grab_xirqs (rthal_irq_handler_t handler)
                              handler,
 			     NULL,
                              NULL,
-                             IPIPE_DYNAMIC_MASK);
+                             IPIPE_HANDLE_MASK);
 }
 
 static inline void xnarch_lock_xirqs (rthal_pipeline_stage_t *ipd, int cpuid)
@@ -744,29 +740,16 @@ static inline int xnarch_init (void)
 			 (rthal_irq_handler_t)&xnpod_schedule_handler,
 			 NULL,
 			 NULL,
-			 IPIPE_HANDLE_MASK);
+			 IPIPE_HANDLE_MASK | IPIPE_WIRED_MASK);
 
     xnarch_old_trap_handler = rthal_trap_catch(&xnarch_trap_fault);
 
-#ifdef CONFIG_XENO_OPT_PERVASIVE
-    err = xnshadow_mount();
-#endif /* CONFIG_XENO_OPT_PERVASIVE */
-
-    if (err)
-        {
-        rthal_trap_catch(xnarch_old_trap_handler);
-        rthal_free_virq(xnarch_escalation_virq);
-        }
-
-    return err;
+    return 0;
 }
 
 static inline void xnarch_exit (void)
 
 {
-#ifdef CONFIG_XENO_OPT_PERVASIVE
-    xnshadow_cleanup();
-#endif /* CONFIG_XENO_OPT_PERVASIVE */
     rthal_trap_catch(xnarch_old_trap_handler);
     rthal_free_virq(xnarch_escalation_virq);
     rthal_exit();
