@@ -57,10 +57,6 @@ typedef int spl_t;
 
 typedef unsigned long cpumask_t;
 
-#ifdef CONFIG_SMP
-#error "UVM over SMP not supported yet -- CONFIG_XENO_OPT_UVM needs to be switched off"
-#endif /* CONFIG_SMP */
-
 extern unsigned long uvm_irqlock;
 
 #define splhigh(x)    ((x) = xnarch_lock_irq())
@@ -229,7 +225,7 @@ xnarch_read_environ (const char *name, const char **ptype, void *pvar)
     return 1;
 }
 
-static int inline xnarch_lock_irq (void)
+static inline int xnarch_lock_irq (void)
 {
     return xnarch_atomic_xchg(&uvm_irqlock,1);
 }

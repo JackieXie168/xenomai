@@ -60,6 +60,7 @@
 #define RTHAL_SERVICE_IPI3	IPIPE_SERVICE_IPI3
 #define RTHAL_SERVICE_VECTOR3	IPIPE_SERVICE_VECTOR3
 #define RTHAL_CRITICAL_IPI	IPIPE_CRITICAL_IPI
+#define RTHAL_CRITICAL_VECTOR	IPIPE_CRITICAL_VECTOR
 
 typedef struct ipipe_domain rthal_pipeline_stage_t;
 
@@ -114,7 +115,6 @@ typedef rwlock_t rthal_rwlock_t;
 #define rthal_propagate_irq(irq)		ipipe_propagate_irq(irq)
 #define rthal_set_irq_affinity(irq,aff)		ipipe_set_irq_affinity(irq,aff)
 #define rthal_schedule_irq(irq)			ipipe_schedule_irq(irq)
-#define rthal_virtualize_irq(dom,irq,isr,ackfn,mode) ipipe_virtualize_irq(dom,irq,isr,ackfn,mode)
 #define rthal_alloc_virq()			ipipe_alloc_virq()
 #define rthal_free_virq(irq)			ipipe_free_virq(irq)
 #define rthal_trigger_irq(irq)			ipipe_trigger_irq(irq)
@@ -238,6 +238,7 @@ extern void rthal_domain_entry(void);
 #define RTHAL_SERVICE_IPI3	ADEOS_SERVICE_IPI3
 #define RTHAL_SERVICE_VECTOR3	ADEOS_SERVICE_VECTOR3
 #define RTHAL_CRITICAL_IPI	ADEOS_CRITICAL_IPI
+#define RTHAL_CRITICAL_VECTOR	ADEOS_CRITICAL_VECTOR
 
 typedef adomain_t rthal_pipeline_stage_t;
 
