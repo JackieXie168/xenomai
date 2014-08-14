@@ -39,6 +39,7 @@
 #include <linux/wait.h>
 #include <linux/init.h>
 #include <linux/kthread.h>
+#include <asm/semaphore.h>
 #include <asm/signal.h>
 #include <nucleus/pod.h>
 #include <nucleus/heap.h>
@@ -116,6 +117,8 @@ do { \
 static struct task_struct *switch_lock_owner[XNARCH_NR_CPUS];
 
 static int nucleus_muxid = -1;
+
+static DECLARE_MUTEX(completion_mutex);
 
 void xnpod_declare_iface_proc(struct xnskin_slot *iface);
 
@@ -1721,26 +1724,22 @@ void xnshadow_signal_completion(xncompletion_t __user *u_completion, int err)
 {
 	xncompletion_t completion;
 	struct task_struct *p;
-	spl_t s;
+	pid_t pid;
 
-	/* We should not be able to signal completion to any stale
-	   waiter. */
-
-	xnlock_get_irqsave(&nklock, s);
+	/* Hold a mutex to avoid missing a wakeup signal. */
+	down(&completion_mutex);
 
 	__xn_copy_from_user(current, &completion, u_completion, sizeof(completion));
+
 	/* Poor man's semaphore V. */
 	completion.syncflag = err ? : completion_value_ok;
 	__xn_copy_to_user(current, u_completion, &completion, sizeof(completion));
+	pid = completion.pid;
 
-	if (completion.pid == -1) {
-		/* The waiter did not enter xnshadow_wait_completion() yet:
-		   just raise the flag and exit. */
-		xnlock_put_irqrestore(&nklock, s);
+	up(&completion_mutex);
+
+	if (pid == -1)
 		return;
-	}
-
-	xnlock_put_irqrestore(&nklock, s);
 
 	read_lock(&tasklist_lock);
 
@@ -1755,16 +1754,13 @@ void xnshadow_signal_completion(xncompletion_t __user *u_completion, int err)
 static int xnshadow_sys_completion(struct task_struct *curr,
 				   struct pt_regs *regs)
 {
-	xncompletion_t __user *u_completion =
-	    (xncompletion_t __user *)__xn_reg_arg1(regs);
+	xncompletion_t __user *u_completion;
 	xncompletion_t completion;
-	spl_t s;
 
-	/* The completion block is always part of the waiter's address
-	   space. */
+	u_completion = (xncompletion_t __user *)__xn_reg_arg1(regs);
 
 	for (;;) {		/* Poor man's semaphore P. */
-		xnlock_get_irqsave(&nklock, s);
+		down(&completion_mutex);
 
 		__xn_copy_from_user(current, &completion, u_completion, sizeof(completion));
 
@@ -1777,19 +1773,18 @@ static int xnshadow_sys_completion(struct task_struct *curr,
 
 		set_current_state(TASK_INTERRUPTIBLE);
 
-		xnlock_put_irqrestore(&nklock, s);
+		up(&completion_mutex);
 
 		schedule();
 
 		if (signal_pending(current)) {
 			completion.pid = -1;
 			__xn_copy_to_user(current, u_completion, &completion, sizeof(completion));
-			completion.syncflag = -ERESTARTSYS;
-			break;
+			return -ERESTARTSYS;
 		}
 	}
 
-	xnlock_put_irqrestore(&nklock, s);
+	up(&completion_mutex);
 
 	return completion.syncflag == completion_value_ok ? 0 : (int)completion.syncflag;
 }
