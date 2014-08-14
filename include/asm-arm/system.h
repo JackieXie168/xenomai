@@ -103,21 +103,18 @@ extern "C" {
 
 static inline void *xnarch_sysalloc (u_long bytes)
 {
-#if 0   /* FIXME: likely on-demand mapping bug here */
-    if (bytes >= 128*1024)
-    return vmalloc(bytes);
-#endif
+    if (bytes > 128*1024)
+	return vmalloc(bytes);
+
     return kmalloc(bytes,GFP_KERNEL);
 }
 
 static inline void xnarch_sysfree (void *chunk, u_long bytes)
 {
-#if 0   /* FIXME: likely on-demand mapping bug here */
-    if (bytes >= 128*1024)
-    vfree(chunk);
+    if (bytes > 128*1024)
+	vfree(chunk);
     else
-#endif
-    kfree(chunk);
+	kfree(chunk);
 }
 
 #ifdef XENO_POD_MODULE
@@ -132,6 +129,11 @@ static inline int xnarch_start_timer (unsigned long ns,
                                       void (*tickhandler)(void))
 {
     return rthal_timer_request(tickhandler,ns);
+}
+
+static inline void xnarch_stop_timer (void)
+{
+    rthal_timer_release();
 }
 
 static inline void xnarch_leave_root (xnarchtcb_t *rootcb)
@@ -495,10 +497,6 @@ static inline int xnarch_local_syscall (struct pt_regs *regs)
 
 static inline void xnarch_program_timer_shot (unsigned long delay) {
     rthal_timer_program_shot(rthal_imuldiv(delay,RTHAL_TIMER_FREQ,RTHAL_CPU_FREQ));
-}
-
-static inline void xnarch_stop_timer (void) {
-    rthal_timer_release();
 }
 
 static inline int xnarch_send_timer_ipi (xnarch_cpumask_t mask)

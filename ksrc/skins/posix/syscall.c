@@ -223,6 +223,7 @@ static int __pthread_shadow (struct task_struct *curr,
 
     pthread_attr_init(&attr);
     attr.policy = SCHED_FIFO;
+    attr.detachstate = PTHREAD_CREATE_DETACHED;
     attr.schedparam = *param;
     attr.fp = 1;
     attr.name = curr->comm;
@@ -278,8 +279,11 @@ int __pthread_setschedparam (struct task_struct *curr, struct pt_regs *regs)
         err = __pthread_shadow(curr,&hkey,&param);
         promoted = 1;
         }
-    else
+    else if (k_tid)
         err = -pthread_setschedparam(k_tid,policy,&param);
+    else
+        /* noop. */
+        err = 0;
 
     if (!err)
         __xn_put_user(curr,promoted,(int __user *)__xn_reg_arg5(regs));
@@ -418,6 +422,11 @@ int __sem_init (struct task_struct *curr, struct pt_regs *regs)
 
     pshared = (int)__xn_reg_arg2(regs);
     value = (unsigned)__xn_reg_arg3(regs);
+
+    __xn_copy_from_user(curr,
+                        &sm.shadow_sem,
+                        (void __user*)&usm->shadow_sem,
+                        sizeof(sm.shadow_sem));
 
     if (sem_init(&sm.native_sem,pshared,value) == -1)
         return -thread_get_errno();
@@ -805,7 +814,7 @@ int __clock_nanosleep (struct task_struct *curr, struct pt_regs *regs)
     return -EINTR;
 }
 
-int __mutex_init (struct task_struct *curr, struct pt_regs *regs)
+int __pthread_mutex_init (struct task_struct *curr, struct pt_regs *regs)
 
 {
     union __xeno_mutex mx, *umx;
@@ -816,6 +825,11 @@ int __mutex_init (struct task_struct *curr, struct pt_regs *regs)
 
     if (!__xn_access_ok(curr,VERIFY_WRITE,(void __user *) umx,sizeof(*umx)))
         return -EFAULT;
+
+    __xn_copy_from_user(curr,
+                        &mx.shadow_mutex,
+                        (void __user *) &umx->shadow_mutex,
+                        sizeof(mx.shadow_mutex));
 
     /* Recursive + PIP forced. */
     pthread_mutexattr_init(&attr);
@@ -833,7 +847,7 @@ int __mutex_init (struct task_struct *curr, struct pt_regs *regs)
     return 0;
 }
 
-int __mutex_destroy (struct task_struct *curr, struct pt_regs *regs)
+int __pthread_mutex_destroy (struct task_struct *curr, struct pt_regs *regs)
 
 {
     union __xeno_mutex mx, *umx;
@@ -858,7 +872,7 @@ int __mutex_destroy (struct task_struct *curr, struct pt_regs *regs)
     return -err;
 }
 
-int __mutex_lock (struct task_struct *curr, struct pt_regs *regs)
+int __pthread_mutex_lock (struct task_struct *curr, struct pt_regs *regs)
 
 {
     union __xeno_mutex mx, *umx;
@@ -876,7 +890,7 @@ int __mutex_lock (struct task_struct *curr, struct pt_regs *regs)
     return -pse51_mutex_timedlock_break(&mx.shadow_mutex, XN_INFINITE);
 }
 
-int __mutex_timedlock (struct task_struct *curr, struct pt_regs *regs)
+int __pthread_mutex_timedlock (struct task_struct *curr, struct pt_regs *regs)
 
 {
     union __xeno_mutex mx, *umx;
@@ -903,7 +917,7 @@ int __mutex_timedlock (struct task_struct *curr, struct pt_regs *regs)
     return -pse51_mutex_timedlock_break(&mx.shadow_mutex,ts2ticks_ceil(&ts)+1);
 }
 
-int __mutex_trylock (struct task_struct *curr, struct pt_regs *regs)
+int __pthread_mutex_trylock (struct task_struct *curr, struct pt_regs *regs)
 
 {
     union __xeno_mutex mx, *umx;
@@ -921,7 +935,7 @@ int __mutex_trylock (struct task_struct *curr, struct pt_regs *regs)
     return -pthread_mutex_trylock(&mx.native_mutex);
 }
 
-int __mutex_unlock (struct task_struct *curr, struct pt_regs *regs)
+int __pthread_mutex_unlock (struct task_struct *curr, struct pt_regs *regs)
 
 {
     union __xeno_mutex mx, *umx;
@@ -939,7 +953,7 @@ int __mutex_unlock (struct task_struct *curr, struct pt_regs *regs)
     return -pthread_mutex_unlock(&mx.native_mutex);
 }
 
-int __cond_init (struct task_struct *curr, struct pt_regs *regs)
+int __pthread_cond_init (struct task_struct *curr, struct pt_regs *regs)
 
 {
     union __xeno_cond cnd, *ucnd;
@@ -949,6 +963,11 @@ int __cond_init (struct task_struct *curr, struct pt_regs *regs)
     
     if (!__xn_access_ok(curr,VERIFY_WRITE,(void __user *) ucnd,sizeof(*ucnd)))
         return -EFAULT;
+
+    __xn_copy_from_user(curr,
+                        &cnd.shadow_cond,
+                        (void __user *) &ucnd->shadow_cond,
+                        sizeof(cnd.shadow_cond));
 
     /* Always use default attribute. */
     err = pthread_cond_init(&cnd.native_cond,NULL);
@@ -963,7 +982,7 @@ int __cond_init (struct task_struct *curr, struct pt_regs *regs)
     return 0;
 }
 
-int __cond_destroy (struct task_struct *curr, struct pt_regs *regs)
+int __pthread_cond_destroy (struct task_struct *curr, struct pt_regs *regs)
 
 {
     union __xeno_cond cnd, *ucnd;
@@ -991,7 +1010,7 @@ int __cond_destroy (struct task_struct *curr, struct pt_regs *regs)
     return 0;
 }
 
-int __cond_wait (struct task_struct *curr, struct pt_regs *regs)
+int __pthread_cond_wait (struct task_struct *curr, struct pt_regs *regs)
 
 {
     union __xeno_cond cnd, *ucnd;
@@ -1021,7 +1040,7 @@ int __cond_wait (struct task_struct *curr, struct pt_regs *regs)
                                           XN_INFINITE);
 }
 
-int __cond_timedwait (struct task_struct *curr, struct pt_regs *regs)
+int __pthread_cond_timedwait (struct task_struct *curr, struct pt_regs *regs)
 
 {
     union __xeno_cond cnd, *ucnd;
@@ -1060,7 +1079,7 @@ int __cond_timedwait (struct task_struct *curr, struct pt_regs *regs)
                                           ts2ticks_ceil(&ts)+1);
 }
 
-int __cond_signal (struct task_struct *curr, struct pt_regs *regs)
+int __pthread_cond_signal (struct task_struct *curr, struct pt_regs *regs)
 
 {
     union __xeno_cond cnd, *ucnd;
@@ -1078,7 +1097,7 @@ int __cond_signal (struct task_struct *curr, struct pt_regs *regs)
     return -pthread_cond_signal(&cnd.native_cond);
 }
 
-int __cond_broadcast (struct task_struct *curr, struct pt_regs *regs)
+int __pthread_cond_broadcast (struct task_struct *curr, struct pt_regs *regs)
 
 {
     union __xeno_cond cnd, *ucnd;
@@ -1759,10 +1778,26 @@ int __shm_open (struct task_struct *curr, struct pt_regs *regs)
     ufd = (int) __xn_reg_arg4(regs);
 
     err = pse51_assoc_create(&pse51_ufds, (u_long) kfd, curr->mm, (u_long) ufd);
-    /* pse51_assoc_create returning an error means that the same mm and user
-       file descriptor are already registered. That is impossible. */
-    BUG_ON(err);
-    return 0;
+    /* pse51_assoc_create returning -EBUSY means that the same mm and user
+       file descriptor are already registered. This happens if an mm_struct got
+       recycled and the application did not close properly the shared memory
+       descriptors. */
+    if (err == -EBUSY) {
+        unsigned long old_kfd;
+#ifdef CONFIG_XENO_OPT_DEBUG
+        xnprintf("POSIX user-space file descriptor %d not closed,"
+                 " closing now.\n", ufd);
+#endif /* CONFIG_XENO_OPT_DEBUG. */
+        pse51_assoc_lookup(&pse51_ufds, &old_kfd, curr->mm, (u_long) ufd, 1);
+        close(old_kfd);
+
+        err = pse51_assoc_create(&pse51_ufds,(u_long)kfd,curr->mm,(u_long)ufd);
+    }
+
+    if (err)
+        close(kfd);
+    
+    return err;
 }
 
 /* shm_unlink(name) */
@@ -1906,8 +1941,28 @@ int __mmap_epilogue (struct task_struct *curr, struct pt_regs *regs)
                              (u_long) umap.kaddr,
                              curr->mm,
                              (u_long) uaddr);
-    BUG_ON(err);
-    return 0;
+    /* pse51_assoc_create returning -EBUSY means that the same mm and user
+       space mapping are already registered. This happens if an mm_struct got
+       recycled and the application did not unmap properly a shared memory
+       area. */
+    if (err == -EBUSY) {
+        unsigned long old_kaddr;
+#ifdef CONFIG_XENO_OPT_DEBUG
+        xnprintf("POSIX user-space mapping 0x%08lx not unmapped,"
+                 " leaking until posix skin is shut down.\n", (u_long) uaddr);
+#endif /* CONFIG_XENO_OPT_DEBUG. */
+        pse51_assoc_lookup(&pse51_umaps,&old_kaddr,curr->mm,(u_long)uaddr,1);
+
+        err = pse51_assoc_create(&pse51_umaps,
+                                 (u_long) umap.kaddr,
+                                 curr->mm,
+                                 (u_long) uaddr);
+    }
+
+    if (err)
+        munmap(umap.kaddr, umap.len);        
+    
+    return err == -ENOSPC ? -EAGAIN : err;
 }
 
 /* munmap_prologue(uaddr, len, &unmap) */
@@ -2072,18 +2127,18 @@ static xnsysent_t __systab[] = {
     [__pse51_clock_gettime] = { &__clock_gettime, __xn_exec_any },
     [__pse51_clock_settime] = { &__clock_settime, __xn_exec_any },
     [__pse51_clock_nanosleep] = { &__clock_nanosleep, __xn_exec_primary },
-    [__pse51_mutex_init] = { &__mutex_init, __xn_exec_any },
-    [__pse51_mutex_destroy] = { &__mutex_destroy, __xn_exec_any },
-    [__pse51_mutex_lock] = { &__mutex_lock, __xn_exec_primary },
-    [__pse51_mutex_timedlock] = { &__mutex_timedlock, __xn_exec_primary },
-    [__pse51_mutex_trylock] = { &__mutex_trylock, __xn_exec_primary },
-    [__pse51_mutex_unlock] = { &__mutex_unlock, __xn_exec_primary },
-    [__pse51_cond_init] = { &__cond_init, __xn_exec_any },
-    [__pse51_cond_destroy] = { &__cond_destroy, __xn_exec_any },
-    [__pse51_cond_wait] = { &__cond_wait, __xn_exec_primary },
-    [__pse51_cond_timedwait] = { &__cond_timedwait, __xn_exec_primary },
-    [__pse51_cond_signal] = { &__cond_signal, __xn_exec_any },
-    [__pse51_cond_broadcast] = { &__cond_broadcast, __xn_exec_any },
+    [__pse51_mutex_init] = { &__pthread_mutex_init, __xn_exec_any },
+    [__pse51_mutex_destroy] = { &__pthread_mutex_destroy, __xn_exec_any },
+    [__pse51_mutex_lock] = { &__pthread_mutex_lock, __xn_exec_primary },
+    [__pse51_mutex_timedlock] = { &__pthread_mutex_timedlock, __xn_exec_primary },
+    [__pse51_mutex_trylock] = { &__pthread_mutex_trylock, __xn_exec_primary },
+    [__pse51_mutex_unlock] = { &__pthread_mutex_unlock, __xn_exec_primary },
+    [__pse51_cond_init] = { &__pthread_cond_init, __xn_exec_any },
+    [__pse51_cond_destroy] = { &__pthread_cond_destroy, __xn_exec_any },
+    [__pse51_cond_wait] = { &__pthread_cond_wait, __xn_exec_primary },
+    [__pse51_cond_timedwait] = { &__pthread_cond_timedwait, __xn_exec_primary },
+    [__pse51_cond_signal] = { &__pthread_cond_signal, __xn_exec_any },
+    [__pse51_cond_broadcast] = { &__pthread_cond_broadcast, __xn_exec_any },
     [__pse51_mq_open] = { &__mq_open, __xn_exec_lostage },
     [__pse51_mq_close] = { &__mq_close, __xn_exec_lostage },
     [__pse51_mq_unlink] = { &__mq_unlink, __xn_exec_lostage },

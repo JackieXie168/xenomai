@@ -301,6 +301,8 @@ static void xnpod_flush_heap (xnheap_t *heap,
 int xnpod_init (xnpod_t *pod, int minpri, int maxpri, xnflags_t flags)
 
 {
+    extern int xeno_nucleus_status;
+
     unsigned cpu, nr_cpus = xnarch_num_online_cpus();
     char root_name[16];
     xnsched_t *sched;
@@ -309,6 +311,10 @@ int xnpod_init (xnpod_t *pod, int minpri, int maxpri, xnflags_t flags)
     int err;
     spl_t s;
 
+    if (xeno_nucleus_status < 0)
+        /* xeno_nucleus module failed to load properly, bail out. */
+        return xeno_nucleus_status;
+    
     xnlock_get_irqsave(&nklock,s);
 
     if (nkpod != NULL)
@@ -369,8 +375,6 @@ int xnpod_init (xnpod_t *pod, int minpri, int maxpri, xnflags_t flags)
 #ifdef __XENO_SIM__
     pod->schedhook = NULL;
 #endif /* __XENO_SIM__ */
-
-    initq(&pod->suspendq);
 
     for (cpu=0; cpu < nr_cpus; ++cpu)
         {
@@ -824,8 +828,8 @@ int xnpod_init_thread (xnthread_t *thread,
     if (stacksize == 0)
         stacksize = XNARCH_THREAD_STACKSZ;
 
-    /* Exclude XNSUSP, so that xnpod_suspend_thread() will put the thread in the
-       suspendq. */
+    /* Exclude XNSUSP, so that xnpod_suspend_thread() will actually do
+       the suspension work for the thread. */
     err = xnthread_init(thread,name,prio,flags & ~XNSUSP,stacksize);
 
     if (err)
@@ -1270,14 +1274,8 @@ void xnpod_delete_thread (xnthread_t *thread)
             __clrbits(thread->status,XNREADY);
             }
         }
-    else
-        {
-        if (testbits(thread->status,XNDELAY))
+    else if (testbits(thread->status,XNDELAY))
             xntimer_stop(&thread->rtimer);
-
-        if (testbits(thread->status,XNTHREAD_BLOCK_BITS & ~XNDELAY))
-            removeq(&nkpod->suspendq,&thread->slink);
-        }
 
     xntimer_stop(&thread->ptimer);
 
@@ -1468,18 +1466,8 @@ void xnpod_suspend_thread (xnthread_t *thread,
             __clrbits(thread->status,XNREADY);
             }
 
-        if ((mask & ~XNDELAY) != 0)
-            /* If the thread is forcibly suspended outside the simple
-               delay condition, link it to suspension queue. */
-            appendq(&nkpod->suspendq,&thread->slink);
-
         __clrbits(thread->status,XNRMID|XNTIMEO|XNBREAK);
         }
-    else if ((mask & ~XNDELAY) != 0 &&
-             !testbits(thread->status,XNTHREAD_BLOCK_BITS & ~XNDELAY))
-        /* If the thread is forcibly suspended while undergoing a
-           simple delay condition, link it to suspension queue too. */
-        appendq(&nkpod->suspendq,&thread->slink);
 
     __setbits(thread->status,mask);
 
@@ -1653,20 +1641,7 @@ void xnpod_resume_thread (xnthread_t *thread,
                     }
 
                 if (testbits(thread->status,XNTHREAD_BLOCK_BITS)) /* Still blocked? */
-                    {
-                    if (testbits(thread->status,XNDELAY))
-                        /* Funky corner case here: the suspensive
-                           condition we have just removed was not
-                           XNPEND, and we are still blocked on
-                           XNDELAY.  We thus need to remove the thread
-                           from the suspension queue to reflect the
-                           removal of the cleared condition, since
-                           threads on resource-free timed waits are
-                           not expected to be linked to this queue. */
-                        removeq(&nkpod->suspendq,&thread->slink);
-
                     goto unlock_and_exit;
-                    }
                 }
             else
                 {
@@ -1686,19 +1661,13 @@ void xnpod_resume_thread (xnthread_t *thread,
                timer is simply a no-op. */
             xntimer_stop(&thread->rtimer);
 
-        if ((mask & ~XNDELAY) != 0)
-            {
-            /* If the thread was actually suspended, remove it from
-               the suspension queue -- this allows requests like
-               xnpod_suspend_thread(...,thread,XNDELAY,0,...) not to
-               run the following code when the suspended thread is
-               woken up while undergoing an infinite delay. */
-
-            removeq(&nkpod->suspendq,&thread->slink);
-
-            if (thread->wchan)
-                xnsynch_forget_sleeper(thread);
-            }
+        if ((mask & ~XNDELAY) != 0 && thread->wchan != NULL)
+            /* If the thread was actually suspended, clear the wait
+               channel.  -- this allows requests like
+               xnpod_suspend_thread(thread,XNDELAY,...) not to run the
+               following code when the suspended thread is woken up
+               while undergoing a simple delay. */
+	    xnsynch_forget_sleeper(thread);
         }
     else if (testbits(thread->status,XNREADY))
         {
@@ -2291,7 +2260,9 @@ static inline void __xnpod_switch_fpu (xnsched_t *sched)
 
             xnarch_restore_fpu(xnthread_archtcb(runthread));
             }
-
+        else
+            xnarch_enable_fpu(xnthread_archtcb(runthread));
+     
         sched->fpuholder = runthread;
         }
     else
@@ -3116,7 +3087,10 @@ int xnpod_start_timer (u_long nstick, xnisr_t tickhandler)
     if (!nkpod || testbits(nkpod->status,XNPIDLE))
         {
         err = -ENOSYS;
-        goto unlock_and_exit;
+
+unlock_and_exit:
+        xnlock_put_irqrestore(&nklock,s);
+        return err;
         }
 
     if (testbits(nkpod->status,XNTIMED))
@@ -3150,18 +3124,17 @@ int xnpod_start_timer (u_long nstick, xnisr_t tickhandler)
 	xntimer_set_aperiodic_mode();
         }
 
-    if (XNARCH_HOST_TICK > 0 && XNARCH_HOST_TICK < nkpod->tickvalue)
+#if XNARCH_HOST_TICK > 0
+    if (XNARCH_HOST_TICK < nkpod->tickvalue)
         {
         /* Host tick needed but shorter than the timer precision;
            bad... */
+	xnlogerr("bad timer setup value (%lu Hz), must be >= CONFIG_HZ (%d).\n",
+		 1000000000U/nkpod->tickvalue,HZ);
         err = -EINVAL;
-
-unlock_and_exit:
-
-        xnlock_put_irqrestore(&nklock,s);
-
-        return err;
+	goto unlock_and_exit;
         }
+#endif /* XNARCH_HOST_TICK > 0 */
 
     xnltt_log_event(xeno_ev_tmstart,nstick);
 
@@ -3238,28 +3211,34 @@ void xnpod_stop_timer (void)
 {
     spl_t s;
 
-    xntimer_freeze();
+    xnltt_log_event(xeno_ev_tmstop);
 
     xnlock_get_irqsave(&nklock,s);
 
-    if (!nkpod || testbits(nkpod->status,XNPIDLE))
-        goto unlock_and_exit;
+    if (!nkpod ||
+	testbits(nkpod->status,XNPIDLE) ||
+	!testbits(nkpod->status,XNTIMED))
+	{
+	xnlock_put_irqrestore(&nklock,s);
+	return;
+	}
 
-    xnltt_log_event(xeno_ev_tmstop);
-
-    if (testbits(nkpod->status,XNTIMED))
-        {
-        __clrbits(nkpod->status,XNTIMED|XNTMPER);
-        /* NOTE: The nkclock interrupt object is not destroyed on
-           purpose since this would be redundant with
-           xnarch_stop_timer() called when freezing timers. In any
-           case, no resource is associated with this object. */
-	xntimer_set_aperiodic_mode();
-        }
-
- unlock_and_exit:
+    __clrbits(nkpod->status,XNTIMED|XNTMPER);
 
     xnlock_put_irqrestore(&nklock,s);
+
+    /* We must not hold the nklock while stopping the hardware
+       timer. This might have very undesirable side-effects on SMP
+       systems. */
+    xnarch_stop_timer();
+
+    xntimer_freeze();
+
+    /* NOTE: The nkclock interrupt object is not destroyed on purpose
+       since this would be redundant after xnarch_stop_timer() has
+       been called. In any case, no resource is associated with this
+       object. */
+    xntimer_set_aperiodic_mode();
 }
 
 /*! 
@@ -3281,7 +3260,7 @@ void xnpod_stop_timer (void)
  * exhausted. The nucleus always calls the rescheduling procedure
  * after the outer interrupt has been processed.
  *
- * @return XN_ISR_HANDLED is always returned.
+ * @return XN_ISR_HANDLED|XN_ISR_NOENABLE is always returned.
  *
  * Environments:
  *
@@ -3363,7 +3342,7 @@ int xnpod_announce_tick (xnintr_t *intr)
 
     xnlock_put_irqrestore(&nklock,s);
 
-    return XN_ISR_HANDLED;
+    return XN_ISR_HANDLED|XN_ISR_NOENABLE;
 }
 
 /*! 

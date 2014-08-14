@@ -797,6 +797,48 @@ void xnheap_finalize_free_inner (xnheap_t *heap)
     xnlock_put_irqrestore(&heap->lock,s);
 }
 
+int xnheap_check_block (xnheap_t *heap, void *block)
+
+{
+    xnextent_t *extent = NULL;
+    u_long pagenum, boffset;
+    xnholder_t *holder;
+    int ptype, err = 0;
+    spl_t s;
+
+    xnlock_get_irqsave(&heap->lock,s);
+
+    /* Find the extent from which the checked block is
+       originating. */
+
+    for (holder = getheadq(&heap->extents);
+	 holder != NULL; holder = nextq(&heap->extents,holder))
+	{
+	extent = link2extent(holder);
+
+	if ((caddr_t)block >= extent->membase &&
+	    (caddr_t)block < extent->memlim)
+	    break;
+	}
+
+    if (!holder)
+	goto bad_block;
+
+    /* Compute the heading page number in the page map. */
+    pagenum = ((caddr_t)block - extent->membase) >> heap->pageshift;
+    boffset = ((caddr_t)block - (extent->membase + (pagenum << heap->pageshift)));
+    ptype = extent->pagemap[pagenum];
+
+    if (ptype == XNHEAP_PFREE || /* Unallocated page? */
+	ptype == XNHEAP_PCONT)  /* Not a range heading page? */
+bad_block:
+	err = -EINVAL;
+
+    xnlock_put_irqrestore(&heap->lock,s);
+
+    return err;
+}
+
 #if defined(__KERNEL__) && defined(CONFIG_XENO_OPT_PERVASIVE)
 
 #include <asm/io.h>
@@ -886,7 +928,7 @@ static int xnheap_ioctl (struct inode *inode,
 
 #ifdef CONFIG_MMU
 
-static unsigned long __va_to_kva (unsigned long va)
+unsigned long __va_to_kva (unsigned long va)
 
 {
     pgd_t *pgd; pmd_t *pmd; pte_t *ptep, pte;
@@ -920,6 +962,8 @@ static unsigned long __va_to_kva (unsigned long va)
     return kva;
 }
 
+EXPORT_SYMBOL(__va_to_kva);
+
 #endif /* CONFIG_MMU */
 
 static int xnheap_mmap (struct file *file,
@@ -952,37 +996,26 @@ static int xnheap_mmap (struct file *file,
 
     vaddr = (unsigned long)heap->archdep.heapbase;
 
-    /* MMU-less vmalloc() is a wrapper to kmalloc(), so it always
-       provides contiguous memory, and we always ask for kmalloc-based
-       heaps in such context. */
-
-#ifdef CONFIG_MMU
     if (!heap->archdep.kmflags)
 	{
 	unsigned long maddr = vma->vm_start;
 
 	while (size > 0)
 	    {
-	    if (xnarch_remap_page_range(vma,
-					maddr,
-					__pa(__va_to_kva(vaddr)),
-					PAGE_SIZE,
-					PAGE_SHARED))
-		return -ENXIO;
+	    if (xnarch_remap_vm_page(vma,maddr,vaddr))
+		return -EAGAIN;
 
 	    maddr += PAGE_SIZE;
 	    vaddr += PAGE_SIZE;
 	    size -= PAGE_SIZE;
 	    }
 	}
-    else
-#endif /* CONFIG_MMU */
-	if (xnarch_remap_page_range(vma,
-				    vma->vm_start,
-				    virt_to_phys((void *)vaddr),
-				    size,
-				    PAGE_SHARED))
-	    return -ENXIO;
+    else if (xnarch_remap_io_page_range(vma,
+					vma->vm_start,
+					virt_to_phys((void *)vaddr),
+					size,
+					PAGE_SHARED))
+	    return -EAGAIN;
 
     atomic_inc(&heap->archdep.numaps);
 
@@ -1010,7 +1043,7 @@ int xnheap_mount (void)
 
     if(IS_ERR(xnheap_class))
     {
-       xnlogerr("Error creating rtheap class, err=%ld.\n",PTR_ERR(xnheap_class));
+       xnlogerr("error creating rtheap class, err=%ld.\n",PTR_ERR(xnheap_class));
        return -EBUSY; 
     }
 
@@ -1019,7 +1052,7 @@ int xnheap_mount (void)
 				     NULL, "rtheap");
     if(IS_ERR(cldev))
 	{
-	xnlogerr("Can't add device class, major=%d, minor=%d, err=%ld\n", 
+	xnlogerr("can't add device class, major=%d, minor=%d, err=%ld\n", 
 		 MISC_MAJOR, XNHEAP_DEV_MINOR, PTR_ERR(cldev));
 	class_destroy(xnheap_class);
 	return -EBUSY;
@@ -1047,7 +1080,6 @@ static inline void *__alloc_and_reserve_heap (size_t size, int kmflags)
 
     /* Size must be page-aligned. */
 
-#ifdef CONFIG_MMU
     if (!kmflags)
 	{
 	ptr = vmalloc(size);
@@ -1060,10 +1092,14 @@ static inline void *__alloc_and_reserve_heap (size_t size, int kmflags)
         for (vaddr = vabase; vaddr < vabase + size; vaddr += PAGE_SIZE)
 	    SetPageReserved(virt_to_page(__va_to_kva(vaddr)));
 	}
-    else /* Otherwise, we have been asked for some vmalloc() space. */
-#endif /* CONFIG_MMU */
+    else
 	{
-        ptr = kmalloc(size,kmflags);
+	/*
+	 * Otherwise, we have been asked for some kmalloc()
+	 * space. Assume that we can wait to get the required memory.
+	 */
+
+        ptr = kmalloc(size,kmflags|GFP_KERNEL);
 
 	if (!ptr)
 	    return NULL;
@@ -1086,7 +1122,6 @@ static inline void __unreserve_and_free_heap (void *ptr, size_t size, int kmflag
 
     vabase = (unsigned long)ptr;
 
-#ifdef CONFIG_MMU
     if (!kmflags)
 	{
         for (vaddr = vabase; vaddr < vabase + size; vaddr += PAGE_SIZE)
@@ -1095,7 +1130,6 @@ static inline void __unreserve_and_free_heap (void *ptr, size_t size, int kmflag
 	vfree(ptr);
 	}
     else
-#endif /* CONFIG_MMU */
 	{
 	for (vaddr = vabase; vaddr < vabase + size; vaddr += PAGE_SIZE)
 	    ClearPageReserved(virt_to_page(vaddr));
@@ -1112,9 +1146,6 @@ int xnheap_init_mapped (xnheap_t *heap,
     spl_t s;
     int err;
 
-#ifndef CONFIG_MMU
-    memflags = memflags ?: GFP_USER;
-#endif /* CONFIG_MMU */
     heapsize = PAGE_ALIGN(heapsize);
     heapbase = __alloc_and_reserve_heap(heapsize,memflags);
 
@@ -1178,5 +1209,6 @@ EXPORT_SYMBOL(xnheap_free);
 EXPORT_SYMBOL(xnheap_init);
 EXPORT_SYMBOL(xnheap_schedule_free);
 EXPORT_SYMBOL(xnheap_finalize_free_inner);
+EXPORT_SYMBOL(xnheap_check_block);
 
 EXPORT_SYMBOL(kheap);

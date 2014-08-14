@@ -95,7 +95,7 @@ extern "C" {
 static inline void *xnarch_sysalloc (u_long bytes)
 
 {
-    if (bytes >= 128*1024)
+    if (bytes > 128*1024)
         return vmalloc(bytes);
 
     return kmalloc(bytes,GFP_KERNEL);
@@ -104,7 +104,7 @@ static inline void *xnarch_sysalloc (u_long bytes)
 static inline void xnarch_sysfree (void *chunk, u_long bytes)
 
 {
-    if (bytes >= 128*1024)
+    if (bytes > 128*1024)
         vfree(chunk);
     else
         kfree(chunk);
@@ -125,6 +125,11 @@ static inline int xnarch_start_timer (unsigned long ns,
                                       void (*tickhandler)(void))
 {
     return rthal_timer_request(tickhandler,ns);
+}
+
+static inline void xnarch_stop_timer (void)
+{
+    rthal_timer_release();
 }
 
 static inline void xnarch_leave_root (xnarchtcb_t *rootcb)
@@ -422,8 +427,19 @@ static inline void xnarch_enable_fpu(xnarchtcb_t *tcb)
 {
     struct task_struct *task = tcb->user_task;
 
-    if (task && !wrap_test_fpu_used(task))
-        return;
+    if (task)
+        {
+        if (!xnarch_fpu_init_p(task))
+            return;
+
+        /* If "task" switched while in Linux domain, its FPU context may have
+           been overriden, restore it. */
+        if (!wrap_test_fpu_used(task))
+            {
+            xnarch_restore_fpu(tcb);
+            return;
+            }
+        }
 
     clts();
 
@@ -610,11 +626,6 @@ static inline void xnarch_program_timer_shot (unsigned long delay)
             rthal_nmi_arm(delay + rthal_maxlat_tsc);
     }
 #endif /* CONFIG_XENO_HW_NMI_DEBUG_LATENCY */
-}
-
-static inline void xnarch_stop_timer (void)
-{
-    rthal_timer_release();
 }
 
 static inline int xnarch_send_timer_ipi (xnarch_cpumask_t mask)
