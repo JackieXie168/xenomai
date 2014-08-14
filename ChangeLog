@@ -1,3 +1,70 @@
+2005-11-06  Philippe Gerum  <rpm@xenomai.org>
+
+ 	* RELEASE: Xenomai 2.0.1 (Crushing Day)
+
+2005-11-02  Philippe Gerum  <rpm@xenomai.org>
+
+	* arch/i386/patches: Upgrade to Adeos newgen 1.0-10.
+
+	* arch/ppc/patches: Upgrade to Adeos newgen 1.0-06.
+
+2005-11-02  Gilles Chanteperdrix  <gilles.chanteperdrix@laposte.net>
+
+	* configure.in: Revert commit r53, passing CC variable to Kbuild
+	through environment does not seem to work.
+
+2005-11-01  Philippe Gerum  <rpm@xenomai.org>
+
+	* arch/i386/patches, arch/ppc/patches: Upgrade base Adeos port to
+	2.6.14.
+
+	* arch/i386/hal/smi.h, skins/posix/posix.h, skins/rtdm/drvlib.c,
+	skins/rtdm/core.c: Fix #if -> #ifdef issues.
+
+2005-10-30  Jan Kiszka <jan.kiszka@web.de>
+
+	* drivers/16550A/README: Clarify documentation.
+
+2005-10-28  Philippe Gerum  <rpm@xenomai.org>
+
+	* configure.in: Quote version stamp regexp as needed.
+
+2005-10-27  Jan Kiszka <jan.kiszka@web.de>
+
+	* drivers/16550A (rt_16550_ioctl): Have RTSER_RTIOC_EVENT_WAIT
+	auto-switch to RT when applicable and fix memory leak in error
+	path from RTSER_RTIOC_SET_CONFIG. Add README.
+	
+2005-10-27  Philippe Gerum  <rpm@xenomai.org>
+
+	* arch/i386/patches: Upgrade to Adeos newgen 1.0-09.
+
+	* arch/ppc/patches: Upgrade to Adeos newgen 1.0-05.
+
+	* skins/uvm/module.c (__xeno_skin_init): Fix error path.
+
+	* nucleus/core.c (xncore_attach): Fix error return.
+
+	* nucleus/module.c: Make the system heap size dynamically
+	configurable.
+
+	* skins/uvm/syscall.c (__vm_thread_activate): Fix auto-start: we
+	_must_ suspend the previous thread including in that case.
+
+	* nucleus/thread.c, include/nucleus/asm-*/system.h: Move stack
+	allocation/deallocation to the arch-dep sections.
+
+	* nucleus/thread.c (xnthread_init): Align stack size on natural
+	long and fix comment.
+
+2005-10-25  Jan Kiszka <jan.kiszka@web.de>
+
+	* skins/rtdm/rtdm_driver.h: Abstract task priority increment.
+
+2005-10-23  Philippe Gerum  <rpm@xenomai.org>
+
+ 	* RELEASE: Xenomai 2.0 (Surfing With The Alien)
+
 2005-10-22  Philippe Gerum  <rpm@xenomai.org>
 
 	* arch/i386/patches: Upgrade to Adeos newgen 1.0-08.
