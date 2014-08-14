@@ -2332,7 +2332,7 @@ static inline void xnpod_preempt_current_thread(xnsched_t *sched)
 			   (obviously distinct from the running thread) safely. Note:
 			   this works because the simulator never uses multi-level
 			   queues for holding ready threads. --rpm */
-			thread = link2thread(thread->rlink.plink.next, rlink);
+			thread = link2thread(thread->rlink.plink.next, rlink.plink);
 			nkpod->schedhook(thread, XNREADY);
 		}
 	}
@@ -3034,7 +3034,7 @@ void xnpod_watchdog_handler(xntimer_t *timer)
 		return;
 	}
 		
-	if (unlikely(++sched->wd_count >= 4)) {
+	if (unlikely(++sched->wd_count >= CONFIG_XENO_OPT_WATCHDOG_TIMEOUT)) {
 		xnltt_log_event(xeno_ev_watchdog, thread->name);
 		xnprintf("watchdog triggered -- killing runaway thread '%s'\n",
 			 thread->name);

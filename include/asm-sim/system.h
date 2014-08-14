@@ -76,6 +76,11 @@ typedef unsigned long xnlock_t;
 #define xnlock_put_irqrestore(lock,x)  mvm_set_irqmask(x)
 #define xnlock_clear_irqoff(lock)      mvm_set_irqmask(-1)
 #define xnlock_clear_irqon(lock)       mvm_set_irqmask(0)
+#define xnlock_sync_irq(lock, x)			\
+	do {						\
+		xnlock_put_irqrestore(lock, x);		\
+		xnlock_get_irqsave(lock, x);		\
+	} while(0)
 
 #define XNARCH_NR_CPUS              1
 
@@ -201,7 +206,8 @@ typedef struct xnarch_heapcb {
 
 } xnarch_heapcb_t;
 
-static inline void xnarch_init_heapcb (xnarch_heapcb_t *cb) {
+static inline void xnarch_init_heapcb (xnarch_heapcb_t *cb)
+{
 }
 
 #define __mvm_breakable(f) f ## _kdoor_
@@ -509,6 +515,8 @@ while(0)
 #ifndef PAGE_ALIGN
 #define PAGE_ALIGN(addr)  (((addr)+PAGE_SIZE-1)&PAGE_MASK)
 #endif /* !PAGE_ALIGN */
+
+#define ____cacheline_aligned_in_smp /* No SMP simulation support anyway. */
 
 /* Simulator has only one root thread, so Linux semaphores are only faked. */
 struct semaphore {

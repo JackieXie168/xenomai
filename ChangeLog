@@ -1,3 +1,102 @@
+2007-09-16  Philippe Gerum  <rpm@xenomai.org>
+
+	* RELEASE: Xenomai 2.3.4 (Cool #9)
+
+2007-09-16  Philippe Gerum  <rpm@xenomai.org>
+
+	* ksrc/nucleus/pod.c (xnpod_preempt_current_thread): Sanitize
+	link2thread() call args.
+
+	* include/asm-sim/system.h (____cacheline_aligned_in_smp): Provide a placeholder.
+	(xnlock_sync_irq): Add missing.
+
+	* ksrc/skins/psos+/event.c (ev_init, ev_destroy): Renamed to
+	taskev_init, taskev_destroy to avoid a conflict with
+	drivers/net/skfp.
+
+2007-09-15  Philippe Gerum  <rpm@xenomai.org>
+
+	* ksrc/skins/vrtx/syscall.c (__sc_tecreate): 
+	* ksrc/skins/vxworks/syscall.c (__wind_task_init): 
+	* ksrc/skins/native/syscall.c (__rt_task_create): Protect against
+	duplicate TCB memory release (first issued by the deletion hook)
+	upon task creation error.
+	
+	* ksrc/skins/native/syscall.c (__rt_task_create): Make sure we
+	attempt to release the TCB memory after any failure to shadow the
+	task.
+
+	* ksrc/skins/native/task.c (rt_task_create): Get out faster from
+	the error case by calling xnpod_delete_thread() upon registration
+	failure.
+
+2007-09-04  Johan Borkhuis <j.borkhuis@dutchspace.nl>
+
+	* ksrc/nucleus/pod.c: Make the watchdog timeout value configurable.
+
+2007-08-24  Wolfgang Grandegger  <wg@grandegger.com>
+
+	* ksrc/drivers/can/rtcan_socket.c: protect the list of RTCAN
+	sockets properly when adding or deleting sockets.
+
+2007-08-18  Gilles Chanteperdrix  <gilles.chanteperdrix@gmail.com>
+
+	* include/asm-arm/syscall.h (__xn_rdtsc): Rework user-space access
+	to tsc emulation for free-running counters to use the LDM
+	instruction.
+
+2007-08-18  Sebastian Smolorz  <ssm@emlix.com>
+
+	* include/asm-arm/syscall.h: Add user-space access to
+	tsc emulation for decrementing counters.
+
+2007-08-18  Gilles Chanteperdrix  <gilles.chanteperdrix@gmail.com>
+
+	* ksrc/skins/posix/demos, examples/posix: move the satch example
+	to the examples sub-directory.
+
+2007-08-18  Gilles Chanteperdrix  <gilles.chanteperdrix@gmail.com>
+
+	* ksrc/arch/arm/patches: Update to 2.6.20-1.7-06.
+
+2007-08-15  Wolfgang Grandegger  <wg@grandegger.com>
+
+	* ksrc/drivers/can/sja1000/Kconfig, ksrc/drivers/can/sja1000/Config.in,
+	ksrc/drivers/can/sja1000/{rtcan_isa.c,rtcan_mem.c}: Remove config
+	options XENO_DRIVERS_CAN_SJA1000_*_MAX_DEV to avoid problems with
+	defining module parameters with Linux 2.4.
+
+2007-08-13  Philippe Gerum  <rpm@xenomai.org>
+
+	* ksrc/arch/powerpc/switch_64.S: Make sure rthal_thread_switch()
+	returns the previous task pointer, so that it is properly paired
+	with Linux's switch_to().
+
+2007-08-07  Benjamin ZORES <benjamin.zores@alcatel-lucent.fr>
+
+	* ksrc/arch/powerpc/patches: Upgrade to 2.6.21-1.6-04.
+
+2007-08-02  Philippe Gerum  <rpm@xenomai.org>
+
+	* ksrc/arch/powerpc/patches: Upgrade to 2.6.20-1.6-04.
+
+	* ksrc/arch/arm/patches: Upgrade to 2.6.20-1.7-05.
+
+	* ksrc/arch/i386/patches: Upgrade to 2.6.20-1.8-08.
+
+2007-07-31  Philippe Gerum  <rpm@xenomai.org>
+
+	* ksrc/arch/powerpc/patches: Upgrade to 2.6.20-1.6-03.
+
+2007-07-31  Jan Kiszka  <jan.kiszka@web.de>
+
+	* ksrc/nucleus/intr.c: (xnintr_edge_shirq_handler): Revert broken
+	optimization.
+
+2007-07-29  Jan Kiszka  <jan.kiszka@web.de>
+
+	* ksrc/nucleus/shadow.c: Fix RPI-disabled build.
+	
 2007-07-28  Philippe Gerum  <rpm@xenomai.org>
 
 	* RELEASE: Xenomai 2.3.3 (Summer Song)
