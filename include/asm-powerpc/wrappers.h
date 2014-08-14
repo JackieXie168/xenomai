@@ -24,14 +24,15 @@
 #error "Pure kernel header included from user-space!"
 #endif
 
-#include <asm-generic/xenomai/wrappers.h> /* Read the generic portion. */
+#include <asm-generic/xenomai/wrappers.h>	/* Read the generic portion. */
+#include <linux/interrupt.h>
 
 #if LINUX_VERSION_CODE < KERNEL_VERSION(2,5,0)
 
 #define CONFIG_MMU 1
 
 #define atomic_inc_and_test(v) (atomic_inc_return(v) == 0)
-#define show_stack(p,sp)       print_backtrace(sp) /* Only works for current. */
+#define show_stack(p,sp)       print_backtrace(sp)	/* Only works for current. */
 
 #define wrap_range_ok(task,addr,size) \
     (segment_eq((task)->thread.fs, KERNEL_DS) || __user_ok((unsigned long)(addr),(size)))
@@ -82,5 +83,8 @@
 
 #endif /* LINUX_VERSION_CODE < KERNEL_VERSION(2,6,15) */
 
+typedef irqreturn_t (*rthal_irq_host_handler_t)(int irq,
+						void *dev_id,
+						struct pt_regs *regs);
 
 #endif /* _XENO_ASM_POWERPC_WRAPPERS_H */

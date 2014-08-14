@@ -1,4 +1,4 @@
-/*
+/* 
  * Copyright (C) 2001,2002,2003 Philippe Gerum <rpm@xenomai.org>.
  *
  * Xenomai is free software; you can redistribute it and/or modify
@@ -22,39 +22,41 @@
 
 #include <nucleus/timer.h>
 
-/* Status flags */
-#define XNSUSP    0x00000001	/* Suspended */
-#define XNPEND    0x00000002	/* Sleep-wait for a resource */
-#define XNDELAY   0x00000004	/* Delayed */
-#define XNREADY   0x00000008	/* Linked to the ready queue */
-#define XNDORMANT 0x00000010	/* Not started yet or killed */
-#define XNZOMBIE  0x00000020	/* Zombie thread in deletion process */
-#define XNRESTART 0x00000040	/* Restarting thread */
-#define XNSTARTED 0x00000080	/* Could be restarted */
-#define XNRELAX   0x00000100	/* Relaxed shadow thread (blocking bit) */
-#define XNHELD    0x00000200	/* Held thread from suspended partition */
+/*! @ingroup nucleus 
+  @defgroup nucleus_state_flags Thread state flags.
+  @brief Bits reporting permanent or transient states of thread.
+  @{
+*/
 
-#define XNTIMEO   0x00000400	/* Woken up due to a timeout condition */
-#define XNRMID    0x00000800	/* Pending on a removed resource */
-#define XNBREAK   0x00001000	/* Forcibly awaken from a wait state */
-#define XNKICKED  0x00002000	/* Kicked upon Linux signal (shadow only) */
-#define XNBOOST   0x00004000	/* Undergoes regular PIP boost */
-#define XNDEBUG   0x00008000	/* Hit debugger breakpoint (shadow only) */
+/* State flags */
 
-/* Mode flags. */
-#define XNLOCK    0x00010000	/* Not preemptible */
-#define XNRRB     0x00020000	/* Undergoes a round-robin scheduling */
-#define XNASDI    0x00040000	/* ASR are disabled */
-#define XNSHIELD  0x00080000	/* IRQ shield is enabled (shadow only) */
-#define XNTRAPSW  0x00100000	/* Trap execution mode switches */
-#define XNRPIOFF  0x00200000	/* Stop priority coupling (shadow only) */
+#define XNSUSP    0x00000001 /**< Suspended. */
+#define XNPEND    0x00000002 /**< Sleep-wait for a resource. */
+#define XNDELAY   0x00000004 /**< Delayed */
+#define XNREADY   0x00000008 /**< Linked to the ready queue. */
+#define XNDORMANT 0x00000010 /**< Not started yet or killed */
+#define XNZOMBIE  0x00000020 /**< Zombie thread in deletion process */
+#define XNRESTART 0x00000040 /**< Restarting thread */
+#define XNSTARTED 0x00000080 /**< Thread has been started */
+#define XNMAPPED  0x00000100 /**< Mapped to regular Linux task (shadow only) */
+#define XNRELAX   0x00000200 /**< Relaxed shadow thread (blocking bit) */
+#define XNHELD    0x00000400 /**< Held thread from suspended partition */
 
-#define XNFPU     0x00400000	/* Thread uses FPU */
-#define XNSHADOW  0x00800000	/* Shadow thread */
-#define XNROOT    0x01000000	/* Root thread (i.e. Linux/IDLE) */
-#define XNINVPS   0x02000000	/* Using inverted priority scale */
-#define XNWAKEN   0x04000000	/* Thread waken up upon resource availability */
-#define XNROBBED  0x08000000	/* Robbed from resource ownership */
+#define XNBOOST   0x00000800 /**< Undergoes regular PIP boost */
+#define XNDEBUG   0x00001000 /**< Hit debugger breakpoint (shadow only) */
+#define XNLOCK    0x00002000 /**< Not preemptible */
+#define XNRRB     0x00004000 /**< Undergoes a round-robin scheduling */
+#define XNASDI    0x00008000 /**< ASR are disabled */
+#define XNSHIELD  0x00010000 /**< IRQ shield is enabled (shadow only) */
+#define XNTRAPSW  0x00020000 /**< Trap execution mode switches */
+#define XNRPIOFF  0x00040000 /**< Stop priority coupling (shadow only) */
+
+#define XNFPU     0x00100000 /**< Thread uses FPU */
+#define XNSHADOW  0x00200000 /**< Shadow thread */
+#define XNROOT    0x00400000 /**< Root thread (that is, Linux/IDLE) */
+#define XNINVPS   0x00800000 /**< Using inverted priority scale */
+
+/*! @} */ /* Ends doxygen comment group: nucleus_state_flags */
 
 /*
   Must follow the declaration order of the above bits. Status symbols
@@ -69,36 +71,62 @@
   'b' -> Priority boost undergoing.
   'T' -> Ptraced and stopped.
   'l' -> Locks scheduler.
-  'r' -> Undergoes round-robin .
+  'r' -> Undergoes round-robin.
   's' -> Interrupt shield enabled.
   't' -> Mode switches trapped.
   'o' -> Priority coupling off.
   'f' -> FPU enabled (for kernel threads).
 */
-#define XNTHREAD_SLABEL_INIT  {		\
+#define XNTHREAD_STATE_LABELS  {	\
 	'S', 'W', 'D', 'R', 'U',	\
-	'.', '.', '.', 'X', 'H',	\
-	'.', '.', '.', '.', 'b', 'T',	\
-	'l', 'r', '.', 's', 't', 'o',	\
-	'f', '.', '.', '.', '.', '.'	\
+	'.', '.', '.', '.', 'X',	\
+	'H', 'b', 'T', 'l', 'r',	\
+	'.', 's', 't', 'o', 'f',	\
+	'.', '.', '.',			\
 }
 
 #define XNTHREAD_BLOCK_BITS   (XNSUSP|XNPEND|XNDELAY|XNDORMANT|XNRELAX|XNHELD)
 #define XNTHREAD_MODE_BITS    (XNLOCK|XNRRB|XNASDI|XNSHIELD|XNTRAPSW|XNRPIOFF)
 
-/* These flags are available to the real-time interfaces */
-#define XNTHREAD_SPARE0  0x10000000
-#define XNTHREAD_SPARE1  0x20000000
-#define XNTHREAD_SPARE2  0x40000000
-#define XNTHREAD_SPARE3  0x80000000
-#define XNTHREAD_SPARES  0xf0000000
+/* These state flags are available to the real-time interfaces */
+#define XNTHREAD_STATE_SPARE0  0x10000000
+#define XNTHREAD_STATE_SPARE1  0x20000000
+#define XNTHREAD_STATE_SPARE2  0x40000000
+#define XNTHREAD_STATE_SPARE3  0x80000000
+#define XNTHREAD_STATE_SPARES  0xf0000000
 
-#if defined(__KERNEL__) || defined(__XENO_UVM__) || defined(__XENO_SIM__)
+/*! @ingroup nucleus 
+  @defgroup nucleus_info_flags Thread information flags.
+  @brief Bits reporting events notified to thread.
+  @{
+*/
+
+/* Information flags */
+
+#define XNTIMEO   0x00000001 /**< Woken up due to a timeout condition */
+#define XNRMID    0x00000002 /**< Pending on a removed resource */
+#define XNBREAK   0x00000004 /**< Forcibly awaken from a wait state */
+#define XNKICKED  0x00000008 /**< Kicked upon Linux signal (shadow only) */
+#define XNWAKEN   0x00000010 /**< Thread waken up upon resource availability */
+#define XNROBBED  0x00000020 /**< Robbed from resource ownership */
+
+/* These information flags are available to the real-time interfaces */
+#define XNTHREAD_INFO_SPARE0  0x10000000
+#define XNTHREAD_INFO_SPARE1  0x20000000
+#define XNTHREAD_INFO_SPARE2  0x40000000
+#define XNTHREAD_INFO_SPARE3  0x80000000
+#define XNTHREAD_INFO_SPARES  0xf0000000
+
+/*! @} */ /* Ends doxygen comment group: nucleus_info_flags */
+
+#if defined(__KERNEL__) || defined(__XENO_SIM__)
+
+#include <nucleus/stat.h>
 
 #ifdef __XENO_SIM__
 /* Pseudo-status (must not conflict with other bits) */
-#define XNRUNNING  XNTHREAD_SPARE0
-#define XNDELETED  XNTHREAD_SPARE1
+#define XNRUNNING  XNTHREAD_STATE_SPARE0
+#define XNDELETED  XNTHREAD_STATE_SPARE1
 #endif /* __XENO_SIM__ */
 
 #define XNTHREAD_INVALID_ASR  ((void (*)(xnsigmask_t))0)
@@ -112,7 +140,9 @@ typedef struct xnthread {
 
     xnarchtcb_t tcb;		/* Architecture-dependent block -- Must be first */
 
-    xnflags_t status;		/* Thread status flags */
+    xnflags_t state;		/* Thread state flags */
+
+    xnflags_t info;		/* Thread information flags */
 
     struct xnsched *sched;	/* Thread scheduler */
 
@@ -148,16 +178,12 @@ typedef struct xnthread {
 
     xnticks_t rrcredit;		/* Remaining round-robin time credit (ticks) */
 
-#ifdef CONFIG_XENO_OPT_STATS
     struct {
-	unsigned long ssw;	/* Primary -> secondary mode switch count */
-	unsigned long csw;	/* Context switches (includes
-				   secondary -> primary switches) */
-	unsigned long pf;	/* Number of page faults */
-       xnticks_t exec_time;    /* Accumulated execution time (tsc) */
-       xnticks_t exec_start;   /* Start of execution time accumulation (tsc) */
+	xnstat_counter_t ssw;	/* Primary -> secondary mode switch count */
+	xnstat_counter_t csw;	/* Context switches (includes secondary -> primary switches) */
+	xnstat_counter_t pf;	/* Number of page faults */
+	xnstat_runtime_t account; /* Runtime accounting entity */
     } stat;
-#endif /* CONFIG_XENO_OPT_STATS */
 
     int errcode;		/* Local errno */
 
@@ -181,10 +207,6 @@ typedef struct xnthread {
 	const char *waitkey;	/* Pended key */
     } registry;
 #endif /* CONFIG_XENO_OPT_REGISTRY */
-
-#if defined(__KERNEL__) && defined(CONFIG_XENO_OPT_PERVASIVE)
-    int mapped;			/* Thread called xnshadow_map() */
-#endif /* __KERNEL__ && CONFIG_XENO_OPT_PERVASIVE */
 
     unsigned magic;		/* Skin magic. */
 
@@ -215,22 +237,25 @@ typedef struct xnhook {
 
 } xnhook_t;
 
-#define xnthread_name(thread)              ((thread)->name)
+#define xnthread_name(thread)               ((thread)->name)
 #define xnthread_clear_name(thread)        do { *(thread)->name = 0; } while(0)
 #define xnthread_sched(thread)             ((thread)->sched)
 #define xnthread_start_time(thread)        ((thread)->stime)
-#define xnthread_status_flags(thread)      ((thread)->status)
-#define xnthread_test_flags(thread,flags)  testbits((thread)->status,flags)
-#define xnthread_set_flags(thread,flags)   __setbits((thread)->status,flags)
-#define xnthread_clear_flags(thread,flags) __clrbits((thread)->status,flags)
-#define xnthread_initial_priority(thread)  ((thread)->iprio)
+#define xnthread_state_flags(thread)       ((thread)->state)
+#define xnthread_test_state(thread,flags)  testbits((thread)->state,flags)
+#define xnthread_set_state(thread,flags)   __setbits((thread)->state,flags)
+#define xnthread_clear_state(thread,flags) __clrbits((thread)->state,flags)
+#define xnthread_test_info(thread,flags)   testbits((thread)->info,flags)
+#define xnthread_set_info(thread,flags)    __setbits((thread)->info,flags)
+#define xnthread_clear_info(thread,flags)  __clrbits((thread)->info,flags)
+#define xnthread_initial_priority(thread) ((thread)->iprio)
 #define xnthread_base_priority(thread)     ((thread)->bprio)
-#define xnthread_current_priority(thread)  ((thread)->cprio)
+#define xnthread_current_priority(thread) ((thread)->cprio)
 #define xnthread_time_slice(thread)        ((thread)->rrperiod)
 #define xnthread_time_credit(thread)       ((thread)->rrcredit)
 #define xnthread_archtcb(thread)           (&((thread)->tcb))
 #define xnthread_asr_level(thread)         ((thread)->asrlevel)
-#define xnthread_pending_signals(thread)   ((thread)->signals)
+#define xnthread_pending_signals(thread)  ((thread)->signals)
 #define xnthread_timeout(thread)           xntimer_get_timeout(&(thread)->rtimer)
 #define xnthread_stack_size(thread)        xnarch_stack_size(xnthread_archtcb(thread))
 #define xnthread_handle(thread)            ((thread)->registry.handle)
@@ -239,18 +264,8 @@ typedef struct xnhook {
 #define xnthread_signaled_p(thread)        ((thread)->signals != 0)
 #define xnthread_user_task(thread)         xnarch_user_task(xnthread_archtcb(thread))
 #define xnthread_user_pid(thread) \
-    (testbits((thread)->status,XNROOT) || !xnthread_user_task(thread) ? \
+    (xnthread_test_state((thread),XNROOT) || !xnthread_user_task(thread) ? \
     0 : xnarch_user_pid(xnthread_archtcb(thread)))
-
-#ifdef CONFIG_XENO_OPT_STATS
-#define xnthread_inc_ssw(thread)     ++(thread)->stat.ssw
-#define xnthread_inc_csw(thread)     ++(thread)->stat.csw
-#define xnthread_inc_pf(thread)      ++(thread)->stat.pf
-#else /* CONFIG_XENO_OPT_STATS */
-#define xnthread_inc_ssw(thread)     do { } while(0)
-#define xnthread_inc_csw(thread)     do { } while(0)
-#define xnthread_inc_pf(thread)      do { } while(0)
-#endif /* CONFIG_XENO_OPT_STATS */
 
 #ifdef __cplusplus
 extern "C" {
@@ -272,7 +287,7 @@ static inline xnticks_t xnthread_get_timeout(xnthread_t *thread, xnticks_t now)
 {
     xnticks_t timeout;
 
-    if (!testbits(thread->status,XNDELAY))
+    if (!xnthread_test_state(thread,XNDELAY))
 	return 0LL;
 
     timeout = (xntimer_get_date(&thread->rtimer) ? : xntimer_get_date(&thread->ptimer));
@@ -296,7 +311,7 @@ static inline xnticks_t xnthread_get_period(xnthread_t *thread)
        
     if (xntimer_running_p(&thread->ptimer))
 	period = xntimer_get_interval(&thread->ptimer);
-    else if (xnthread_test_flags(thread,XNRRB))
+    else if (xnthread_test_state(thread,XNRRB))
 	period = xnthread_time_slice(thread);
 
     return period;
@@ -306,6 +321,6 @@ static inline xnticks_t xnthread_get_period(xnthread_t *thread)
 }
 #endif
 
-#endif /* __KERNEL__ || __XENO_UVM__ || __XENO_SIM__ */
+#endif /* __KERNEL__ || __XENO_SIM__ */
 
 #endif /* !_XENO_NUCLEUS_THREAD_H */

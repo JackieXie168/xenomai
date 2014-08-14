@@ -23,6 +23,8 @@
 #include <stdlib.h>
 #include <pthread.h>
 #include <vrtx/vrtx.h>
+#include <asm-generic/bits/bind.h>
+#include <asm-generic/bits/mlock_alert.h>
 
 pthread_key_t __vrtx_tskey;
 
@@ -40,7 +42,7 @@ void __init_xeno_interface(void)
 	TCB *tcb;
 
 	__vrtx_muxid =
-	    xeno_user_skin_init(VRTX_SKIN_MAGIC, "VRTX", "xeno_vrtx");
+	    xeno_bind_skin(VRTX_SKIN_MAGIC, "vrtx", "xeno_vrtx");
 
 	/* Allocate a TSD key for indexing self task pointers. */
 

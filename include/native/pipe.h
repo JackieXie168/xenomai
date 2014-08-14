@@ -128,7 +128,7 @@ RT_PIPE_MSG *rt_pipe_alloc(RT_PIPE *pipe,
 int rt_pipe_free(RT_PIPE *pipe,
                  RT_PIPE_MSG *msg);
 
-ssize_t rt_pipe_flush(RT_PIPE *pipe);
+ssize_t __deprecated_call__ rt_pipe_flush(RT_PIPE *pipe);
 
 int __native_pipe_pkg_init(void);
 

@@ -25,7 +25,6 @@
 #error "Pure kernel header included from user-space!"
 #endif
 
-#include <linux/config.h>
 #include <linux/version.h>
 #include <linux/module.h>
 #include <asm/io.h>
@@ -46,6 +45,14 @@
 #endif
 
 #define module_param_named(name,var,type,mode)  module_param(var,type,mode)
+#define _MODULE_PARM_STRING_charp "s"
+#define compat_module_param_array(name, type, count, perm) \
+	static inline void *__check_existence_##name(void) { return &name; } \
+	MODULE_PARM(name, "1-" __MODULE_STRING(count) _MODULE_PARM_STRING_##type)
+
+#define container_of(ptr, type, member) ({			\
+	const typeof( ((type *)0)->member ) *__mptr = (ptr);	\
+	(type *)( (char *)__mptr - offsetof(type,member) );})
 
 /* VM */
 
@@ -168,7 +175,12 @@ struct task_struct;
 void show_stack(struct task_struct *task,
 		unsigned long *sp);
 
+#define atomic_cmpxchg(v, old, new) ((int)cmpxchg(&((v)->counter), old, new))
+
 #else /* LINUX_VERSION_CODE >= KERNEL_VERSION(2,5,0) */
+
+#define compat_module_param_array(name, type, count, perm) \
+	module_param_array(name, type, NULL, perm)
 
 /* VM */
 
@@ -232,6 +244,10 @@ unsigned long __va_to_kva(unsigned long va);
 #define class_device_destroy(a,b) class_simple_device_remove(b)
 #define class_destroy class_simple_destroy
 #endif  /* >= 2.6.13 */
+
+#if LINUX_VERSION_CODE < KERNEL_VERSION(2,6,15)
+#define atomic_cmpxchg(v, old, new) ((int)cmpxchg(&((v)->counter), old, new))
+#endif /* < 2.6.15 */
 
 /* Signals */
 #define wrap_sighand_lock(p)     ((p)->sighand->siglock)

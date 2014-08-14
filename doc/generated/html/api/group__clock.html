@@ -30,18 +30,18 @@
 <table border="0" cellpadding="0" cellspacing="0">
 <tr><td></td></tr>
 <tr><td colspan="2"><br><h2>Functions</h2></td></tr>
-<tr><td class="memItemLeft" nowrap align="right" valign="top">uint64_t&nbsp;</td><td class="memItemRight" valign="bottom"><a class="el" href="group__clock.html#g072588a6fc5965cd25251a611ce9d68a">rtdm_clock_read</a> (void)</td></tr>
+<tr><td class="memItemLeft" nowrap align="right" valign="top"><a class="el" href="group__rtdm.html#gd3b24c25feabadba465f8797d8c7fe27">nanosecs_abs_t</a>&nbsp;</td><td class="memItemRight" valign="bottom"><a class="el" href="group__clock.html#g6cca1db0fd4c207ad92cdc9e9442afa5">rtdm_clock_read</a> (void)</td></tr>
 
-<tr><td class="mdescLeft">&nbsp;</td><td class="mdescRight">Get system time.  <a href="#g072588a6fc5965cd25251a611ce9d68a"></a><br></td></tr>
+<tr><td class="mdescLeft">&nbsp;</td><td class="mdescRight">Get system time.  <a href="#g6cca1db0fd4c207ad92cdc9e9442afa5"></a><br></td></tr>
 </table>
 <hr><h2>Function Documentation</h2>
-<a class="anchor" name="g072588a6fc5965cd25251a611ce9d68a"></a><!-- doxytag: member="drvlib.c::rtdm_clock_read" ref="g072588a6fc5965cd25251a611ce9d68a" args="(void)" --><p>
+<a class="anchor" name="g6cca1db0fd4c207ad92cdc9e9442afa5"></a><!-- doxytag: member="drvlib.c::rtdm_clock_read" ref="g6cca1db0fd4c207ad92cdc9e9442afa5" args="(void)" --><p>
 <table class="mdTable" cellpadding="2" cellspacing="0">
   <tr>
     <td class="mdRow">
       <table cellpadding="0" cellspacing="0" border="0">
         <tr>
-          <td class="md" nowrap valign="top">uint64_t rtdm_clock_read           </td>
+          <td class="md" nowrap valign="top"><a class="el" href="group__rtdm.html#gd3b24c25feabadba465f8797d8c7fe27">nanosecs_abs_t</a> rtdm_clock_read           </td>
           <td class="md" valign="top">(&nbsp;</td>
           <td class="md" nowrap valign="top">void&nbsp;</td>
           <td class="mdname1" valign="top" nowrap>          </td>
@@ -64,7 +64,7 @@ Get system time.
 <p>
 <dl compact><dt><b>Returns:</b></dt><dd>The system time in nanoseconds is returned</dd></dl>
 <dl compact><dt><b>Note:</b></dt><dd>The resolution of this service depends on the system timer. In particular, if the system timer is running in periodic mode, the return value will be limited to multiples of the timer tick period.<p>
-The system timer may have to be started to obtain valid results. Wether this happens automatically (as on Xenomai) or is controlled by the application depends on the RTDM host environment.</dd></dl>
+The system timer may have to be started to obtain valid results. Whether this happens automatically (as on Xenomai) or is controlled by the application depends on the RTDM host environment.</dd></dl>
 Environments:<p>
 This service can be called from:<p>
 <ul>
@@ -73,7 +73,7 @@ This service can be called from:<p>
 Rescheduling: never.     </td>
   </tr>
 </table>
-<hr size="1"><address style="align: right;"><small>Generated on Tue Mar 20 10:02:19 2007 for Xenomai API by&nbsp;
+<hr size="1"><address style="align: right;"><small>Generated on Mon Dec 25 13:57:11 2006 for Xenomai API by&nbsp;
 <a href="http://www.doxygen.org/index.html">
 <img src="doxygen.png" alt="doxygen" align="middle" border="0"></a> 1.4.6 </small></address>
 </body>

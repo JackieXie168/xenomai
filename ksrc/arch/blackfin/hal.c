@@ -31,14 +31,12 @@
  *
  *@{*/
 
-#include <linux/config.h>
 #include <linux/version.h>
 #include <linux/slab.h>
 #include <linux/errno.h>
 #include <linux/module.h>
 #include <asm/system.h>
 #include <asm/atomic.h>
-#include <asm/irqchip.h>
 #include <asm/io.h>
 #include <asm/uaccess.h>
 #include <asm/unistd.h>
@@ -122,8 +120,8 @@ int rthal_timer_request(void (*handler) (void), unsigned long nstick)
 		return -ENOSYS;
 #endif /* CONFIG_XENO_OPT_TIMING_PERIODIC */
 	} else {
-		/* Oneshot setup. We still use the core timer, but without
-		   auto-reload. */
+		/* Oneshot setup. We still use the core timer, but
+		   without auto-reload. */
 		bfin_write_TCNTL(1);
 		__builtin_bfin_csync();
 		bfin_write_TSCALE(0);
@@ -172,15 +170,7 @@ int rthal_irq_enable(unsigned irq)
 	if (irq >= IPIPE_NR_XIRQS)
 		return -EINVAL;
 
-	if (rthal_irq_descp(irq)->chip->unmask == NULL)
-		return -ENODEV;
-
-	/* We don't care of disable nesting level: real-time IRQ channels
-	   are not meant to be shared with the regular kernel. */
-	rthal_irq_descp(irq)->disable_depth = 0;
-	rthal_irq_descp(irq)->chip->unmask(irq);
-
-	return 0;
+	return rthal_irq_chip_enable(irq);
 }
 
 int rthal_irq_disable(unsigned irq)
@@ -189,13 +179,7 @@ int rthal_irq_disable(unsigned irq)
 	if (irq >= IPIPE_NR_XIRQS)
 		return -EINVAL;
 
-	if (rthal_irq_descp(irq)->chip->mask == NULL)
-		return -ENODEV;
-
-	rthal_irq_descp(irq)->chip->mask(irq);
-	rthal_irq_descp(irq)->disable_depth = 1;
-
-	return 0;
+	return rthal_irq_chip_disable(irq);
 }
 
 int rthal_irq_end(unsigned irq)
@@ -203,18 +187,11 @@ int rthal_irq_end(unsigned irq)
 	if (irq >= IPIPE_NR_XIRQS)
 		return -EINVAL;
 
-	if (rthal_irq_descp(irq)->chip->unmask == NULL)
-		return -ENODEV;
-
-	rthal_irq_descp(irq)->chip->unmask(irq);
-
-	return 0;
+	return rthal_irq_chip_end(irq);
 }
 
 int rthal_irq_host_request(unsigned irq,
-			   irqreturn_t(*handler) (int irq,
-						  void *dev_id,
-						  struct pt_regs *regs),
+			   rthal_irq_host_handler_t handler,
 			   char *name, void *dev_id)
 {
 	if (irq >= IPIPE_NR_XIRQS || !handler)

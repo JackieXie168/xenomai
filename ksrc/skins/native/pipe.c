@@ -893,7 +893,7 @@ ssize_t rt_pipe_stream(RT_PIPE *pipe, const void *buf, size_t size)
  *
  * Rescheduling: possible.
  *
- * @note This service is obsolete, since the streamed data is now
+ * @note This service is deprecated, since the streamed data is now
  * immediately available to the receiving side.
  */
 

@@ -403,5 +403,5 @@ TASK_ID taskNameToId(const char *name)
 
 void taskExit(int code)
 {
-	pthread_exit((void *) code);
+	pthread_exit((void *)(long) code);
 }

@@ -98,8 +98,8 @@
 <a name="l00069"></a>00069 <span class="preprocessor"></span><span class="preprocessor">#define __native_mutex_create       43</span>
 <a name="l00070"></a>00070 <span class="preprocessor"></span><span class="preprocessor">#define __native_mutex_bind         44</span>
 <a name="l00071"></a>00071 <span class="preprocessor"></span><span class="preprocessor">#define __native_mutex_delete       45</span>
-<a name="l00072"></a>00072 <span class="preprocessor"></span><span class="preprocessor">#define __native_mutex_lock         46</span>
-<a name="l00073"></a>00073 <span class="preprocessor"></span><span class="preprocessor">#define __native_mutex_unlock       47</span>
+<a name="l00072"></a>00072 <span class="preprocessor"></span><span class="preprocessor">#define __native_mutex_acquire      46</span>
+<a name="l00073"></a>00073 <span class="preprocessor"></span><span class="preprocessor">#define __native_mutex_release      47</span>
 <a name="l00074"></a>00074 <span class="preprocessor"></span><span class="preprocessor">#define __native_mutex_inquire      48</span>
 <a name="l00075"></a>00075 <span class="preprocessor"></span><span class="preprocessor">#define __native_cond_create        49</span>
 <a name="l00076"></a>00076 <span class="preprocessor"></span><span class="preprocessor">#define __native_cond_bind          50</span>
@@ -141,7 +141,7 @@
 <a name="l00112"></a>00112 <span class="preprocessor"></span><span class="preprocessor">#define __native_pipe_read          86</span>
 <a name="l00113"></a>00113 <span class="preprocessor"></span><span class="preprocessor">#define __native_pipe_write         87</span>
 <a name="l00114"></a>00114 <span class="preprocessor"></span><span class="preprocessor">#define __native_pipe_stream        88</span>
-<a name="l00115"></a>00115 <span class="preprocessor"></span><span class="preprocessor">#define __native_pipe_flush         89</span>
+<a name="l00115"></a>00115 <span class="preprocessor"></span><span class="preprocessor">#define __native_unimp_89           89</span>
 <a name="l00116"></a>00116 <span class="preprocessor"></span><span class="preprocessor">#define __native_misc_get_io_region 90</span>
 <a name="l00117"></a>00117 <span class="preprocessor"></span><span class="preprocessor">#define __native_misc_put_io_region 91</span>
 <a name="l00118"></a>00118 <span class="preprocessor"></span><span class="preprocessor">#define __native_timer_ns2tsc       92</span>
@@ -172,14 +172,10 @@
 <a name="l00143"></a>00143 <span class="preprocessor"></span>}
 <a name="l00144"></a>00144 <span class="preprocessor">#endif</span>
 <a name="l00145"></a>00145 <span class="preprocessor"></span>
-<a name="l00146"></a>00146 <span class="preprocessor">#elif !defined(__XENO_SIM__)</span>
-<a name="l00147"></a>00147 <span class="preprocessor"></span>
-<a name="l00148"></a>00148 <span class="preprocessor">#include &lt;nucleus/bind.h&gt;</span>
-<a name="l00149"></a>00149 
-<a name="l00150"></a>00150 <span class="preprocessor">#endif </span><span class="comment">/* __KERNEL__ */</span>
-<a name="l00151"></a>00151 
-<a name="l00152"></a>00152 <span class="preprocessor">#endif </span><span class="comment">/* _NATIVE_SYSCALL_H */</span>
-</pre></div><hr size="1"><address style="align: right;"><small>Generated on Tue Mar 20 10:02:18 2007 for Xenomai API by&nbsp;
+<a name="l00146"></a>00146 <span class="preprocessor">#endif </span><span class="comment">/* __KERNEL__ */</span>
+<a name="l00147"></a>00147 
+<a name="l00148"></a>00148 <span class="preprocessor">#endif </span><span class="comment">/* _NATIVE_SYSCALL_H */</span>
+</pre></div><hr size="1"><address style="align: right;"><small>Generated on Mon Dec 25 13:57:10 2006 for Xenomai API by&nbsp;
 <a href="http://www.doxygen.org/index.html">
 <img src="doxygen.png" alt="doxygen" align="middle" border="0"></a> 1.4.6 </small></address>
 </body>

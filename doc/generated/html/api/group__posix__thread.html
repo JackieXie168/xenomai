@@ -386,16 +386,16 @@ This service make the POSIX skin thread <em>thread</em> periodic.<p>
 This service is a non-portable extension of the POSIX interface.<p>
 <dl compact><dt><b>Parameters:</b></dt><dd>
   <table border="0" cellspacing="2" cellpadding="0">
-    <tr><td valign="top"></td><td valign="top"><em>thread</em>&nbsp;</td><td>thread identifier;</td></tr>
-    <tr><td valign="top"></td><td valign="top"><em>starttp</em>&nbsp;</td><td>start time, expressed as an absolute value of the CLOCK_REALTIME clock;</td></tr>
+    <tr><td valign="top"></td><td valign="top"><em>thread</em>&nbsp;</td><td>thread identifier. This thread is immediately delayed until the first periodic release point is reached.</td></tr>
+    <tr><td valign="top"></td><td valign="top"><em>starttp</em>&nbsp;</td><td>start time, expressed as an absolute value of the CLOCK_REALTIME clock. The affected thread will be delayed until this point is reached.</td></tr>
     <tr><td valign="top"></td><td valign="top"><em>periodtp</em>&nbsp;</td><td>period, expressed as a time interval.</td></tr>
   </table>
 </dl>
 <dl compact><dt><b>Returns:</b></dt><dd>0 on success; <p>
 an error number if:<ul>
-<li>ESRCH, <em>thread</em> is invalid;</li><li>ETIMEDOUT, the start time has already passed. </li></ul>
+<li>ESRCH, <em>thread</em> is invalid;</li><li>ETIMEDOUT, the start time has already passed.</li></ul>
 </dd></dl>
-    </td>
+Rescheduling: always, until the  start time has been reached.     </td>
   </tr>
 </table>
 <a class="anchor" name="gfb4c3f58a873bfe7f44aa37919437320"></a><!-- doxytag: member="once.c::pthread_once" ref="gfb4c3f58a873bfe7f44aa37919437320" args="(pthread_once_t *once, void(*init_routine)(void))" --><p>
@@ -628,7 +628,7 @@ an error number if:<ul>
     </td>
   </tr>
 </table>
-<hr size="1"><address style="align: right;"><small>Generated on Tue Mar 20 10:02:20 2007 for Xenomai API by&nbsp;
+<hr size="1"><address style="align: right;"><small>Generated on Mon Dec 25 13:57:11 2006 for Xenomai API by&nbsp;
 <a href="http://www.doxygen.org/index.html">
 <img src="doxygen.png" alt="doxygen" align="middle" border="0"></a> 1.4.6 </small></address>
 </body>

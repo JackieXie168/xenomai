@@ -158,15 +158,15 @@ This is a <b>preliminary</b> version of the common interface a RTDM-compliant se
 #define&nbsp;</td><td class="memItemRight" valign="bottom"><b>RTSER_DEF_FIFO_DEPTH</b>&nbsp;&nbsp;&nbsp;RTSER_FIFO_DEPTH_1</td></tr>
 
 <tr><td colspan="2"><br><h2>RTSER_TIMEOUT_xxx</h2></td></tr>
-<tr><td colspan="2"><a class="anchor" name="RTSER_TIMEOUT_xxx"></a> Special timeout values <br><br></td></tr>
+<tr><td colspan="2"><a class="anchor" name="RTSER_TIMEOUT_xxx"></a> Special timeout values, see also <a class="el" href="group__rtdm.html#RTDM_TIMEOUT_xxx">RTDM_TIMEOUT_xxx</a> <br><br></td></tr>
 <tr><td class="memItemLeft" nowrap align="right" valign="top"><a class="anchor" name="gdcc26adaa29fcb10c56c1f7b43727326"></a><!-- doxytag: member="rtserial::RTSER_TIMEOUT_INFINITE" ref="gdcc26adaa29fcb10c56c1f7b43727326" args="" -->
-#define&nbsp;</td><td class="memItemRight" valign="bottom"><b>RTSER_TIMEOUT_INFINITE</b>&nbsp;&nbsp;&nbsp;0</td></tr>
+#define&nbsp;</td><td class="memItemRight" valign="bottom"><b>RTSER_TIMEOUT_INFINITE</b>&nbsp;&nbsp;&nbsp;RTDM_TIMEOUT_INFINITE</td></tr>
 
 <tr><td class="memItemLeft" nowrap align="right" valign="top"><a class="anchor" name="g3c0523dc33c3e9d26ff7c216fe624c1e"></a><!-- doxytag: member="rtserial::RTSER_TIMEOUT_NONE" ref="g3c0523dc33c3e9d26ff7c216fe624c1e" args="" -->
-#define&nbsp;</td><td class="memItemRight" valign="bottom"><b>RTSER_TIMEOUT_NONE</b>&nbsp;&nbsp;&nbsp;(-1)</td></tr>
+#define&nbsp;</td><td class="memItemRight" valign="bottom"><b>RTSER_TIMEOUT_NONE</b>&nbsp;&nbsp;&nbsp;RTDM_TIMEOUT_NONE</td></tr>
 
 <tr><td class="memItemLeft" nowrap align="right" valign="top"><a class="anchor" name="g15fd33716b613a184647954260ca7d9f"></a><!-- doxytag: member="rtserial::RTSER_DEF_TIMEOUT" ref="g15fd33716b613a184647954260ca7d9f" args="" -->
-#define&nbsp;</td><td class="memItemRight" valign="bottom"><b>RTSER_DEF_TIMEOUT</b>&nbsp;&nbsp;&nbsp;RTSER_TIMEOUT_INFINITE</td></tr>
+#define&nbsp;</td><td class="memItemRight" valign="bottom"><b>RTSER_DEF_TIMEOUT</b>&nbsp;&nbsp;&nbsp;RTDM_TIMEOUT_INFINITE</td></tr>
 
 <tr><td colspan="2"><br><h2>RTSER_xxx_TIMESTAMP_HISTORY</h2></td></tr>
 <tr><td colspan="2"><a class="anchor" name="RTSER_xxx_TIMESTAMP_HISTORY"></a> Timestamp history control <br><br></td></tr>
@@ -440,6 +440,7 @@ This service can be called from:<p>
 <ul>
 <li>Kernel module initialization/cleanup code</li><li>Kernel-based task</li><li>User-space task (RT, non-RT)</li></ul>
 <p>
+<dl compact><dt><b>Note:</b></dt><dd>The error states <code>RTSER_LSR_OVERRUN_ERR</code>, <code>RTSER_LSR_PARITY_ERR</code>, <code>RTSER_LSR_FRAMING_ERR</code>, and <code>RTSER_SOFT_OVERRUN_ERR</code> that may have occured during previous read accesses to the device will be saved for being reported via this IOCTL. Upon return from <code>RTSER_RTIOC_GET_STATUS</code>, the saved state will be cleared.</dd></dl>
 Rescheduling: never.     </td>
   </tr>
 </table>
@@ -564,7 +565,7 @@ This service can be called from:<p>
 Rescheduling: possible.     </td>
   </tr>
 </table>
-<hr size="1"><address style="align: right;"><small>Generated on Tue Mar 20 10:02:19 2007 for Xenomai API by&nbsp;
+<hr size="1"><address style="align: right;"><small>Generated on Mon Dec 25 13:57:11 2006 for Xenomai API by&nbsp;
 <a href="http://www.doxygen.org/index.html">
 <img src="doxygen.png" alt="doxygen" align="middle" border="0"></a> 1.4.6 </small></address>
 </body>

@@ -3,7 +3,6 @@ includedir = $(prefix)/include/nucleus
 include_HEADERS = \
 	assert.h \
 	bheap.h \
-	bind.h \
 	compiler.h \
 	core.h \
 	heap.h \
@@ -17,6 +16,7 @@ include_HEADERS = \
 	queue.h \
 	registry.h \
 	shadow.h \
+	stat.h \
 	synch.h \
 	system.h \
 	thread.h \

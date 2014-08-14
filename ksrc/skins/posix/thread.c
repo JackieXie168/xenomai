@@ -429,7 +429,7 @@ int pthread_join(pthread_t thread, void **value_ptr)
 			thread_cancellation_point(cur);
 
 			/* In case another thread called pthread_detach. */
-			if (xnthread_test_flags(cur, PSE51_JOINED_DETACHED)) {
+			if (xnthread_test_info(cur, PSE51_JOINED_DETACHED)) {
 				xnlock_put_irqrestore(&nklock, s);
 				return EINVAL;
 			}
@@ -503,10 +503,12 @@ pthread_t pthread_self(void)
  *
  * This service is a non-portable extension of the POSIX interface.
  *
- * @param thread thread identifier;
+ * @param thread thread identifier. This thread is immediately delayed
+ * until the first periodic release point is reached.
  *
  * @param starttp start time, expressed as an absolute value of the
- * CLOCK_REALTIME clock;
+ * CLOCK_REALTIME clock. The affected thread will be delayed until
+ * this point is reached.
  *
  * @param periodtp period, expressed as a time interval.
  *
@@ -514,6 +516,8 @@ pthread_t pthread_self(void)
  * @return an error number if:
  * - ESRCH, @a thread is invalid;
  * - ETIMEDOUT, the start time has already passed.
+ *
+ * Rescheduling: always, until the @starttp start time has been reached.
  */
 int pthread_make_periodic_np(pthread_t thread,
 			     struct timespec *starttp,
@@ -624,21 +628,21 @@ int pthread_set_mode_np(int clrmask, int setmask)
 	int err;
 
 #if defined(__KERNEL__) && defined(CONFIG_XENO_OPT_PERVASIVE)
-	if (testbits(cur->status, XNSHADOW))
-		valid_flags |= XNTHREAD_SPARE1 | XNSHIELD | XNTRAPSW | XNRPIOFF;
+	if (xnthread_test_state(cur, XNSHADOW))
+		valid_flags |= XNTHREAD_STATE_SPARE1 | XNSHIELD | XNTRAPSW | XNRPIOFF;
 #endif /* __KERNEL__ && CONFIG_XENO_OPT_PERVASIVE */
 
-	/* XNTHREAD_SPARE1 is used for primary mode switch. */
+	/* XNTHREAD_STATE_SPARE1 is used for primary mode switch. */
 
 	if ((clrmask & ~valid_flags) != 0 || (setmask & ~valid_flags) != 0)
 		return EINVAL;
 
 	err = -xnpod_set_thread_mode(cur,
-				     clrmask & ~XNTHREAD_SPARE1,
-				     setmask & ~XNTHREAD_SPARE1);
+				     clrmask & ~XNTHREAD_STATE_SPARE1,
+				     setmask & ~XNTHREAD_STATE_SPARE1);
 
 #if defined(__KERNEL__) && defined(CONFIG_XENO_OPT_PERVASIVE)
-	if (testbits(cur->status, XNSHADOW) && (clrmask & XNTHREAD_SPARE1) != 0)
+	if (xnthread_test_state(cur, XNSHADOW) && (clrmask & XNTHREAD_STATE_SPARE1) != 0)
 		xnshadow_relax(0);
 #endif /* __KERNEL__ && CONFIG_XENO_OPT_PERVASIVE */
 
@@ -708,9 +712,9 @@ void pse51_threadq_cleanup(pse51_kqueues_t *q)
 			/* Remaining TCB (joinable thread, which was never joined). */
 			thread_destroy(thread);
 		xnlock_put_irqrestore(&nklock, s);
-#ifdef CONFIG_XENO_OPT_DEBUG
+#if XENO_DEBUG(POSIX)
 		xnprintf("POSIX: destroyed thread %p\n", thread);
-#endif /* CONFIG_XENO_OPT_DEBUG */
+#endif /* XENO_DEBUG(POSIX) */
 		xnlock_get_irqsave(&nklock, s);
 	}
 
@@ -739,6 +743,5 @@ EXPORT_SYMBOL(pthread_equal);
 EXPORT_SYMBOL(pthread_exit);
 EXPORT_SYMBOL(pthread_join);
 EXPORT_SYMBOL(pthread_self);
-EXPORT_SYMBOL(sched_yield);
 EXPORT_SYMBOL(pthread_make_periodic_np);
 EXPORT_SYMBOL(pthread_wait_np);

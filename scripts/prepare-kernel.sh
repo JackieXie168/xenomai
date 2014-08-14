@@ -132,16 +132,25 @@ patch_link() {
 patch_help() {
     if which perl > /dev/null; then
 	hfile=$linux_tree/Documentation/Configure.help
-	if ! grep -iq CONFIG_XENO $hfile; then
-	    kfiles=$xenomai_root/scripts/Kconfig.frag
-	    for d in ksrc/nucleus ksrc/skins ksrc/arch/$xenomai_arch \
-		ksrc/drivers sim; do
-		kfiles="$kfiles `find $xenomai_root/$d -name Kconfig`"
-	    done
-	    perl $xenomai_root/scripts/help_from_kconfig.pl $kfiles >> $hfile
-	    if test x$verbose = x1; then
-		echo 'Configuration help added.'
-	    fi
+	if grep -iq "XENOMAI PARAMETERS" $hfile; then
+	    tmp=$hfile.tmp
+	    sed -n -e \
+		'/# BEGIN XENOMAI PARAMETERS/,/# END XENOMAI PARAMETERS/!p' \
+		$hfile > $tmp
+	    mv $tmp $hfile
+	    msg="updated"
+	else
+	    msg="added"
+	fi
+	kfiles=$xenomai_root/scripts/Kconfig.frag
+	for d in nucleus skins arch/$xenomai_arch drivers; do
+	  kfiles="$kfiles `find $xenomai_root/ksrc/$d -name Kconfig`"
+	done
+	echo "# BEGIN XENOMAI PARAMETERS" >> $hfile
+	perl $xenomai_root/scripts/help_from_kconfig.pl $kfiles >> $hfile
+	echo "# END XENOMAI PARAMETERS" >> $hfile
+	if test x$verbose = x1; then
+	    echo "Configuration help $msg."
 	fi
     fi
 }
@@ -276,12 +285,16 @@ while : ; do
       linux_arch=i386
       xenomai_arch=i386
       ;;
-   ppc|ppc32|powerpc)
+   ppc|ppc32)
       linux_arch=ppc
       xenomai_arch=powerpc
       ;;
    ppc64|powerpc64)
       linux_arch=ppc64
+      xenomai_arch=powerpc
+      ;;
+   powerpc)
+      linux_arch=powerpc
       xenomai_arch=powerpc
       ;;
    ia64)
@@ -305,13 +318,6 @@ while : ; do
       break
    fi
 done
-
-# Some kernel versions have merged 32/64 bit powperpc trees:
-# canonicalize if needed.
-
-if test "$xenomai_arch" = powerpc -a -d $linux_tree/arch/powerpc; then
-   linux_arch=powerpc
-fi
 
 # Post-2005R3 RC3 blackfin kernels use "blackfin" instead of
 # "bfinnommu": canonicalize if needed.
@@ -540,7 +546,6 @@ patch_link r n include/asm-$xenomai_arch include/asm-$linux_arch/xenomai
 patch_architecture_specific="n"
 patch_link r n include/asm-generic include/asm-generic/xenomai
 patch_link n n include include/xenomai
-patch_link n n include/asm-uvm include/xenomai/asm-uvm
 cd $xenomai_root
 for d in include/* ; do
     if test -d $d -a -z "`echo $d | grep '^include/asm-'`"; then

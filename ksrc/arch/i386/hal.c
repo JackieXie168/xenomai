@@ -42,7 +42,6 @@
 #include <linux/slab.h>
 #include <linux/errno.h>
 #include <linux/module.h>
-#include <linux/interrupt.h>
 #include <linux/console.h>
 #include <asm/system.h>
 #include <asm/hardirq.h>
@@ -61,6 +60,16 @@
 #endif /* CONFIG_X86_LOCAL_APIC */
 #include <asm/xenomai/hal.h>
 #include <stdarg.h>
+
+#if LINUX_VERSION_CODE < KERNEL_VERSION(2,6,0) && !defined(CONFIG_X86_TSC) && defined(CONFIG_VT)
+#include <linux/vt_kern.h>
+
+static void (*old_mksound)(unsigned int hz, unsigned int ticks);
+
+static void dummy_mksound (unsigned int hz, unsigned int ticks)
+{
+}
+#endif /* Linux < 2.6 && !CONFIG_X86_TSC && CONFIG_VT */
 
 extern struct desc_struct idt_table[];
 
@@ -135,8 +144,13 @@ static void rthal_critical_sync(void)
     }
 }
 
+#if LINUX_VERSION_CODE < KERNEL_VERSION(2,6,19)
 irqreturn_t rthal_broadcast_to_local_timers(int irq,
                                             void *dev_id, struct pt_regs *regs)
+#else /* >= 2.6.19 */
+irqreturn_t rthal_broadcast_to_local_timers(int irq,
+                                            void *dev_id)
+#endif
 {
     unsigned long flags;
 
@@ -182,6 +196,9 @@ unsigned long rthal_timer_calibrate(void)
 #ifdef CONFIG_XENO_HW_NMI_DEBUG_LATENCY
 
 #if LINUX_VERSION_CODE < KERNEL_VERSION(2,6,0)
+
+#include <linux/vt_kern.h>
+
 extern void show_registers(struct pt_regs *regs);
 
 extern spinlock_t nmi_print_lock;
@@ -202,6 +219,7 @@ void die_nmi(struct pt_regs *regs, const char *msg)
     bust_spinlocks(0);
     do_exit(SIGSEGV);
 }
+
 #else /* Linux >= 2.6 */
 #include <asm/nmi.h>
 #endif /* Linux < 2.6 */
@@ -444,9 +462,7 @@ rthal_time_t rthal_get_8254_tsc(void)
 #endif /* !CONFIG_X86_TSC */
 
 int rthal_irq_host_request(unsigned irq,
-                           irqreturn_t(*handler) (int irq,
-                                                  void *dev_id,
-                                                  struct pt_regs *regs),
+                           rthal_irq_host_handler_t handler,
                            char *name, void *dev_id)
 {
     unsigned long flags;
@@ -490,14 +506,9 @@ int rthal_irq_enable(unsigned irq)
     if (irq >= NR_IRQS)
         return -EINVAL;
 
-    if (rthal_irq_descp(irq)->handler == NULL ||
-        rthal_irq_descp(irq)->handler->enable == NULL)
-        return -ENODEV;
+    rthal_irq_desc_status(irq) &= ~IRQ_DISABLED;
 
-    rthal_irq_descp(irq)->status &= ~IRQ_DISABLED;
-    rthal_irq_descp(irq)->handler->enable(irq);
-
-    return 0;
+    return rthal_irq_chip_enable(irq);
 }
 
 int rthal_irq_disable(unsigned irq)
@@ -506,14 +517,9 @@ int rthal_irq_disable(unsigned irq)
     if (irq >= NR_IRQS)
         return -EINVAL;
 
-    if (rthal_irq_descp(irq)->handler == NULL ||
-        rthal_irq_descp(irq)->handler->disable == NULL)
-        return -ENODEV;
+    rthal_irq_desc_status(irq) |= IRQ_DISABLED;
 
-    rthal_irq_descp(irq)->handler->disable(irq);
-    rthal_irq_descp(irq)->status |= IRQ_DISABLED;
-
-    return 0;
+    return rthal_irq_chip_disable(irq);
 }
 
 int rthal_irq_end(unsigned irq)
@@ -521,13 +527,7 @@ int rthal_irq_end(unsigned irq)
     if (irq >= NR_IRQS)
         return -EINVAL;
 
-    if (rthal_irq_descp(irq)->handler == NULL ||
-        rthal_irq_descp(irq)->handler->enable == NULL)
-        return -ENODEV;
-
-    rthal_irq_descp(irq)->handler->enable(irq);
-
-    return 0;
+    return rthal_irq_chip_end(irq);
 }
 
 static inline int do_exception_event(unsigned event, unsigned domid, void *data)
@@ -593,7 +593,13 @@ int rthal_arch_init(void)
         rthal_smi_restore();
         return -ENODEV;
     }
-#endif /* CONFIG_X86_LOCAL_APIC */
+#elif LINUX_VERSION_CODE < KERNEL_VERSION(2,6,0) && !defined(CONFIG_X86_TSC) && defined(CONFIG_VT)
+    /* Prevent the speaker code from bugging our TSC emulation, also
+       based on PIT channel 2. kd_mksound is exported by the Adeos
+       patch. */
+    old_mksound = kd_mksound;
+    kd_mksound = &dummy_mksound;
+#endif /* !CONFIG_X86_LOCAL_APIC && Linux < 2.6 && !CONFIG_X86_TSC && CONFIG_VT */
 
     if (rthal_cpufreq_arg == 0)
 #ifdef CONFIG_X86_TSC
@@ -617,6 +623,10 @@ int rthal_arch_init(void)
 
 void rthal_arch_cleanup(void)
 {
+#if LINUX_VERSION_CODE < KERNEL_VERSION(2,6,0) && !defined(CONFIG_X86_TSC) && defined(CONFIG_VT)
+    /* Restore previous PC speaker code. */
+    kd_mksound = old_mksound;
+#endif /* Linux < 2.6 && !CONFIG_X86_TSC && CONFIG_VT */
     printk(KERN_INFO "Xenomai: hal/x86 stopped.\n");
 }
 

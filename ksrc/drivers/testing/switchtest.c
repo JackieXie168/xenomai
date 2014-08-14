@@ -52,10 +52,10 @@ static int rtswitch_pend_rt(rtswitch_context_t *ctx,
 
 	xnsynch_sleep_on(&task->rt_synch, XN_INFINITE);
 
-	if (xnthread_test_flags(xnpod_current_thread(), XNBREAK))
+	if (xnthread_test_info(xnpod_current_thread(), XNBREAK))
 		return -EINTR;
 
-	if (xnthread_test_flags(xnpod_current_thread(), XNRMID))
+	if (xnthread_test_info(xnpod_current_thread(), XNRMID))
 		return -EIDRM;
 
 	if (ctx->failed)
@@ -103,10 +103,10 @@ static int rtswitch_to_rt(rtswitch_context_t *ctx,
 
 	xnlock_put_irqrestore(&nklock, s);
 
-	if (xnthread_test_flags(xnpod_current_thread(), XNBREAK))
+	if (xnthread_test_info(xnpod_current_thread(), XNBREAK))
 		return -EINTR;
 
-	if (xnthread_test_flags(xnpod_current_thread(), XNRMID))
+	if (xnthread_test_info(xnpod_current_thread(), XNRMID))
 		return -EIDRM;
 
 	if (ctx->failed)
@@ -355,9 +355,6 @@ static int rtswitch_open(struct rtdm_dev_context *context,
 {
 	rtswitch_context_t *ctx = (rtswitch_context_t *) context->dev_private;
 
-	if (!try_module_get(THIS_MODULE))
-		return -ENODEV;
-	
 	ctx->tasks = NULL;
 	ctx->tasks_count = ctx->next_index = ctx->cpu = ctx->switches_count = 0;
 	init_MUTEX(&ctx->lock);
@@ -387,7 +384,6 @@ static int rtswitch_close(struct rtdm_dev_context *context,
 		kfree(ctx->tasks);
 	}
 
-	module_put(THIS_MODULE);
 	return 0;
 }
 

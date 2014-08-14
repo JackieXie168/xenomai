@@ -71,25 +71,23 @@
 <a name="l00042"></a>00042 <span class="preprocessor"></span><span class="keyword">extern</span> <span class="stringliteral">"C"</span> {
 <a name="l00043"></a>00043 <span class="preprocessor">#endif</span>
 <a name="l00044"></a>00044 <span class="preprocessor"></span>
-<a name="l00045"></a>00045 
-<a name="l00046"></a>00046 <span class="keyword">extern</span> <span class="keywordtype">int</span> __rtdm_muxid;
-<a name="l00047"></a>00047 
+<a name="l00045"></a>00045 <span class="keyword">extern</span> <span class="keywordtype">int</span> __rtdm_muxid;
+<a name="l00046"></a>00046 
+<a name="l00047"></a>00047 <span class="keywordtype">int</span> __init rtdm_syscall_init(<span class="keywordtype">void</span>);
 <a name="l00048"></a>00048 
-<a name="l00049"></a>00049 <span class="keywordtype">int</span> __init rtdm_syscall_init(<span class="keywordtype">void</span>);
-<a name="l00050"></a>00050 
-<a name="l00051"></a>00051 <span class="keyword">static</span> <span class="keyword">inline</span> <span class="keywordtype">void</span> rtdm_syscall_cleanup(<span class="keywordtype">void</span>)
-<a name="l00052"></a>00052 {
-<a name="l00053"></a>00053     xnshadow_unregister_interface(__rtdm_muxid);
-<a name="l00054"></a>00054 }
-<a name="l00055"></a>00055 
-<a name="l00056"></a>00056 <span class="preprocessor">#ifdef __cplusplus</span>
-<a name="l00057"></a>00057 <span class="preprocessor"></span>}
-<a name="l00058"></a>00058 <span class="preprocessor">#endif</span>
-<a name="l00059"></a>00059 <span class="preprocessor"></span>
-<a name="l00060"></a>00060 <span class="preprocessor">#endif </span><span class="comment">/* __KERNEL__ */</span>
-<a name="l00061"></a>00061 
-<a name="l00062"></a>00062 <span class="preprocessor">#endif </span><span class="comment">/* _RTDM_SYSCALL_H */</span>
-</pre></div><hr size="1"><address style="align: right;"><small>Generated on Tue Mar 20 10:02:18 2007 for Xenomai API by&nbsp;
+<a name="l00049"></a>00049 <span class="keyword">static</span> <span class="keyword">inline</span> <span class="keywordtype">void</span> rtdm_syscall_cleanup(<span class="keywordtype">void</span>)
+<a name="l00050"></a>00050 {
+<a name="l00051"></a>00051     xnshadow_unregister_interface(__rtdm_muxid);
+<a name="l00052"></a>00052 }
+<a name="l00053"></a>00053 
+<a name="l00054"></a>00054 <span class="preprocessor">#ifdef __cplusplus</span>
+<a name="l00055"></a>00055 <span class="preprocessor"></span>}
+<a name="l00056"></a>00056 <span class="preprocessor">#endif</span>
+<a name="l00057"></a>00057 <span class="preprocessor"></span>
+<a name="l00058"></a>00058 <span class="preprocessor">#endif </span><span class="comment">/* __KERNEL__ */</span>
+<a name="l00059"></a>00059 
+<a name="l00060"></a>00060 <span class="preprocessor">#endif </span><span class="comment">/* _RTDM_SYSCALL_H */</span>
+</pre></div><hr size="1"><address style="align: right;"><small>Generated on Mon Dec 25 13:57:10 2006 for Xenomai API by&nbsp;
 <a href="http://www.doxygen.org/index.html">
 <img src="doxygen.png" alt="doxygen" align="middle" border="0"></a> 1.4.6 </small></address>
 </body>

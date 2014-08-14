@@ -25,11 +25,11 @@
 
 #include <asm-generic/xenomai/syscall.h>
 
-#define __xn_mux_code(id,op)        ((op << 24)|((id << 16) & 0xff0000)|(__xn_sys_mux & 0xffff))
+#define __xn_mux_code(shifted_id,op) ((op << 24)|shifted_id|(__xn_sys_mux & 0xffff))
+#define __xn_mux_shifted_id(id) ((id << 16) & 0xff0000)
 
 #ifdef __KERNEL__
 
-#include <linux/config.h>
 #include <linux/errno.h>
 #include <asm/uaccess.h>
 #include <asm/ptrace.h>
@@ -67,24 +67,24 @@
 
 static inline void __xn_success_return(struct pt_regs *regs, int v)
 {
-    __xn_reg_rval(regs) = v;
+	__xn_reg_rval(regs) = v;
 }
 
 static inline void __xn_error_return(struct pt_regs *regs, int v)
 {
-    /* We currently never set the SO bit for marking errors, even if
-     * we always test it upon syscall return. */
-    __xn_reg_rval(regs) = v;
+	/* We currently never set the SO bit for marking errors, even if
+	 * we always test it upon syscall return. */
+	__xn_reg_rval(regs) = v;
 }
 
 static inline void __xn_status_return(struct pt_regs *regs, int v)
 {
-    __xn_reg_rval(regs) = v;
+	__xn_reg_rval(regs) = v;
 }
 
 static inline int __xn_interrupted_p(struct pt_regs *regs)
 {
-    return __xn_reg_rval(regs) == -EINTR;
+	return __xn_reg_rval(regs) == -EINTR;
 }
 
 #else /* !__KERNEL__ */
@@ -103,7 +103,7 @@ static inline int __xn_interrupted_p(struct pt_regs *regs)
 #define LOADARGS_1(muxcode, arg1)				\
 	LOADARGS_0(muxcode);					\
 	__sc_3 = (unsigned long) (arg1)
-#define LOADARGS_2(muxcode, arg1, arg2)				\
+#define LOADARGS_2(muxcode, arg1, arg2)			\
 	LOADARGS_1(muxcode, arg1);				\
 	__sc_4 = (unsigned long) (arg2)
 #define LOADARGS_3(muxcode, arg1, arg2, arg3)			\
@@ -123,7 +123,7 @@ static inline int __xn_interrupted_p(struct pt_regs *regs)
 #define ASM_INPUT_4 ASM_INPUT_3, "4" (__sc_6)
 #define ASM_INPUT_5 ASM_INPUT_4, "5" (__sc_7)
 
-#define XENOMAI_DO_SYSCALL(nr, id, op, args...)			\
+#define XENOMAI_DO_SYSCALL(nr, shifted_id, op, args...)	\
   ({								\
 	register unsigned long __sc_0  __asm__ ("r0");		\
 	register unsigned long __sc_3  __asm__ ("r3");		\
@@ -132,7 +132,7 @@ static inline int __xn_interrupted_p(struct pt_regs *regs)
 	register unsigned long __sc_6  __asm__ ("r6");		\
 	register unsigned long __sc_7  __asm__ ("r7");		\
 								\
-	LOADARGS_##nr(__xn_mux_code(id,op), args);		\
+	LOADARGS_##nr(__xn_mux_code(shifted_id,op), args);	\
 	__asm__ __volatile__					\
 		("sc           \n\t"				\
 		 "mfcr %0      "				\
@@ -163,31 +163,29 @@ static inline int __xn_interrupted_p(struct pt_regs *regs)
 
 #define CONFIG_XENO_HW_DIRECT_TSC 1
 
-static inline unsigned long long __xn_rdtsc (void)
+static inline unsigned long long __xn_rdtsc(void)
 #if defined(__powerpc64__)
 {
-	    unsigned long long t;
-
-	        __asm__ __volatile__ ("mftb %0\n" : "=r" (t));
-		    return t;
-}
-#else /* !__powerpc64__ */
-{
-    union {
 	unsigned long long t;
-	unsigned long v[2];
-    } u;
-    unsigned long __tbu;
 
-    __asm__ __volatile__ ("1: mftbu %0\n"
-			  "mftb %1\n"
-			  "mftbu %2\n"
-			  "cmpw %2,%0\n"
-			  "bne- 1b\n"
-			  :"=r" (u.v[0]),
-			  "=r" (u.v[1]),
-			  "=r" (__tbu));
-    return u.t;
+	__asm__ __volatile__("mftb %0\n":"=r"(t));
+	return t;
+}
+#else				/* !__powerpc64__ */
+{
+	union {
+		unsigned long long t;
+		unsigned long v[2];
+	} u;
+	unsigned long __tbu;
+
+	__asm__ __volatile__("1: mftbu %0\n"
+			     "mftb %1\n"
+			     "mftbu %2\n"
+			     "cmpw %2,%0\n"
+			     "bne- 1b\n":"=r"(u.v[0]),
+			     "=r"(u.v[1]), "=r"(__tbu));
+	return u.t;
 }
 #endif /* __powerpc64__ */
 

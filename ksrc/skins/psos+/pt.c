@@ -45,8 +45,6 @@ u_long pt_create(char name[4], void *paddr, void *laddr,	/* unused */
 	u_long n;
 	spl_t s;
 
-	xnpod_check_context(XNPOD_THREAD_CONTEXT);
-
 	if ((u_long)paddr & (sizeof(u_long) - 1))
 		return ERR_PTADDR;
 
@@ -111,8 +109,6 @@ u_long pt_delete(u_long ptid)
 	u_long err = SUCCESS;
 	psospt_t *pt;
 	spl_t s;
-
-	xnpod_check_context(XNPOD_THREAD_CONTEXT);
 
 	xnlock_get_irqsave(&nklock, s);
 
@@ -217,8 +213,6 @@ u_long pt_ident(char name[4], u_long node, u_long *ptid)
 	xnholder_t *holder;
 	psospt_t *pt;
 	spl_t s;
-
-	xnpod_check_context(XNPOD_THREAD_CONTEXT);
 
 	if (node > 1)
 		return ERR_NODENO;

@@ -71,7 +71,7 @@
 <a name="l00042"></a>00042 <span class="comment"> * requests ranging from the maximum page size to twice this size.</span>
 <a name="l00043"></a>00043 <span class="comment"> */</span>
 <a name="l00044"></a>00044 
-<a name="l00045"></a>00045 <span class="preprocessor">#if defined(__KERNEL__) || defined(__XENO_UVM__) || defined(__XENO_SIM__)</span>
+<a name="l00045"></a>00045 <span class="preprocessor">#if defined(__KERNEL__) || defined(__XENO_SIM__)</span>
 <a name="l00046"></a>00046 <span class="preprocessor"></span>
 <a name="l00047"></a>00047 <span class="preprocessor">#define XNHEAP_MINLOG2    3</span>
 <a name="l00048"></a>00048 <span class="preprocessor"></span><span class="preprocessor">#define XNHEAP_MAXLOG2    22</span>
@@ -86,47 +86,47 @@
 <a name="l00057"></a>00057 <span class="preprocessor"></span>
 <a name="l00058"></a>00058 <span class="keyword">typedef</span> <span class="keyword">struct </span>xnextent {
 <a name="l00059"></a>00059 
-<a name="l00060"></a>00060     xnholder_t link;
+<a name="l00060"></a>00060         xnholder_t link;
 <a name="l00061"></a>00061 
 <a name="l00062"></a>00062 <span class="preprocessor">#define link2extent(laddr) \</span>
 <a name="l00063"></a>00063 <span class="preprocessor">((xnextent_t *)(((char *)laddr) - (int)(&amp;((xnextent_t *)0)-&gt;link)))</span>
 <a name="l00064"></a>00064 <span class="preprocessor"></span>
-<a name="l00065"></a>00065     caddr_t membase,    <span class="comment">/* Base address of the page array */</span>
-<a name="l00066"></a>00066             memlim,     <span class="comment">/* Memory limit of page array */</span>
-<a name="l00067"></a>00067             freelist;   <span class="comment">/* Head of the free page list */</span>
+<a name="l00065"></a>00065         caddr_t membase,        <span class="comment">/* Base address of the page array */</span>
+<a name="l00066"></a>00066                 memlim,         <span class="comment">/* Memory limit of page array */</span>
+<a name="l00067"></a>00067                 freelist;       <span class="comment">/* Head of the free page list */</span>
 <a name="l00068"></a>00068 
-<a name="l00069"></a>00069     u_char pagemap[1];  <span class="comment">/* Beginning of page map */</span>
+<a name="l00069"></a>00069         u_char pagemap[1];      <span class="comment">/* Beginning of page map */</span>
 <a name="l00070"></a>00070 
 <a name="l00071"></a>00071 } xnextent_t;
 <a name="l00072"></a>00072 
 <a name="l00073"></a>00073 <span class="keyword">typedef</span> <span class="keyword">struct </span>xnheap {
 <a name="l00074"></a>00074 
-<a name="l00075"></a>00075     xnholder_t link;
+<a name="l00075"></a>00075         xnholder_t link;
 <a name="l00076"></a>00076 
 <a name="l00077"></a>00077 <span class="preprocessor">#define link2heap(laddr) \</span>
 <a name="l00078"></a>00078 <span class="preprocessor">((xnheap_t *)(((char *)laddr) - (int)(&amp;((xnheap_t *)0)-&gt;link)))</span>
 <a name="l00079"></a>00079 <span class="preprocessor"></span>
-<a name="l00080"></a>00080     u_long extentsize,
-<a name="l00081"></a>00081            pagesize,
-<a name="l00082"></a>00082            pageshift,
-<a name="l00083"></a>00083            hdrsize,
-<a name="l00084"></a>00084            npages,      <span class="comment">/* Number of pages per extent */</span>
-<a name="l00085"></a>00085            ubytes,
-<a name="l00086"></a>00086            maxcont;
+<a name="l00080"></a>00080         u_long extentsize,
+<a name="l00081"></a>00081                 pagesize,
+<a name="l00082"></a>00082                 pageshift,
+<a name="l00083"></a>00083                 hdrsize,
+<a name="l00084"></a>00084                 npages,         <span class="comment">/* Number of pages per extent */</span>
+<a name="l00085"></a>00085                 ubytes,
+<a name="l00086"></a>00086                 maxcont;
 <a name="l00087"></a>00087 
-<a name="l00088"></a>00088     xnqueue_t extents;
+<a name="l00088"></a>00088         xnqueue_t extents;
 <a name="l00089"></a>00089 
 <a name="l00090"></a>00090 <span class="preprocessor">#ifdef CONFIG_SMP</span>
-<a name="l00091"></a>00091 <span class="preprocessor"></span>    xnlock_t lock;
+<a name="l00091"></a>00091 <span class="preprocessor"></span>        xnlock_t lock;
 <a name="l00092"></a>00092 <span class="preprocessor">#endif </span><span class="comment">/* CONFIG_SMP */</span>
 <a name="l00093"></a>00093 
-<a name="l00094"></a>00094     caddr_t buckets[XNHEAP_NBUCKETS];
+<a name="l00094"></a>00094         caddr_t buckets[XNHEAP_NBUCKETS];
 <a name="l00095"></a>00095 
-<a name="l00096"></a>00096     xnholder_t *idleq;
+<a name="l00096"></a>00096         xnholder_t *idleq;
 <a name="l00097"></a>00097 
-<a name="l00098"></a>00098     xnarch_heapcb_t archdep;
+<a name="l00098"></a>00098         xnarch_heapcb_t archdep;
 <a name="l00099"></a>00099 
-<a name="l00100"></a>00100     XNARCH_DECL_DISPLAY_CONTEXT();
+<a name="l00100"></a>00100         XNARCH_DECL_DISPLAY_CONTEXT();
 <a name="l00101"></a>00101 
 <a name="l00102"></a>00102 } xnheap_t;
 <a name="l00103"></a>00103 
@@ -158,7 +158,7 @@
 <a name="l00129"></a>00129 <span class="keyword">static</span> <span class="keyword">inline</span> size_t xnheap_rounded_size (size_t hsize, size_t psize)
 <a name="l00130"></a>00130 {
 <a name="l00131"></a>00131         <span class="comment">/* Account for the overhead so that the actual heap space is</span>
-<a name="l00132"></a>00132 <span class="comment">           large enough to match the requested size. Using a large</span>
+<a name="l00132"></a>00132 <span class="comment">           large enough to match the requested size. Using a small</span>
 <a name="l00133"></a>00133 <span class="comment">           page size for large single-block heaps might reserve a lot</span>
 <a name="l00134"></a>00134 <span class="comment">           of useless page map memory, but this should never get</span>
 <a name="l00135"></a>00135 <span class="comment">           pathological anyway, since we are only consuming 1 byte per</span>
@@ -245,12 +245,12 @@
 <a name="l00216"></a>00216 <span class="preprocessor"></span>}
 <a name="l00217"></a>00217 <span class="preprocessor">#endif</span>
 <a name="l00218"></a>00218 <span class="preprocessor"></span>
-<a name="l00219"></a>00219 <span class="preprocessor">#endif </span><span class="comment">/* __KERNEL__ || __XENO_UVM__ || __XENO_SIM__ */</span>
+<a name="l00219"></a>00219 <span class="preprocessor">#endif </span><span class="comment">/* __KERNEL__ || __XENO_SIM__ */</span>
 <a name="l00220"></a>00220 
 <a name="l00221"></a>00221 <span class="preprocessor">#define XNHEAP_DEV_NAME  "/dev/rtheap"</span>
 <a name="l00222"></a>00222 <span class="preprocessor"></span>
 <a name="l00223"></a>00223 <span class="preprocessor">#endif </span><span class="comment">/* !_XENO_NUCLEUS_HEAP_H */</span>
-</pre></div><hr size="1"><address style="align: right;"><small>Generated on Tue Mar 20 10:02:18 2007 for Xenomai API by&nbsp;
+</pre></div><hr size="1"><address style="align: right;"><small>Generated on Mon Dec 25 13:57:10 2006 for Xenomai API by&nbsp;
 <a href="http://www.doxygen.org/index.html">
 <img src="doxygen.png" alt="doxygen" align="middle" border="0"></a> 1.4.6 </small></address>
 </body>

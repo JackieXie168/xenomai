@@ -1,7 +1,12 @@
 #! /bin/sh
-# Adapted to be run also under the BusyBox. If you want to test it under the BusyBox use
-# busybox sh xeno-test 
-# A BusyBox >= 1.1.3 with a make defconfig should provide all needed applets.
+
+# Adapted to be run also under the BusyBox. 
+# If you want to test it this way, do: sh xeno-test
+# BusyBox >= 1.1.3 with a make defconfig should provide all needed applets.
+
+prefix="@prefix@"
+pkgdatadir="@exec_prefix@/share/xenomai"
+
 myusage() {
     cat >&1 <<EOF
 xeno-test [options]
@@ -55,8 +60,8 @@ pidFile=/var/lock/`basename $0.$$`.pids
 
 checkUtilities() {
   # Check for needed helper utilities
-  local neededApplets="awk basename cut date dd dirname egrep grep getopt
-		       head kill md5sum mount sleep test top uname zcat"
+  local neededApplets="awk basename cut date dd dirname egrep grep head
+		       kill md5sum mount sleep test top uname zcat"
   local foundAll=1
   for  _j in $neededApplets
   do
@@ -65,6 +70,10 @@ checkUtilities() {
       foundAll=0
     fi
   done
+  if ! type getopts 2>&1 >/dev/null; then
+    echo "Please build busybox's ash with support for getopts"
+    foundAll=0
+  fi
   if test $foundAll -eq 0 ; then exit 3 ; fi
 }
 
@@ -189,17 +198,31 @@ run_w_load() {
     loudly generate_loads $workload
     boxstatus
     (
-        cd `dirname $0`/../testsuite/latency
-	loudly ./run --  $opts -t0
-	loudly ./run --  $opts -t1
-	loudly ./run --  $opts -t2
+        cd $pkgdatadir/testsuite/latency
+	loudly ./run -- $XENOT_LATENCY $opts -t0 '# latency'
+	loudly ./run -- $XENOT_LATENCY $opts -t1 '# latency'
+	loudly ./run -- $XENOT_LATENCY $opts -t2 '# latency'
     )
-    (	cd `dirname $0`/../testsuite/switchbench
-	loudly ./run --  '# switchbench'
+    (	cd $pkgdatadir/testsuite/switchtest
+	loudly ./run -- -T 120 $XENOT_SWITCHTEST '# switchtest'
     )
-    (	cd `dirname $0`/../testsuite/cyclic
-	loudly ./run -- -p 10 -n -l 1000 '# cyclictest'
+    (	cd $pkgdatadir/testsuite/switchbench
+	loudly ./run -- -h $XENOT_SWITCHBENCH '# switchbench'
     )
+    (	cd $pkgdatadir/testsuite/cyclic
+	loudly ./run -- -p 10 -n -l 1000 $XENOT_CYCLIC '# cyclictest'
+    )
+
+    if [ "$XENOT_IRQBENCH" != "" ] ; then
+	(
+	    cd $pkgdatadir/testsuite/irqbench
+	    loudly ./run -- -P 10 $XENOT_IRQBENCH -t0 '# irqbench user'
+	    loudly ./run -- -P 10 $XENOT_IRQBENCH -t1 '# irqbench kernel'
+	    loudly ./run -- -P 10 $XENOT_IRQBENCH -t2 '# irqbench irq-handler'
+	    loudly ./run -- -P 10 $XENOT_IRQBENCH -t3 '# irqbench hard-irq-handler'
+	)
+    fi
+
     boxstatus
     cleanup_load
 }

@@ -78,7 +78,7 @@ You should have received a copy of the GNU General Public License along with thi
 <tr><td class="memItemLeft" nowrap align="right" valign="top">int&nbsp;</td><td class="memItemRight" valign="bottom"><a class="el" href="group__task.html#g770281eeca009c0a08a7c4a9fd849ac1">rt_task_unblock</a> (RT_TASK *task)</td></tr>
 
 <tr><td class="mdescLeft">&nbsp;</td><td class="mdescRight">Unblock a real-time task.  <a href="group__task.html#g770281eeca009c0a08a7c4a9fd849ac1"></a><br></td></tr>
-<tr><td class="memItemLeft" nowrap align="right" valign="top">int&nbsp;</td><td class="memItemRight" valign="bottom"><a class="el" href="group__task.html#g53bad6acf5496f8008e594954507dce8">rt_task_inquire</a> (RT_TASK *task, RT_TASK_INFO *info)</td></tr>
+<tr><td class="memItemLeft" nowrap align="right" valign="top">int&nbsp;</td><td class="memItemRight" valign="bottom"><a class="el" href="group__task.html#g53bad6acf5496f8008e594954507dce8">rt_task_inquire</a> (RT_TASK *task, <a class="el" href="structrt__task__info.html">RT_TASK_INFO</a> *info)</td></tr>
 
 <tr><td class="mdescLeft">&nbsp;</td><td class="mdescRight">Inquire about a real-time task.  <a href="group__task.html#g53bad6acf5496f8008e594954507dce8"></a><br></td></tr>
 <tr><td class="memItemLeft" nowrap align="right" valign="top">int&nbsp;</td><td class="memItemRight" valign="bottom"><a class="el" href="group__task.html#g7452f367f9e17bf2fc0b70f717b96dd8">rt_task_add_hook</a> (int type, void(*routine)(void *cookie))</td></tr>
@@ -102,17 +102,17 @@ You should have received a copy of the GNU General Public License along with thi
 <tr><td class="memItemLeft" nowrap align="right" valign="top">int&nbsp;</td><td class="memItemRight" valign="bottom"><a class="el" href="group__task.html#g9250436d7bd9e49a0320161d2e9373ae">rt_task_slice</a> (RT_TASK *task, RTIME quantum)</td></tr>
 
 <tr><td class="mdescLeft">&nbsp;</td><td class="mdescRight">Set a task's round-robin quantum.  <a href="group__task.html#g9250436d7bd9e49a0320161d2e9373ae"></a><br></td></tr>
-<tr><td class="memItemLeft" nowrap align="right" valign="top">ssize_t&nbsp;</td><td class="memItemRight" valign="bottom"><a class="el" href="group__task.html#g99a89c21c9866e2784860e100a444b49">rt_task_send</a> (RT_TASK *task, RT_TASK_MCB *mcb_s, RT_TASK_MCB *mcb_r, RTIME timeout)</td></tr>
+<tr><td class="memItemLeft" nowrap align="right" valign="top">ssize_t&nbsp;</td><td class="memItemRight" valign="bottom"><a class="el" href="group__task.html#g99a89c21c9866e2784860e100a444b49">rt_task_send</a> (RT_TASK *task, <a class="el" href="structrt__task__mcb.html">RT_TASK_MCB</a> *mcb_s, <a class="el" href="structrt__task__mcb.html">RT_TASK_MCB</a> *mcb_r, RTIME timeout)</td></tr>
 
 <tr><td class="mdescLeft">&nbsp;</td><td class="mdescRight">Send a message to a task.  <a href="group__task.html#g99a89c21c9866e2784860e100a444b49"></a><br></td></tr>
-<tr><td class="memItemLeft" nowrap align="right" valign="top">int&nbsp;</td><td class="memItemRight" valign="bottom"><a class="el" href="group__task.html#ga152f8f41876fc3a828a8eba74d493fe">rt_task_receive</a> (RT_TASK_MCB *mcb_r, RTIME timeout)</td></tr>
+<tr><td class="memItemLeft" nowrap align="right" valign="top">int&nbsp;</td><td class="memItemRight" valign="bottom"><a class="el" href="group__task.html#ga152f8f41876fc3a828a8eba74d493fe">rt_task_receive</a> (<a class="el" href="structrt__task__mcb.html">RT_TASK_MCB</a> *mcb_r, RTIME timeout)</td></tr>
 
 <tr><td class="mdescLeft">&nbsp;</td><td class="mdescRight">Receive a message from a task.  <a href="group__task.html#ga152f8f41876fc3a828a8eba74d493fe"></a><br></td></tr>
-<tr><td class="memItemLeft" nowrap align="right" valign="top">int&nbsp;</td><td class="memItemRight" valign="bottom"><a class="el" href="group__task.html#gcd8a4fb2d11f0548bd053dfbf92f9e9d">rt_task_reply</a> (int flowid, RT_TASK_MCB *mcb_s)</td></tr>
+<tr><td class="memItemLeft" nowrap align="right" valign="top">int&nbsp;</td><td class="memItemRight" valign="bottom"><a class="el" href="group__task.html#gcd8a4fb2d11f0548bd053dfbf92f9e9d">rt_task_reply</a> (int flowid, <a class="el" href="structrt__task__mcb.html">RT_TASK_MCB</a> *mcb_s)</td></tr>
 
 <tr><td class="mdescLeft">&nbsp;</td><td class="mdescRight">Reply to a task.  <a href="group__task.html#gcd8a4fb2d11f0548bd053dfbf92f9e9d"></a><br></td></tr>
 </table>
-<hr size="1"><address style="align: right;"><small>Generated on Tue Mar 20 10:02:18 2007 for Xenomai API by&nbsp;
+<hr size="1"><address style="align: right;"><small>Generated on Mon Dec 25 13:57:10 2006 for Xenomai API by&nbsp;
 <a href="http://www.doxygen.org/index.html">
 <img src="doxygen.png" alt="doxygen" align="middle" border="0"></a> 1.4.6 </small></address>
 </body>

@@ -50,18 +50,18 @@
 
 <tr><td class="mdescLeft">&nbsp;</td><td class="mdescRight">Real-time task procedure.  <a href="#ga3cb481ab12462f5e54ff6fee12813e5"></a><br></td></tr>
 <tr><td colspan="2"><br><h2>Functions</h2></td></tr>
-<tr><td class="memItemLeft" nowrap align="right" valign="top">int&nbsp;</td><td class="memItemRight" valign="bottom"><a class="el" href="group__rtdmtask.html#gc12d3e8fd896d0a937d31faf475956fb">rtdm_task_init</a> (rtdm_task_t *task, const char *name, <a class="el" href="group__rtdmtask.html#ga3cb481ab12462f5e54ff6fee12813e5">rtdm_task_proc_t</a> task_proc, void *arg, int priority, uint64_t period)</td></tr>
+<tr><td class="memItemLeft" nowrap align="right" valign="top">int&nbsp;</td><td class="memItemRight" valign="bottom"><a class="el" href="group__rtdmtask.html#g44b0701b6c28fa8035711f800fdcd371">rtdm_task_init</a> (rtdm_task_t *task, const char *name, <a class="el" href="group__rtdmtask.html#ga3cb481ab12462f5e54ff6fee12813e5">rtdm_task_proc_t</a> task_proc, void *arg, int priority, <a class="el" href="group__rtdm.html#gededf91e760e3268235351dcc9d9dcda">nanosecs_rel_t</a> period)</td></tr>
 
-<tr><td class="mdescLeft">&nbsp;</td><td class="mdescRight">Intialise and start a real-time task.  <a href="#gc12d3e8fd896d0a937d31faf475956fb"></a><br></td></tr>
+<tr><td class="mdescLeft">&nbsp;</td><td class="mdescRight">Intialise and start a real-time task.  <a href="#g44b0701b6c28fa8035711f800fdcd371"></a><br></td></tr>
 <tr><td class="memItemLeft" nowrap align="right" valign="top">void&nbsp;</td><td class="memItemRight" valign="bottom"><a class="el" href="group__rtdmtask.html#g7b5581febb2732127736817ca44e86e3">rtdm_task_destroy</a> (rtdm_task_t *task)</td></tr>
 
 <tr><td class="mdescLeft">&nbsp;</td><td class="mdescRight">Destroy a real-time task.  <a href="#g7b5581febb2732127736817ca44e86e3"></a><br></td></tr>
 <tr><td class="memItemLeft" nowrap align="right" valign="top">void&nbsp;</td><td class="memItemRight" valign="bottom"><a class="el" href="group__rtdmtask.html#g286f2d3ff73b3e9c5f24d5a1122a57d2">rtdm_task_set_priority</a> (rtdm_task_t *task, int priority)</td></tr>
 
 <tr><td class="mdescLeft">&nbsp;</td><td class="mdescRight">Adjust real-time task priority.  <a href="#g286f2d3ff73b3e9c5f24d5a1122a57d2"></a><br></td></tr>
-<tr><td class="memItemLeft" nowrap align="right" valign="top">int&nbsp;</td><td class="memItemRight" valign="bottom"><a class="el" href="group__rtdmtask.html#g48c05a035f061161d9ec4b2af76eace3">rtdm_task_set_period</a> (rtdm_task_t *task, uint64_t period)</td></tr>
+<tr><td class="memItemLeft" nowrap align="right" valign="top">int&nbsp;</td><td class="memItemRight" valign="bottom"><a class="el" href="group__rtdmtask.html#ga5b32e7ff35bda7c6d929f8a894149b3">rtdm_task_set_period</a> (rtdm_task_t *task, <a class="el" href="group__rtdm.html#gededf91e760e3268235351dcc9d9dcda">nanosecs_rel_t</a> period)</td></tr>
 
-<tr><td class="mdescLeft">&nbsp;</td><td class="mdescRight">Adjust real-time task period.  <a href="#g48c05a035f061161d9ec4b2af76eace3"></a><br></td></tr>
+<tr><td class="mdescLeft">&nbsp;</td><td class="mdescRight">Adjust real-time task period.  <a href="#ga5b32e7ff35bda7c6d929f8a894149b3"></a><br></td></tr>
 <tr><td class="memItemLeft" nowrap align="right" valign="top">int&nbsp;</td><td class="memItemRight" valign="bottom"><a class="el" href="group__rtdmtask.html#g577886a7588cdceac10f1b7b6ffcd1c7">rtdm_task_wait_period</a> (void)</td></tr>
 
 <tr><td class="mdescLeft">&nbsp;</td><td class="mdescRight">Wait on next real-time task period.  <a href="#g577886a7588cdceac10f1b7b6ffcd1c7"></a><br></td></tr>
@@ -74,15 +74,15 @@
 <tr><td class="memItemLeft" nowrap align="right" valign="top">void&nbsp;</td><td class="memItemRight" valign="bottom"><a class="el" href="group__rtdmtask.html#g8a60a2a7ba5fec7dac5336b3e8f256cc">rtdm_task_join_nrt</a> (rtdm_task_t *task, unsigned int poll_delay)</td></tr>
 
 <tr><td class="mdescLeft">&nbsp;</td><td class="mdescRight">Wait on a real-time task to terminate.  <a href="#g8a60a2a7ba5fec7dac5336b3e8f256cc"></a><br></td></tr>
-<tr><td class="memItemLeft" nowrap align="right" valign="top">int&nbsp;</td><td class="memItemRight" valign="bottom"><a class="el" href="group__rtdmtask.html#gab7ce44a5b249fdc9fef6162bac223fa">rtdm_task_sleep</a> (uint64_t delay)</td></tr>
+<tr><td class="memItemLeft" nowrap align="right" valign="top">int&nbsp;</td><td class="memItemRight" valign="bottom"><a class="el" href="group__rtdmtask.html#gbfae53746165a83a75965b7b0f6710a0">rtdm_task_sleep</a> (<a class="el" href="group__rtdm.html#gededf91e760e3268235351dcc9d9dcda">nanosecs_rel_t</a> delay)</td></tr>
 
-<tr><td class="mdescLeft">&nbsp;</td><td class="mdescRight">Sleep a specified amount of time.  <a href="#gab7ce44a5b249fdc9fef6162bac223fa"></a><br></td></tr>
-<tr><td class="memItemLeft" nowrap align="right" valign="top">int&nbsp;</td><td class="memItemRight" valign="bottom"><a class="el" href="group__rtdmtask.html#gd010429ca0da3899e08bb60eb71353a5">rtdm_task_sleep_until</a> (uint64_t wakeup_time)</td></tr>
+<tr><td class="mdescLeft">&nbsp;</td><td class="mdescRight">Sleep a specified amount of time.  <a href="#gbfae53746165a83a75965b7b0f6710a0"></a><br></td></tr>
+<tr><td class="memItemLeft" nowrap align="right" valign="top">int&nbsp;</td><td class="memItemRight" valign="bottom"><a class="el" href="group__rtdmtask.html#g741998821c05483db33f17d77c733d99">rtdm_task_sleep_until</a> (<a class="el" href="group__rtdm.html#gd3b24c25feabadba465f8797d8c7fe27">nanosecs_abs_t</a> wakeup_time)</td></tr>
 
-<tr><td class="mdescLeft">&nbsp;</td><td class="mdescRight">Sleep until a specified absolute time.  <a href="#gd010429ca0da3899e08bb60eb71353a5"></a><br></td></tr>
-<tr><td class="memItemLeft" nowrap align="right" valign="top">void&nbsp;</td><td class="memItemRight" valign="bottom"><a class="el" href="group__rtdmtask.html#gcaccf9cdbfc9e2c6f01d55841623bee8">rtdm_task_busy_sleep</a> (uint64_t delay)</td></tr>
+<tr><td class="mdescLeft">&nbsp;</td><td class="mdescRight">Sleep until a specified absolute time.  <a href="#g741998821c05483db33f17d77c733d99"></a><br></td></tr>
+<tr><td class="memItemLeft" nowrap align="right" valign="top">void&nbsp;</td><td class="memItemRight" valign="bottom"><a class="el" href="group__rtdmtask.html#ga3940cfff7cc72d7bc064a3e279d74ac">rtdm_task_busy_sleep</a> (<a class="el" href="group__rtdm.html#gededf91e760e3268235351dcc9d9dcda">nanosecs_rel_t</a> delay)</td></tr>
 
-<tr><td class="mdescLeft">&nbsp;</td><td class="mdescRight">Busy-wait a specified amount of time.  <a href="#gcaccf9cdbfc9e2c6f01d55841623bee8"></a><br></td></tr>
+<tr><td class="mdescLeft">&nbsp;</td><td class="mdescRight">Busy-wait a specified amount of time.  <a href="#ga3940cfff7cc72d7bc064a3e279d74ac"></a><br></td></tr>
 </table>
 <hr><h2>Typedef Documentation</h2>
 <a class="anchor" name="ga3cb481ab12462f5e54ff6fee12813e5"></a><!-- doxytag: member="rtdm_driver.h::rtdm_task_proc_t" ref="ga3cb481ab12462f5e54ff6fee12813e5" args=")(void *arg)" --><p>
@@ -109,14 +109,14 @@ Real-time task procedure.
 <p>
 <dl compact><dt><b>Parameters:</b></dt><dd>
   <table border="0" cellspacing="2" cellpadding="0">
-    <tr><td valign="top"><tt>[in,out]</tt>&nbsp;</td><td valign="top"><em>arg</em>&nbsp;</td><td>argument as passed to <a class="el" href="group__rtdmtask.html#gc12d3e8fd896d0a937d31faf475956fb">rtdm_task_init()</a> </td></tr>
+    <tr><td valign="top"><tt>[in,out]</tt>&nbsp;</td><td valign="top"><em>arg</em>&nbsp;</td><td>argument as passed to <a class="el" href="group__rtdmtask.html#g44b0701b6c28fa8035711f800fdcd371">rtdm_task_init()</a> </td></tr>
   </table>
 </dl>
     </td>
   </tr>
 </table>
 <hr><h2>Function Documentation</h2>
-<a class="anchor" name="gcaccf9cdbfc9e2c6f01d55841623bee8"></a><!-- doxytag: member="drvlib.c::rtdm_task_busy_sleep" ref="gcaccf9cdbfc9e2c6f01d55841623bee8" args="(uint64_t delay)" --><p>
+<a class="anchor" name="ga3940cfff7cc72d7bc064a3e279d74ac"></a><!-- doxytag: member="drvlib.c::rtdm_task_busy_sleep" ref="ga3940cfff7cc72d7bc064a3e279d74ac" args="(nanosecs_rel_t delay)" --><p>
 <table class="mdTable" cellpadding="2" cellspacing="0">
   <tr>
     <td class="mdRow">
@@ -124,7 +124,7 @@ Real-time task procedure.
         <tr>
           <td class="md" nowrap valign="top">void rtdm_task_busy_sleep           </td>
           <td class="md" valign="top">(&nbsp;</td>
-          <td class="md" nowrap valign="top">uint64_t&nbsp;</td>
+          <td class="md" nowrap valign="top"><a class="el" href="group__rtdm.html#gededf91e760e3268235351dcc9d9dcda">nanosecs_rel_t</a>&nbsp;</td>
           <td class="mdname1" valign="top" nowrap> <em>delay</em>          </td>
           <td class="md" valign="top">&nbsp;)&nbsp;</td>
           <td class="md" nowrap></td>
@@ -145,15 +145,16 @@ Busy-wait a specified amount of time.
 <p>
 <dl compact><dt><b>Parameters:</b></dt><dd>
   <table border="0" cellspacing="2" cellpadding="0">
-    <tr><td valign="top"><tt>[in]</tt>&nbsp;</td><td valign="top"><em>delay</em>&nbsp;</td><td>Delay in nanoseconds</td></tr>
+    <tr><td valign="top"><tt>[in]</tt>&nbsp;</td><td valign="top"><em>delay</em>&nbsp;</td><td>Delay in nanoseconds. Note that a zero delay does <b>not</b> have the meaning of <code>RTDM_TIMEOUT_INFINITE</code> here.</td></tr>
   </table>
 </dl>
+<dl compact><dt><b>Note:</b></dt><dd>The caller must not be migratable to different CPUs while executing this service. Otherwise, the actual delay will be undefined.</dd></dl>
 Environments:<p>
 This service can be called from:<p>
 <ul>
-<li>Kernel module initialization/cleanup code</li><li>Interrupt service routine (but you should rather avoid this...)</li><li>Kernel-based task</li><li>User-space task (RT, non-RT)</li></ul>
+<li>Kernel module initialization/cleanup code</li><li>Interrupt service routine (should be avoided or kept short)</li><li>Kernel-based task</li><li>User-space task (RT, non-RT)</li></ul>
 <p>
-Rescheduling: never.     </td>
+Rescheduling: never (except due to external interruptions).     </td>
   </tr>
 </table>
 <a class="anchor" name="gfd58b762de7269549d1e54699ceebc0d"></a><!-- doxytag: member="drvlib.c::rtdm_task_current" ref="gfd58b762de7269549d1e54699ceebc0d" args="(void)" --><p>
@@ -221,9 +222,10 @@ Destroy a real-time task.
 <p>
 <dl compact><dt><b>Parameters:</b></dt><dd>
   <table border="0" cellspacing="2" cellpadding="0">
-    <tr><td valign="top"><tt>[in,out]</tt>&nbsp;</td><td valign="top"><em>task</em>&nbsp;</td><td>Task handle as returned by <a class="el" href="group__rtdmtask.html#gc12d3e8fd896d0a937d31faf475956fb">rtdm_task_init()</a></td></tr>
+    <tr><td valign="top"><tt>[in,out]</tt>&nbsp;</td><td valign="top"><em>task</em>&nbsp;</td><td>Task handle as returned by <a class="el" href="group__rtdmtask.html#g44b0701b6c28fa8035711f800fdcd371">rtdm_task_init()</a></td></tr>
   </table>
 </dl>
+<dl compact><dt><b>Note:</b></dt><dd>Passing the same task handle to RTDM services after the completion of this function is not allowed.</dd></dl>
 Environments:<p>
 This service can be called from:<p>
 <ul>
@@ -232,7 +234,7 @@ This service can be called from:<p>
 Rescheduling: never.     </td>
   </tr>
 </table>
-<a class="anchor" name="gc12d3e8fd896d0a937d31faf475956fb"></a><!-- doxytag: member="drvlib.c::rtdm_task_init" ref="gc12d3e8fd896d0a937d31faf475956fb" args="(rtdm_task_t *task, const char *name, rtdm_task_proc_t task_proc, void *arg, int priority, uint64_t period)" --><p>
+<a class="anchor" name="g44b0701b6c28fa8035711f800fdcd371"></a><!-- doxytag: member="drvlib.c::rtdm_task_init" ref="g44b0701b6c28fa8035711f800fdcd371" args="(rtdm_task_t *task, const char *name, rtdm_task_proc_t task_proc, void *arg, int priority, nanosecs_rel_t period)" --><p>
 <table class="mdTable" cellpadding="2" cellspacing="0">
   <tr>
     <td class="mdRow">
@@ -270,7 +272,7 @@ Rescheduling: never.     </td>
         <tr>
           <td class="md" nowrap align="right"></td>
           <td class="md"></td>
-          <td class="md" nowrap>uint64_t&nbsp;</td>
+          <td class="md" nowrap><a class="el" href="group__rtdm.html#gededf91e760e3268235351dcc9d9dcda">nanosecs_rel_t</a>&nbsp;</td>
           <td class="mdname" nowrap> <em>period</em></td>
         </tr>
         <tr>
@@ -292,6 +294,7 @@ Rescheduling: never.     </td>
 <p>
 Intialise and start a real-time task. 
 <p>
+After initialising a task, the task handle remains valid and can be passed to RTDM services until either <a class="el" href="group__rtdmtask.html#g7b5581febb2732127736817ca44e86e3">rtdm_task_destroy()</a> or <a class="el" href="group__rtdmtask.html#g8a60a2a7ba5fec7dac5336b3e8f256cc">rtdm_task_join_nrt()</a> was invoked.<p>
 <dl compact><dt><b>Parameters:</b></dt><dd>
   <table border="0" cellspacing="2" cellpadding="0">
     <tr><td valign="top"><tt>[in,out]</tt>&nbsp;</td><td valign="top"><em>task</em>&nbsp;</td><td>Task handle </td></tr>
@@ -349,11 +352,12 @@ Wait on a real-time task to terminate.
 <p>
 <dl compact><dt><b>Parameters:</b></dt><dd>
   <table border="0" cellspacing="2" cellpadding="0">
-    <tr><td valign="top"><tt>[in,out]</tt>&nbsp;</td><td valign="top"><em>task</em>&nbsp;</td><td>Task handle as returned by <a class="el" href="group__rtdmtask.html#gc12d3e8fd896d0a937d31faf475956fb">rtdm_task_init()</a> </td></tr>
+    <tr><td valign="top"><tt>[in,out]</tt>&nbsp;</td><td valign="top"><em>task</em>&nbsp;</td><td>Task handle as returned by <a class="el" href="group__rtdmtask.html#g44b0701b6c28fa8035711f800fdcd371">rtdm_task_init()</a> </td></tr>
     <tr><td valign="top"><tt>[in]</tt>&nbsp;</td><td valign="top"><em>poll_delay</em>&nbsp;</td><td>Polling delay in milliseconds</td></tr>
   </table>
 </dl>
-<dl compact><dt><b>Note:</b></dt><dd>It is not required to call rtdm_task_destroy() for a task which has been passed to <a class="el" href="group__rtdmtask.html#g8a60a2a7ba5fec7dac5336b3e8f256cc">rtdm_task_join_nrt()</a>. Moreover, don't forget to inform the targeted task that it has to terminate. Otherwise, this function will never return.</dd></dl>
+<dl compact><dt><b>Note:</b></dt><dd>Passing the same task handle to RTDM services after the completion of this function is not allowed.<p>
+This service does not trigger the termination of the targeted task. The user has to take of this, otherwise <a class="el" href="group__rtdmtask.html#g8a60a2a7ba5fec7dac5336b3e8f256cc">rtdm_task_join_nrt()</a> will never return.</dd></dl>
 Environments:<p>
 This service can be called from:<p>
 <ul>
@@ -362,7 +366,7 @@ This service can be called from:<p>
 Rescheduling: possible.     </td>
   </tr>
 </table>
-<a class="anchor" name="g48c05a035f061161d9ec4b2af76eace3"></a><!-- doxytag: member="drvlib.c::rtdm_task_set_period" ref="g48c05a035f061161d9ec4b2af76eace3" args="(rtdm_task_t *task, uint64_t period)" --><p>
+<a class="anchor" name="ga5b32e7ff35bda7c6d929f8a894149b3"></a><!-- doxytag: member="drvlib.c::rtdm_task_set_period" ref="ga5b32e7ff35bda7c6d929f8a894149b3" args="(rtdm_task_t *task, nanosecs_rel_t period)" --><p>
 <table class="mdTable" cellpadding="2" cellspacing="0">
   <tr>
     <td class="mdRow">
@@ -376,7 +380,7 @@ Rescheduling: possible.     </td>
         <tr>
           <td class="md" nowrap align="right"></td>
           <td class="md"></td>
-          <td class="md" nowrap>uint64_t&nbsp;</td>
+          <td class="md" nowrap><a class="el" href="group__rtdm.html#gededf91e760e3268235351dcc9d9dcda">nanosecs_rel_t</a>&nbsp;</td>
           <td class="mdname" nowrap> <em>period</em></td>
         </tr>
         <tr>
@@ -400,7 +404,7 @@ Adjust real-time task period.
 <p>
 <dl compact><dt><b>Parameters:</b></dt><dd>
   <table border="0" cellspacing="2" cellpadding="0">
-    <tr><td valign="top"><tt>[in,out]</tt>&nbsp;</td><td valign="top"><em>task</em>&nbsp;</td><td>Task handle as returned by <a class="el" href="group__rtdmtask.html#gc12d3e8fd896d0a937d31faf475956fb">rtdm_task_init()</a> </td></tr>
+    <tr><td valign="top"><tt>[in,out]</tt>&nbsp;</td><td valign="top"><em>task</em>&nbsp;</td><td>Task handle as returned by <a class="el" href="group__rtdmtask.html#g44b0701b6c28fa8035711f800fdcd371">rtdm_task_init()</a> </td></tr>
     <tr><td valign="top"><tt>[in]</tt>&nbsp;</td><td valign="top"><em>period</em>&nbsp;</td><td>New period in nanosecons of a cyclic task, 0 for non-cyclic mode</td></tr>
   </table>
 </dl>
@@ -450,7 +454,7 @@ Adjust real-time task priority.
 <p>
 <dl compact><dt><b>Parameters:</b></dt><dd>
   <table border="0" cellspacing="2" cellpadding="0">
-    <tr><td valign="top"><tt>[in,out]</tt>&nbsp;</td><td valign="top"><em>task</em>&nbsp;</td><td>Task handle as returned by <a class="el" href="group__rtdmtask.html#gc12d3e8fd896d0a937d31faf475956fb">rtdm_task_init()</a> </td></tr>
+    <tr><td valign="top"><tt>[in,out]</tt>&nbsp;</td><td valign="top"><em>task</em>&nbsp;</td><td>Task handle as returned by <a class="el" href="group__rtdmtask.html#g44b0701b6c28fa8035711f800fdcd371">rtdm_task_init()</a> </td></tr>
     <tr><td valign="top"><tt>[in]</tt>&nbsp;</td><td valign="top"><em>priority</em>&nbsp;</td><td>New priority of the task, see also <a class="el" href="group__rtdmtask.html#taskprio">Task Priority Range</a></td></tr>
   </table>
 </dl>
@@ -462,7 +466,7 @@ This service can be called from:<p>
 Rescheduling: possible.     </td>
   </tr>
 </table>
-<a class="anchor" name="gab7ce44a5b249fdc9fef6162bac223fa"></a><!-- doxytag: member="drvlib.c::rtdm_task_sleep" ref="gab7ce44a5b249fdc9fef6162bac223fa" args="(uint64_t delay)" --><p>
+<a class="anchor" name="gbfae53746165a83a75965b7b0f6710a0"></a><!-- doxytag: member="drvlib.c::rtdm_task_sleep" ref="gbfae53746165a83a75965b7b0f6710a0" args="(nanosecs_rel_t delay)" --><p>
 <table class="mdTable" cellpadding="2" cellspacing="0">
   <tr>
     <td class="mdRow">
@@ -470,7 +474,7 @@ Rescheduling: possible.     </td>
         <tr>
           <td class="md" nowrap valign="top">int rtdm_task_sleep           </td>
           <td class="md" valign="top">(&nbsp;</td>
-          <td class="md" nowrap valign="top">uint64_t&nbsp;</td>
+          <td class="md" nowrap valign="top"><a class="el" href="group__rtdm.html#gededf91e760e3268235351dcc9d9dcda">nanosecs_rel_t</a>&nbsp;</td>
           <td class="mdname1" valign="top" nowrap> <em>delay</em>          </td>
           <td class="md" valign="top">&nbsp;)&nbsp;</td>
           <td class="md" nowrap></td>
@@ -491,12 +495,12 @@ Sleep a specified amount of time.
 <p>
 <dl compact><dt><b>Parameters:</b></dt><dd>
   <table border="0" cellspacing="2" cellpadding="0">
-    <tr><td valign="top"><tt>[in]</tt>&nbsp;</td><td valign="top"><em>delay</em>&nbsp;</td><td>Delay in nanoseconds</td></tr>
+    <tr><td valign="top"><tt>[in]</tt>&nbsp;</td><td valign="top"><em>delay</em>&nbsp;</td><td>Delay in nanoseconds, see <a class="el" href="group__rtdm.html#RTDM_TIMEOUT_xxx">RTDM_TIMEOUT_xxx</a> for special values.</td></tr>
   </table>
 </dl>
 <dl compact><dt><b>Returns:</b></dt><dd>0 on success, otherwise:</dd></dl>
 <ul>
-<li>-EINTR is returned if calling task has been unblock by a signal or explicitely via rtdm_task_unblock().</li></ul>
+<li>-EINTR is returned if calling task has been unblock by a signal or explicitely via <a class="el" href="group__rtdmtask.html#ge52cca97ebaf78eec2e31553a4dacd5e">rtdm_task_unblock()</a>.</li></ul>
 <p>
 <ul>
 <li>-EPERM <em>may</em> be returned if an illegal invocation environment is detected.</li></ul>
@@ -509,7 +513,7 @@ This service can be called from:<p>
 Rescheduling: always.     </td>
   </tr>
 </table>
-<a class="anchor" name="gd010429ca0da3899e08bb60eb71353a5"></a><!-- doxytag: member="drvlib.c::rtdm_task_sleep_until" ref="gd010429ca0da3899e08bb60eb71353a5" args="(uint64_t wakeup_time)" --><p>
+<a class="anchor" name="g741998821c05483db33f17d77c733d99"></a><!-- doxytag: member="drvlib.c::rtdm_task_sleep_until" ref="g741998821c05483db33f17d77c733d99" args="(nanosecs_abs_t wakeup_time)" --><p>
 <table class="mdTable" cellpadding="2" cellspacing="0">
   <tr>
     <td class="mdRow">
@@ -517,7 +521,7 @@ Rescheduling: always.     </td>
         <tr>
           <td class="md" nowrap valign="top">int rtdm_task_sleep_until           </td>
           <td class="md" valign="top">(&nbsp;</td>
-          <td class="md" nowrap valign="top">uint64_t&nbsp;</td>
+          <td class="md" nowrap valign="top"><a class="el" href="group__rtdm.html#gd3b24c25feabadba465f8797d8c7fe27">nanosecs_abs_t</a>&nbsp;</td>
           <td class="mdname1" valign="top" nowrap> <em>wakeup_time</em>          </td>
           <td class="md" valign="top">&nbsp;)&nbsp;</td>
           <td class="md" nowrap></td>
@@ -543,7 +547,7 @@ Sleep until a specified absolute time.
 </dl>
 <dl compact><dt><b>Returns:</b></dt><dd>0 on success, otherwise:</dd></dl>
 <ul>
-<li>-EINTR is returned if calling task has been unblock by a signal or explicitely via rtdm_task_unblock().</li></ul>
+<li>-EINTR is returned if calling task has been unblock by a signal or explicitely via <a class="el" href="group__rtdmtask.html#ge52cca97ebaf78eec2e31553a4dacd5e">rtdm_task_unblock()</a>.</li></ul>
 <p>
 <ul>
 <li>-EPERM <em>may</em> be returned if an illegal invocation environment is detected.</li></ul>
@@ -634,7 +638,7 @@ This service can be called from:<p>
 Rescheduling: always, unless a timer overrun occured.     </td>
   </tr>
 </table>
-<hr size="1"><address style="align: right;"><small>Generated on Tue Mar 20 10:02:19 2007 for Xenomai API by&nbsp;
+<hr size="1"><address style="align: right;"><small>Generated on Mon Dec 25 13:57:11 2006 for Xenomai API by&nbsp;
 <a href="http://www.doxygen.org/index.html">
 <img src="doxygen.png" alt="doxygen" align="middle" border="0"></a> 1.4.6 </small></address>
 </body>

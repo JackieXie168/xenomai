@@ -238,7 +238,7 @@ static int __sc_delay(struct task_struct *curr, struct pt_regs *regs)
 {
 	vrtxtask_t *task = vrtx_current_task();
 	sc_delay(__xn_reg_arg1(regs));
-	if (xnthread_test_flags(&task->threadbase, XNBREAK))
+	if (xnthread_test_info(&task->threadbase, XNBREAK))
 		return -EINTR;
 	return 0;
 }
@@ -1139,7 +1139,7 @@ static int __sc_pcreate(struct task_struct *curr, struct pt_regs *regs)
 	ptheap = (xnheap_t *)xnmalloc(sizeof(*ptheap));
 
 	if (!ptheap)
-		return ER_NOCB;
+		return ER_MEM;
 
 	/* Suggested partition ID. */
 	pid = __xn_reg_arg1(regs);
@@ -1350,8 +1350,8 @@ static xnsysent_t __systab[] = {
 	[__vrtx_tecreate] = {&__sc_tecreate, __xn_exec_init},
 	[__vrtx_tdelete] = {&__sc_tdelete, __xn_exec_conforming},
 	[__vrtx_tpriority] = {&__sc_tpriority, __xn_exec_primary},
-	[__vrtx_tresume] = {&__sc_tresume, __xn_exec_primary},
-	[__vrtx_tsuspend] = {&__sc_tsuspend, __xn_exec_primary},
+	[__vrtx_tresume] = {&__sc_tresume, __xn_exec_any},
+	[__vrtx_tsuspend] = {&__sc_tsuspend, __xn_exec_conforming},
 	[__vrtx_tslice] = {&__sc_tslice, __xn_exec_any},
 	[__vrtx_tinquiry] = {&__sc_tinquiry, __xn_exec_primary},
 	[__vrtx_lock] = {&__sc_lock, __xn_exec_primary},
@@ -1408,7 +1408,7 @@ static xnsysent_t __systab[] = {
 static void __shadow_delete_hook(xnthread_t *thread)
 {
 	if (xnthread_get_magic(thread) == VRTX_SKIN_MAGIC &&
-	    thread->mapped)
+	    xnthread_test_state(thread, XNMAPPED))
 		xnshadow_unmap(thread);
 }
 

@@ -139,6 +139,9 @@ typedef struct wind_wd {
 
     xntimer_t timerbase;
 
+    wind_timer_t handler;
+    long arg;
+
 #ifdef CONFIG_XENO_OPT_REGISTRY
     xnhandle_t handle;
     char name[XNOBJECT_NAME_LEN];
@@ -164,7 +167,7 @@ typedef struct wind_wd {
    uses an ascending [0-256] priority scale (include/nucleus/core.h),
    whilst the VxWorks personality exhibits a decreasing scale
    [255-0]. Normalization is not needed when the underlying pod
-   supporting the VxWorks skin is standalone, i.e. pure kernel, UVM or
+   supporting the VxWorks skin is standalone, i.e. pure kernel, or
    simulation modes. */
 
 #if defined(__KERNEL__) && defined(CONFIG_XENO_OPT_PERVASIVE)

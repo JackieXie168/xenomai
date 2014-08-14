@@ -17,8 +17,9 @@
  * 02111-1307, USA.
  */
 
-#include "psos+/task.h"
-#include "psos+/tm.h"
+#include <nucleus/registry.h>
+#include <psos+/task.h>
+#include <psos+/tm.h>
 
 static xnqueue_t psostimerq;
 
@@ -49,6 +50,9 @@ void tm_destroy_internal(psostm_t *tm)
 	xnlock_get_irqsave(&nklock, s);
 	removegq(&tm->owner->alarmq, tm);
 	xntimer_destroy(&tm->timerbase);
+#ifdef CONFIG_XENO_OPT_REGISTRY
+	xnregistry_remove(tm->handle);
+#endif /* CONFIG_XENO_OPT_REGISTRY */
 	psos_mark_deleted(tm);
 	removeq(&psostimerq, &tm->link);
 	xnlock_put_irqrestore(&nklock, s);
@@ -56,9 +60,9 @@ void tm_destroy_internal(psostm_t *tm)
 	xnfree(tm);
 }
 
-static void tm_evpost_handler(void *cookie)
+static void tm_evpost_handler(xntimer_t *timer)
 {
-	psostm_t *tm = (psostm_t *)cookie;
+	psostm_t *tm = container_of(timer, psostm_t, timerbase);
 
 	ev_send((u_long)tm->owner, tm->events);
 
@@ -82,7 +86,7 @@ static u_long tm_start_event_timer(u_long ticks,
 	tm->owner = psos_current_task();
 	*tmid = (u_long)tm;
 
-	xntimer_init(&tm->timerbase, tm_evpost_handler, tm);
+	xntimer_init(&tm->timerbase, tm_evpost_handler);
 	tm->magic = PSOS_TM_MAGIC;
 
 	xnlock_get_irqsave(&nklock, s);
@@ -90,7 +94,26 @@ static u_long tm_start_event_timer(u_long ticks,
 	appendgq(&tm->owner->alarmq, tm);
 	xnlock_put_irqrestore(&nklock, s);
 
+#ifdef CONFIG_XENO_OPT_REGISTRY
+	{
+		static unsigned long tm_ids;
+		u_long err;
+
+		sprintf(tm->name, "anon%lu", tm_ids++);
+
+		err = xnregistry_enter(tm->name, tm, &tm->handle, 0);
+
+		if (err) {
+			tm->handle = XN_NO_HANDLE;
+			tm_cancel((u_long)tm);
+			return err;
+		}
+	}
+#endif /* CONFIG_XENO_OPT_REGISTRY */
+
+	xnlock_get_irqsave(&nklock, s);
 	xntimer_start(&tm->timerbase, ticks, interval);
+	xnlock_put_irqrestore(&nklock, s);
 
 	return SUCCESS;
 }
@@ -200,10 +223,14 @@ static void tm_ticks_to_date(u_long *date,
 
 u_long tm_wkafter(u_long ticks)
 {
-	xnpod_check_context(XNPOD_THREAD_CONTEXT);
+	if (xnpod_unblockable_p())
+		return -EPERM;
 
-	if (ticks > 0)
+	if (ticks > 0) {
 		xnpod_delay(ticks);
+		if (xnthread_test_info(&psos_current_task()->threadbase, XNBREAK))
+		    return -EINTR;
+	}
 	else
 		xnpod_yield();	/* Perform manual round-robin */
 
@@ -212,15 +239,17 @@ u_long tm_wkafter(u_long ticks)
 
 u_long tm_evafter(u_long ticks, u_long events, u_long *tmid)
 {
+	if (!xnpod_primary_p())
+		return -EPERM;
 
-	xnpod_check_context(XNPOD_THREAD_CONTEXT);
 	return tm_start_event_timer(ticks, XN_INFINITE, events, tmid);
 }
 
 u_long tm_evevery(u_long ticks, u_long events, u_long *tmid)
 {
+	if (!xnpod_primary_p())
+		return -EPERM;
 
-	xnpod_check_context(XNPOD_THREAD_CONTEXT);
 	return tm_start_event_timer(ticks, ticks, events, tmid);
 }
 
@@ -229,8 +258,6 @@ u_long tm_cancel(u_long tmid)
 	u_long err = SUCCESS;
 	psostm_t *tm;
 	spl_t s;
-
-	xnpod_check_context(XNPOD_THREAD_CONTEXT);
 
 	xnlock_get_irqsave(&nklock, s);
 
@@ -263,7 +290,8 @@ u_long tm_evwhen(u_long date,
 	xnticks_t when, now;
 	u_long err;
 
-	xnpod_check_context(XNPOD_THREAD_CONTEXT);
+	if (!xnpod_primary_p())
+		return -EPERM;
 
 	if (!xnpod_timeset_p())
 		return ERR_NOTIME;	/* Must call tm_set() first. */
@@ -286,7 +314,8 @@ u_long tm_wkwhen(u_long date, u_long time, u_long ticks)
 	xnticks_t when, now;
 	u_long err;
 
-	xnpod_check_context(XNPOD_THREAD_CONTEXT);
+	if (xnpod_unblockable_p())
+		return -EPERM;
 
 	if (!xnpod_timeset_p())
 		return ERR_NOTIME;	/* Must call tm_set() first. */
@@ -302,6 +331,9 @@ u_long tm_wkwhen(u_long date, u_long time, u_long ticks)
 		return ERR_TOOLATE;
 
 	xnpod_delay(when - now);
+
+	if (xnthread_test_info(&psos_current_task()->threadbase, XNBREAK))
+	    return -EINTR;
 
 	return SUCCESS;
 }

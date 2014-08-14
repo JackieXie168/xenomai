@@ -23,8 +23,6 @@
  * An abstract RTOS core.
  */
 
-#define XENO_MAIN_MODULE 1
-
 #include <nucleus/module.h>
 #include <nucleus/pod.h>
 #include <nucleus/timer.h>
@@ -37,6 +35,7 @@
 #include <nucleus/core.h>
 #endif /* CONFIG_XENO_OPT_PERVASIVE */
 #include <nucleus/ltt.h>
+#include <asm/xenomai/bits/init.h>
 
 MODULE_DESCRIPTION("Xenomai nucleus");
 MODULE_AUTHOR("rpm@xenomai.org");
@@ -103,7 +102,7 @@ struct sched_seq_iterator {
 		int cprio;
 		xnticks_t period;
 		xnticks_t timeout;
-		xnflags_t status;
+		xnflags_t state;
 	} sched_info[1];
 };
 
@@ -151,7 +150,7 @@ static int sched_seq_show(struct seq_file *seq, void *v)
 	else {
 		struct sched_seq_info *p = (struct sched_seq_info *)v;
 
-		if (p->status & XNINVPS)
+		if (p->state & XNINVPS)
 			snprintf(pbuf, sizeof(pbuf), "%3d(%d)",
 				 p->cprio, xnpod_rescale_prio(p->cprio));
 		else
@@ -163,7 +162,7 @@ static int sched_seq_show(struct seq_file *seq, void *v)
 			   pbuf,
 			   p->period,
 			   p->timeout,
-			   xnthread_symbolic_status(p->status, sbuf,
+			   xnthread_symbolic_status(p->state, sbuf,
 						    sizeof(sbuf)), p->name);
 	}
 
@@ -237,7 +236,7 @@ static int sched_seq_open(struct inode *inode, struct file *file)
 		iter->sched_info[n].cprio = thread->cprio;
 		iter->sched_info[n].period = xnthread_get_period(thread);
 		iter->sched_info[n].timeout = xnthread_get_timeout(thread, iter->start_time);
-		iter->sched_info[n].status = thread->status;
+		iter->sched_info[n].state = xnthread_state_flags(thread);
 
 		holder = nextq(&nkpod->threadq, holder);
 
@@ -265,13 +264,13 @@ struct stat_seq_iterator {
 	struct stat_seq_info {
 		int cpu;
 		pid_t pid;
-		xnflags_t status;
+		xnflags_t state;
 		char name[XNOBJECT_NAME_LEN];
 		unsigned long ssw;
 		unsigned long csw;
 		unsigned long pf;
-		xnticks_t exec_time;
-		xnticks_t exec_period;
+		xnticks_t runtime;
+		xnticks_t account_period;
 	} stat_info[1];
 };
 
@@ -320,19 +319,19 @@ static int stat_seq_show(struct seq_file *seq, void *v)
 		struct stat_seq_info *p = (struct stat_seq_info *)v;
 		int usage = 0;
 
-		if (p->exec_period) {
-			while (p->exec_period > 0xFFFFFFFF) {
-				p->exec_time >>= 16;
-				p->exec_period >>= 16;
+		if (p->account_period) {
+			while (p->account_period > 0xFFFFFFFF) {
+				p->runtime >>= 16;
+				p->account_period >>= 16;
 			}
 			usage =
-			    xnarch_ulldiv(p->exec_time * 1000LL +
-					  (p->exec_period >> 1), p->exec_period,
-					  NULL);
+			    xnarch_ulldiv(p->runtime * 1000LL +
+					  (p->account_period >> 1),
+					  p->account_period, NULL);
 		}
 		seq_printf(seq, "%3u  %-6d %-10lu %-10lu %-4lu  %.8lx  %3u.%u"
 			   "  %s\n",
-			   p->cpu, p->pid, p->ssw, p->csw, p->pf, p->status,
+			   p->cpu, p->pid, p->ssw, p->csw, p->pf, p->state,
 			   usage / 10, usage % 10, p->name);
 	}
 
@@ -351,7 +350,8 @@ static int stat_seq_open(struct inode *inode, struct file *file)
 	struct stat_seq_iterator *iter = NULL;
 	struct seq_file *seq;
 	xnholder_t *holder;
-	int err, count, rev;
+	struct stat_seq_info *stat_info;
+	int err, count, thrq_rev, intr_rev, irq;
 	spl_t s;
 
 	if (!nkpod)
@@ -360,9 +360,12 @@ static int stat_seq_open(struct inode *inode, struct file *file)
       restart:
 	xnlock_get_irqsave(&nklock, s);
 
-	rev = nkpod->threadq_rev;
 	count = countq(&nkpod->threadq);	/* Cannot be empty (ROOT) */
 	holder = getheadq(&nkpod->threadq);
+	thrq_rev = nkpod->threadq_rev;
+
+	count += xnintr_count * RTHAL_NR_CPUS;
+	intr_rev = xnintr_list_rev;
 
 	xnlock_put_irqrestore(&nklock, s);
 
@@ -390,41 +393,69 @@ static int stat_seq_open(struct inode *inode, struct file *file)
 		xnthread_t *thread;
 		xnsched_t *sched;
 		xnticks_t period;
-		int n;
 
 		xnlock_get_irqsave(&nklock, s);
 
-		if (nkpod->threadq_rev != rev)
+		if (nkpod->threadq_rev != thrq_rev)
 			goto restart;
-		rev = nkpod->threadq_rev;
 
 		thread = link2thread(holder, glink);
-		n = iter->nentries++;
+		stat_info = &iter->stat_info[iter->nentries++];
 
 		sched = thread->sched;
-		iter->stat_info[n].cpu = xnsched_cpu(sched);
-		iter->stat_info[n].pid = xnthread_user_pid(thread);
-		memcpy(iter->stat_info[n].name, thread->name,
-		       sizeof(iter->stat_info[n].name));
-		iter->stat_info[n].status = thread->status;
-		iter->stat_info[n].ssw = thread->stat.ssw;
-		iter->stat_info[n].csw = thread->stat.csw;
-		iter->stat_info[n].pf = thread->stat.pf;
+		stat_info->cpu = xnsched_cpu(sched);
+		stat_info->pid = xnthread_user_pid(thread);
+		memcpy(stat_info->name, thread->name,
+		       sizeof(stat_info->name));
+		stat_info->state = xnthread_state_flags(thread);
+		stat_info->ssw = xnstat_counter_get(&thread->stat.ssw);
+		stat_info->csw = xnstat_counter_get(&thread->stat.csw);
+		stat_info->pf = xnstat_counter_get(&thread->stat.pf);
 
-		period = sched->last_csw - thread->stat.exec_start;
+		period = sched->last_account_switch - thread->stat.account.start;
 		if (!period && thread == sched->runthread) {
-			iter->stat_info[n].exec_time = 1;
-			iter->stat_info[n].exec_period = 1;
+			stat_info->runtime = 1;
+			stat_info->account_period = 1;
 		} else {
-			iter->stat_info[n].exec_time = thread->stat.exec_time;
-			iter->stat_info[n].exec_period = period;
+			stat_info->runtime = thread->stat.account.total;
+			stat_info->account_period = period;
 		}
-		thread->stat.exec_time = 0;
-		thread->stat.exec_start = sched->last_csw;
+		thread->stat.account.total = 0;
+		thread->stat.account.start = sched->last_account_switch;
 
 		holder = nextq(&nkpod->threadq, holder);
 
 		xnlock_put_irqrestore(&nklock, s);
+	}
+
+	/* Iterate over all IRQ numbers, ... */
+	for (irq = 0; irq < RTHAL_NR_IRQS; irq++) {
+		xnintr_t *prev = NULL;
+		int cpu = 0;
+		int err;
+
+		/* ...over all shared IRQs on all CPUs */
+		while (1) {
+			stat_info = &iter->stat_info[iter->nentries];
+			stat_info->cpu = cpu;
+
+			err = xnintr_query(irq, &cpu, &prev, intr_rev,
+					   stat_info->name,
+					   &stat_info->csw,
+					   &stat_info->runtime,
+					   &stat_info->account_period);
+			if (err == EAGAIN)
+				goto restart;
+			if (err)
+				break; /* line unused or end of chain */
+
+			stat_info->pid = 0;
+			stat_info->state =  0;
+			stat_info->ssw = 0;
+			stat_info->pf = 0;
+
+			iter->nentries++;
+		};
 	}
 
 	seq = (struct seq_file *)file->private_data;
@@ -441,7 +472,9 @@ static struct file_operations stat_seq_operations = {
 	.release = seq_release_private,
 };
 
-#ifdef CONFIG_SMP
+#endif /* CONFIG_XENO_OPT_STATS */
+
+#if defined(CONFIG_SMP) && XENO_DEBUG(NUCLEUS)
 
 xnlockinfo_t xnlock_stats[RTHAL_NR_CPUS];
 
@@ -489,9 +522,7 @@ static int lock_read_proc(char *page,
 
 EXPORT_SYMBOL(xnlock_stats);
 
-#endif /* CONFIG_SMP */
-
-#endif /* CONFIG_XENO_OPT_STATS */
+#endif /* CONFIG_SMP && XENO_DEBUG(NUCLEUS) */
 
 static int latency_read_proc(char *page,
 			     char **start,
@@ -710,11 +741,11 @@ void xnpod_init_proc(void)
 
 #ifdef CONFIG_XENO_OPT_STATS
 	add_proc_fops("stat", &stat_seq_operations, 0, rthal_proc_root);
-#ifdef CONFIG_SMP
-	add_proc_leaf("lock", &lock_read_proc, NULL, NULL, rthal_proc_root);
-#endif /* CONFIG_SMP */
-
 #endif /* CONFIG_XENO_OPT_STATS */
+
+#if defined(CONFIG_SMP) && XENO_DEBUG(NUCLEUS)
+	add_proc_leaf("lock", &lock_read_proc, NULL, NULL, rthal_proc_root);
+#endif /* CONFIG_SMP && XENO_DEBUG(NUCLEUS) */
 
 	add_proc_leaf("latency",
 		      &latency_read_proc,
@@ -755,10 +786,10 @@ void xnpod_delete_proc(void)
 	remove_proc_entry("sched", rthal_proc_root);
 #ifdef CONFIG_XENO_OPT_STATS
 	remove_proc_entry("stat", rthal_proc_root);
-#ifdef CONFIG_SMP
-	remove_proc_entry("lock", rthal_proc_root);
-#endif /* CONFIG_SMP */
 #endif /* CONFIG_XENO_OPT_STATS */
+#if defined(CONFIG_SMP) && XENO_DEBUG(NUCLEUS)
+	remove_proc_entry("lock", rthal_proc_root);
+#endif /* CONFIG_SMP && XENO_DEBUG(NUCLEUS) */
 }
 
 #ifdef CONFIG_XENO_OPT_PERVASIVE

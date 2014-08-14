@@ -64,7 +64,7 @@ typedef void siginfo_handler_t(int, siginfo_t *, void *);
 static struct sigaction actions[SIGRTMAX];
 static pse51_siginfo_t pse51_infos_pool[PSE51_SIGQUEUE_MAX];
 #ifdef CONFIG_SMP
-static xnlock_t pse51_infos_lock;
+static xnlock_t pse51_infos_lock = XNARCH_LOCK_UNLOCKED;
 #endif
 static xnpqueue_t pse51_infos_free_list;
 
@@ -353,7 +353,7 @@ void pse51_sigqueue_inner(pthread_t thread, pse51_siginfo_t * si)
 	}
 
 #if defined(__KERNEL__) && defined(CONFIG_XENO_OPT_PERVASIVE)
-	if (testbits(thread->threadbase.status, XNSHADOW))
+	if (testbits(thread->threadbase.state, XNSHADOW))
 		pse51_signal_schedule_request(thread);
 #endif /* __KERNEL__  && CONFIG_XENO_OPT_PERVASIVE */
 
@@ -839,13 +839,13 @@ static int pse51_sigtimedwait_inner(const sigset_t * set,
 
 		thread_cancellation_point(&thread->threadbase);
 
-		if (xnthread_test_flags(&thread->threadbase, XNBREAK)) {
+		if (xnthread_test_info(&thread->threadbase, XNBREAK)) {
 			if (!
 			    (received =
 			     pse51_getsigq(&thread->blocked_received, pse51_set,
 					   NULL)))
 				err = EINTR;
-		} else if (xnthread_test_flags(&thread->threadbase, XNTIMEO))
+		} else if (xnthread_test_info(&thread->threadbase, XNTIMEO))
 			err = EAGAIN;
 	}
 
@@ -1150,7 +1150,7 @@ void pse51_signal_init_thread(pthread_t newthread, const pthread_t parent)
 		emptyset(&newthread->sigmask);
 
 #if defined(__KERNEL__) && defined(CONFIG_XENO_OPT_PERVASIVE)
-	if (testbits(newthread->threadbase.status, XNSHADOW))
+	if (testbits(newthread->threadbase.state, XNSHADOW))
 		newthread->threadbase.asr = &pse51_dispatch_shadow_signals;
 	else
 #endif /* __KERNEL__  && CONFIG_XENO_OPT_PERVASIVE */
@@ -1211,15 +1211,14 @@ void pse51_signal_pkg_init(void)
 
 void pse51_signal_pkg_cleanup(void)
 {
-#ifdef CONFIG_XENO_OPT_DEBUG
+#if XENO_DEBUG(POSIX)
 	int i;
 
 	for (i = 0; i < PSE51_SIGQUEUE_MAX; i++)
 		if (pse51_infos_pool[i].info.si_signo)
-			xnprintf
-			    ("Posix siginfo structure %p was not freed, freeing now.\n",
-			     &pse51_infos_pool[i].info);
-#endif /* CONFIG_XENO_OPT_DEBUG */
+			xnprintf("Posix siginfo structure %p was not freed, "
+				 "freeing now.\n", &pse51_infos_pool[i].info);
+#endif /* XENO_DEBUG(POSIX) */
 
 #if defined(__KERNEL__) && defined(CONFIG_XENO_OPT_PERVASIVE)
 	rthal_apc_free(pse51_signals_apc);

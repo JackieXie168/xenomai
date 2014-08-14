@@ -1639,12 +1639,12 @@ static int __rt_mutex_delete(struct task_struct *curr, struct pt_regs *regs)
 }
 
 /*
- * int __rt_mutex_lock(RT_MUTEX_PLACEHOLDER *ph,
- *                     RTIME *timeoutp)
+ * int __rt_mutex_acquire(RT_MUTEX_PLACEHOLDER *ph,
+ *                        RTIME *timeoutp)
  *
  */
 
-static int __rt_mutex_lock(struct task_struct *curr, struct pt_regs *regs)
+static int __rt_mutex_acquire(struct task_struct *curr, struct pt_regs *regs)
 {
 	RT_MUTEX_PLACEHOLDER ph;
 	RT_MUTEX *mutex;
@@ -1663,14 +1663,14 @@ static int __rt_mutex_lock(struct task_struct *curr, struct pt_regs *regs)
 	if (!mutex)
 		return -ESRCH;
 
-	return rt_mutex_lock(mutex, timeout);
+	return rt_mutex_acquire(mutex, timeout);
 }
 
 /*
- * int __rt_mutex_unlock(RT_MUTEX_PLACEHOLDER *ph)
+ * int __rt_mutex_release(RT_MUTEX_PLACEHOLDER *ph)
  */
 
-static int __rt_mutex_unlock(struct task_struct *curr, struct pt_regs *regs)
+static int __rt_mutex_release(struct task_struct *curr, struct pt_regs *regs)
 {
 	RT_MUTEX_PLACEHOLDER ph;
 	RT_MUTEX *mutex;
@@ -1686,7 +1686,7 @@ static int __rt_mutex_unlock(struct task_struct *curr, struct pt_regs *regs)
 	if (!mutex)
 		return -ESRCH;
 
-	return rt_mutex_unlock(mutex);
+	return rt_mutex_release(mutex);
 }
 
 /*
@@ -1730,8 +1730,8 @@ static int __rt_mutex_inquire(struct task_struct *curr, struct pt_regs *regs)
 #define __rt_mutex_create  __rt_call_not_available
 #define __rt_mutex_bind    __rt_call_not_available
 #define __rt_mutex_delete  __rt_call_not_available
-#define __rt_mutex_lock    __rt_call_not_available
-#define __rt_mutex_unlock  __rt_call_not_available
+#define __rt_mutex_acquire __rt_call_not_available
+#define __rt_mutex_release __rt_call_not_available
 #define __rt_mutex_inquire __rt_call_not_available
 
 #endif /* CONFIG_XENO_OPT_NATIVE_MUTEX */
@@ -2978,9 +2978,9 @@ static int __rt_alarm_wait(struct task_struct *curr, struct pt_regs *regs)
 
 	xnsynch_sleep_on(&alarm->synch_base, XN_INFINITE);
 
-	if (xnthread_test_flags(&task->thread_base, XNRMID))
+	if (xnthread_test_info(&task->thread_base, XNRMID))
 		err = -EIDRM;	/* Alarm deleted while pending. */
-	else if (xnthread_test_flags(&task->thread_base, XNBREAK))
+	else if (xnthread_test_info(&task->thread_base, XNBREAK))
 		err = -EINTR;	/* Unblocked. */
 
       unlock_and_exit:
@@ -3221,11 +3221,11 @@ static int __rt_intr_wait(struct task_struct *curr, struct pt_regs *regs)
 
 		xnsynch_sleep_on(&intr->synch_base, timeout);
 
-		if (xnthread_test_flags(&task->thread_base, XNRMID))
+		if (xnthread_test_info(&task->thread_base, XNRMID))
 			err = -EIDRM;	/* Interrupt object deleted while pending. */
-		else if (xnthread_test_flags(&task->thread_base, XNTIMEO))
+		else if (xnthread_test_info(&task->thread_base, XNTIMEO))
 			err = -ETIMEDOUT;	/* Timeout. */
-		else if (xnthread_test_flags(&task->thread_base, XNBREAK))
+		else if (xnthread_test_info(&task->thread_base, XNBREAK))
 			err = -EINTR;	/* Unblocked. */
 		else
 			err = intr->pending;
@@ -3616,26 +3616,6 @@ static int __rt_pipe_stream(struct task_struct *curr, struct pt_regs *regs)
 	return err;
 }
 
-/*
- * int __rt_pipe_flush(RT_PIPE_PLACEHOLDER *ph)
- */
-
-static int __rt_pipe_flush(struct task_struct *curr, struct pt_regs *regs)
-{
-	RT_PIPE_PLACEHOLDER ph;
-	RT_PIPE *pipe;
-
-	if (!__xn_access_ok(curr, VERIFY_READ, __xn_reg_arg1(regs), sizeof(ph)))
-		return -EFAULT;
-
-	__xn_copy_from_user(curr, &ph, (void __user *)__xn_reg_arg1(regs),
-			    sizeof(ph));
-
-	pipe = (RT_PIPE *)xnregistry_fetch(ph.opaque);
-
-	return pipe ? rt_pipe_flush(pipe) : -ESRCH;
-}
-
 #else /* !CONFIG_XENO_OPT_NATIVE_PIPE */
 
 #define __rt_pipe_create   __rt_call_not_available
@@ -3644,7 +3624,6 @@ static int __rt_pipe_flush(struct task_struct *curr, struct pt_regs *regs)
 #define __rt_pipe_read     __rt_call_not_available
 #define __rt_pipe_write    __rt_call_not_available
 #define __rt_pipe_stream   __rt_call_not_available
-#define __rt_pipe_flush    __rt_call_not_available
 
 #endif /* CONFIG_XENO_OPT_NATIVE_PIPE */
 
@@ -3749,8 +3728,8 @@ static xnsysent_t __systab[] = {
 	[__native_mutex_create] = {&__rt_mutex_create, __xn_exec_any},
 	[__native_mutex_bind] = {&__rt_mutex_bind, __xn_exec_conforming},
 	[__native_mutex_delete] = {&__rt_mutex_delete, __xn_exec_any},
-	[__native_mutex_lock] = {&__rt_mutex_lock, __xn_exec_primary},
-	[__native_mutex_unlock] = {&__rt_mutex_unlock, __xn_exec_primary},
+	[__native_mutex_acquire] = {&__rt_mutex_acquire, __xn_exec_primary},
+	[__native_mutex_release] = {&__rt_mutex_release, __xn_exec_primary},
 	[__native_mutex_inquire] = {&__rt_mutex_inquire, __xn_exec_any},
 	[__native_cond_create] = {&__rt_cond_create, __xn_exec_any},
 	[__native_cond_bind] = {&__rt_cond_bind, __xn_exec_conforming},
@@ -3794,7 +3773,7 @@ static xnsysent_t __systab[] = {
 	[__native_pipe_read] = {&__rt_pipe_read, __xn_exec_primary},
 	[__native_pipe_write] = {&__rt_pipe_write, __xn_exec_any},
 	[__native_pipe_stream] = {&__rt_pipe_stream, __xn_exec_any},
-	[__native_pipe_flush] = {&__rt_pipe_flush, __xn_exec_any},
+	[__native_unimp_89] = {&__rt_call_not_available, __xn_exec_any},
 	[__native_misc_get_io_region] =
 	    {&__rt_misc_get_io_region, __xn_exec_lostage},
 	[__native_misc_put_io_region] =
@@ -3806,7 +3785,7 @@ static xnsysent_t __systab[] = {
 static void __shadow_delete_hook(xnthread_t *thread)
 {
 	if (xnthread_get_magic(thread) == XENO_SKIN_MAGIC &&
-	    thread->mapped)
+	    xnthread_test_state(thread, XNMAPPED))
 		xnshadow_unmap(thread);
 }
 

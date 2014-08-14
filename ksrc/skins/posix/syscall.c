@@ -304,7 +304,14 @@ static int __pthread_getschedparam(struct task_struct *curr,
 
 static int __sched_yield(struct task_struct *curr, struct pt_regs *regs)
 {
-	return -sched_yield();
+	pthread_t thread = thread2pthread(xnshadow_thread(curr));
+	struct sched_param param;
+	int policy;
+
+	pthread_getschedparam(thread, &policy, &param);
+	sched_yield();
+
+	return policy == SCHED_OTHER;
 }
 
 static int __pthread_make_periodic_np(struct task_struct *curr,
@@ -2066,6 +2073,8 @@ static int __mq_notify(struct task_struct *curr, struct pt_regs *regs)
 	return 0;
 }
 
+#ifdef CONFIG_XENO_OPT_POSIX_INTR
+
 static int __pse51_intr_handler(xnintr_t *cookie)
 {
 	pthread_intr_t intr = PTHREAD_IDESC(cookie);
@@ -2162,11 +2171,11 @@ static int __intr_wait(struct task_struct *curr, struct pt_regs *regs)
 
 		xnsynch_sleep_on(&intr->synch_base, timeout);
 
-		if (xnthread_test_flags(thread, XNRMID))
+		if (xnthread_test_info(thread, XNRMID))
 			err = -EIDRM;	/* Interrupt object deleted while pending. */
-		else if (xnthread_test_flags(thread, XNTIMEO))
+		else if (xnthread_test_info(thread, XNTIMEO))
 			err = -ETIMEDOUT;	/* Timeout. */
-		else if (xnthread_test_flags(thread, XNBREAK))
+		else if (xnthread_test_info(thread, XNBREAK))
 			err = -EINTR;	/* Unblocked. */
 		else {
 			err = intr->pending;
@@ -2191,6 +2200,15 @@ static int __intr_control(struct task_struct *curr, struct pt_regs *regs)
 
 	return !err ? 0 : -thread_get_errno();
 }
+
+#else /* !CONFIG_XENO_OPT_POSIX_INTR */
+
+#define __intr_attach  __pse51_call_not_available
+#define __intr_detach  __pse51_call_not_available
+#define __intr_wait    __pse51_call_not_available
+#define __intr_control __pse51_call_not_available
+
+#endif /* !CONFIG_XENO_OPT_POSIX_INTR */
 
 static int __timer_create(struct task_struct *curr, struct pt_regs *regs)
 {
@@ -2291,6 +2309,8 @@ static int __timer_getoverrun(struct task_struct *curr, struct pt_regs *regs)
 
 	return rc >= 0 ? rc : -thread_get_errno();
 }
+
+#ifdef CONFIG_XENO_OPT_POSIX_SHM
 
 /* shm_open(name, oflag, mode, ufd) */
 static int __shm_open(struct task_struct *curr, struct pt_regs *regs)
@@ -2591,6 +2611,23 @@ static int __munmap_epilogue(struct task_struct *curr, struct pt_regs *regs)
 
 	return !err ? 0 : -thread_get_errno();
 }
+#else /* !CONFIG_XENO_OPT_POSIX_SHM */
+
+#define __shm_open        __pse51_call_not_available
+#define __shm_unlink      __pse51_call_not_available
+#define __shm_close       __pse51_call_not_available
+#define __ftruncate       __pse51_call_not_available
+#define __mmap_prologue   __pse51_call_not_available
+#define __mmap_epilogue   __pse51_call_not_available
+#define __munmap_prologue __pse51_call_not_available
+#define __munmap_epilogue __pse51_call_not_available
+
+#endif /* !CONFIG_XENO_OPT_POSIX_SHM */
+
+int __pse51_call_not_available(struct task_struct *curr, struct pt_regs *regs)
+{
+	return -ENOSYS;
+}
 
 #if 0
 int __itimer_set(struct task_struct *curr, struct pt_regs *regs)
@@ -2670,11 +2707,6 @@ int __itimer_get(struct task_struct *curr, struct pt_regs *regs)
 	return 0;
 }
 #endif
-
-int __pse51_call_not_available(struct task_struct *curr, struct pt_regs *regs)
-{
-	return -ENOSYS;
-}
 
 static xnsysent_t __systab[] = {
 	[__pse51_thread_create] = {&__pthread_create, __xn_exec_init},
@@ -2775,10 +2807,10 @@ static xnsysent_t __systab[] = {
 static void __shadow_delete_hook(xnthread_t *thread)
 {
 	if (xnthread_get_magic(thread) == PSE51_SKIN_MAGIC &&
-	    testbits(thread->status, XNSHADOW)) {
+	    xnthread_test_state(thread, XNSHADOW)) {
 		pthread_t k_tid = thread2pthread(thread);
 		__pthread_unhash(&k_tid->hkey);
-		if (thread->mapped)
+		if (xnthread_test_state(thread, XNMAPPED))
 			xnshadow_unmap(thread);
 	}
 }
@@ -2795,30 +2827,38 @@ static void *pse51_eventcb(int event, void *data)
 			return ERR_PTR(-ENOSPC);
 
 		initq(&q->kqueues.condq);
+#ifdef CONFIG_XENO_OPT_POSIX_INTR
 		initq(&q->kqueues.intrq);
+#endif /* CONFIG_XENO_OPT_POSIX_INTR */
 		initq(&q->kqueues.mutexq);
 		initq(&q->kqueues.semq);
 		initq(&q->kqueues.threadq);
 		initq(&q->kqueues.timerq);
 		pse51_assocq_init(&q->uqds);
 		pse51_assocq_init(&q->usems);
+#ifdef CONFIG_XENO_OPT_POSIX_SHM
 		pse51_assocq_init(&q->umaps);
 		pse51_assocq_init(&q->ufds);
+#endif /* CONFIG_XENO_OPT_POSIX_SHM */
 		
 		return &q->ppd;
 		
 	case XNSHADOW_CLIENT_DETACH:
 		q = ppd2queues((xnshadow_ppd_t *) data);
 
+#ifdef CONFIG_XENO_OPT_POSIX_SHM
 		pse51_shm_ufds_cleanup(q);
 		pse51_shm_umaps_cleanup(q);
+#endif /* CONFIG_XENO_OPT_POSIX_SHM */
 		pse51_sem_usems_cleanup(q);
 		pse51_mq_uqds_cleanup(q);
 		pse51_timerq_cleanup(&q->kqueues);
 		pse51_threadq_cleanup(&q->kqueues);
 		pse51_semq_cleanup(&q->kqueues);
 		pse51_mutexq_cleanup(&q->kqueues);
+#ifdef CONFIG_XENO_OPT_POSIX_INTR
 		pse51_intrq_cleanup(&q->kqueues);
+#endif /* CONFIG_XENO_OPT_POSIX_INTR */
 		pse51_condq_cleanup(&q->kqueues);
 		
 		xnarch_sysfree(q, sizeof(*q));

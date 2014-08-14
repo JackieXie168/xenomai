@@ -52,9 +52,10 @@ static xnqueue_t timer_freeq;
 
 static struct pse51_timer timer_pool[PSE51_TIMER_MAX];
 
-static void pse51_base_timer_handler(void *cookie)
+static void pse51_base_timer_handler(xntimer_t *xntimer)
 {
-	struct pse51_timer *timer = (struct pse51_timer *)cookie;
+	struct pse51_timer *timer =
+		container_of(xntimer, struct pse51_timer, timerbase);
 
 	if (timer->queued) {
 		if (timer->overruns < DELAYTIMER_MAX)
@@ -166,7 +167,7 @@ int timer_create(clockid_t clockid,
 		timer->si.info.si_value.sival_int = (timer - timer_pool);
 	}
 
-	xntimer_init(&timer->timerbase, &pse51_base_timer_handler, timer);
+	xntimer_init(&timer->timerbase, &pse51_base_timer_handler);
 
 	timer->overruns = 0;
 	timer->owner = NULL;
@@ -519,9 +520,9 @@ void pse51_timerq_cleanup(pse51_kqueues_t *q)
 		timer_t tm = (timer_t) (link2tm(holder, link) - timer_pool);
 		pse51_timer_delete_inner(tm, q);
 		xnlock_put_irqrestore(&nklock, s);
-#ifdef CONFIG_XENO_OPT_DEBUG
+#if XENO_DEBUG(POSIX)
 		xnprintf("Posix timer %u deleted\n", (unsigned) tm);
-#endif /* CONFIG_XENO_OPT_DEBUG */
+#endif /* XENO_DEBUG(POSIX) */
 		xnlock_get_irqsave(&nklock, s);
 	}
 

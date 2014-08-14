@@ -45,7 +45,8 @@ static void vrtxtask_delete_hook(xnthread_t *thread)
 		vrtx_put_id(vrtx_task_idmap, task->tid);
 
 	vrtx_mark_deleted(task);
-	xnfree(task);
+
+	xnfreesafe(&task->threadbase, task, &task->link);
 }
 
 int vrtxtask_init(u_long stacksize)
@@ -299,7 +300,7 @@ void sc_tpriority(int tid, int prio, int *errp)
 	if (prio ==
 	    vrtx_denormalized_prio(xnthread_base_priority(&task->threadbase))) {
 		/* Allow a round-robin effect if newprio == oldprio... */
-		if (!xnthread_test_flags(&task->threadbase, XNBOOST))
+		if (!xnthread_test_state(&task->threadbase, XNBOOST))
 			/* ...unless the thread is PIP-boosted. */
 			xnpod_resume_thread(&task->threadbase, 0);
 	} else
@@ -421,7 +422,7 @@ void sc_tsuspend(int tid, int opt, int *errp)
 				xnpod_suspend_thread(&task->threadbase,
 						     XNSUSP, XN_INFINITE, NULL);
 
-				if (xnthread_test_flags(&task->threadbase, XNBREAK))
+				if (xnthread_test_info(&task->threadbase, XNBREAK))
 					*errp = -EINTR;
 			}
 		}
@@ -455,7 +456,7 @@ void sc_tsuspend(int tid, int opt, int *errp)
 
 	xnpod_suspend_thread(&task->threadbase, XNSUSP, XN_INFINITE, NULL);
 
-	if (xnthread_test_flags(&task->threadbase, XNBREAK))
+	if (xnthread_test_info(&task->threadbase, XNBREAK))
 		*errp = -EINTR;
 
       unlock_and_exit:
@@ -516,7 +517,7 @@ TCB *sc_tinquiry(int pinfo[], int tid, int *errp)
 	 * sc_tinquiry.  we can set TCBSTAT only before each suspending
 	 * call and correct it here if the task has been resumed  */
 
-	if (!(testbits(task->threadbase.status, XNTHREAD_BLOCK_BITS)))
+	if (!(testbits(task->threadbase.state, XNTHREAD_BLOCK_BITS)))
 		tcb->TCBSTAT = 0;
 
 	pinfo[0] = task->tid;

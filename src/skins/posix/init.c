@@ -26,6 +26,8 @@
 #include <posix/posix.h>
 #include <posix/syscall.h>
 #include <rtdm/syscall.h>
+#include <asm-generic/bits/bind.h>
+#include <asm-generic/bits/mlock_alert.h>
 
 int __pse51_muxid = -1;
 int __rtdm_muxid = -1;
@@ -41,12 +43,12 @@ void __init_posix_interface(void)
 	int muxid, err;
 
 	__pse51_muxid =
-	    xeno_user_skin_init(PSE51_SKIN_MAGIC, "POSIX", "xeno_posix");
+	    xeno_bind_skin(PSE51_SKIN_MAGIC, "POSIX", "xeno_posix");
 
 	muxid = XENOMAI_SYSBIND(RTDM_SKIN_MAGIC,
 				XENOMAI_FEAT_DEP, XENOMAI_ABI_REV, NULL);
 	if (muxid > 0) {
-		__rtdm_muxid = muxid;
+		__rtdm_muxid = __xn_mux_shifted_id(muxid);
 		__rtdm_fd_start = FD_SETSIZE - XENOMAI_SKINCALL0(__rtdm_muxid,
 								 __rtdm_fdcount);
 	}
@@ -67,10 +69,12 @@ void __init_posix_interface(void)
 		exit(EXIT_FAILURE);
 	}
 
+#ifndef CONFIG_XENO_POSIX_AUTO_MLOCKALL
 	if (munlockall()) {
 		perror("Xenomai Posix skin init: munlockall");
 		exit(EXIT_FAILURE);
 	}
+#endif /* !CONFIG_XENO_POSIX_AUTO_MLOCKALL */
 
 	if (!fork_handler_registered) {
 		err = pthread_atfork(NULL, NULL, &__init_posix_interface);

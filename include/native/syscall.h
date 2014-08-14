@@ -69,8 +69,8 @@
 #define __native_mutex_create       43
 #define __native_mutex_bind         44
 #define __native_mutex_delete       45
-#define __native_mutex_lock         46
-#define __native_mutex_unlock       47
+#define __native_mutex_acquire      46
+#define __native_mutex_release      47
 #define __native_mutex_inquire      48
 #define __native_cond_create        49
 #define __native_cond_bind          50
@@ -112,7 +112,7 @@
 #define __native_pipe_read          86
 #define __native_pipe_write         87
 #define __native_pipe_stream        88
-#define __native_pipe_flush         89
+#define __native_unimp_89           89
 #define __native_misc_get_io_region 90
 #define __native_misc_put_io_region 91
 #define __native_timer_ns2tsc       92
@@ -142,10 +142,6 @@ void __native_syscall_cleanup(void);
 #ifdef __cplusplus
 }
 #endif
-
-#elif !defined(__XENO_SIM__)
-
-#include <nucleus/bind.h>
 
 #endif /* __KERNEL__ */
 

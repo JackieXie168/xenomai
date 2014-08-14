@@ -35,7 +35,6 @@
 #include <linux/slab.h>
 #include <linux/errno.h>
 #include <linux/module.h>
-#include <linux/interrupt.h>
 #include <linux/console.h>
 #include <asm/system.h>
 #include <asm/hardirq.h>
@@ -95,7 +94,7 @@ void rthal_timer_release(void)
     if (rthal_periodic_p)
         rthal_reset_timer();
     else
-        __ipipe_mach_set_dec(__ipipe_mach_ticks_per_jiffy);
+        __ipipe_mach_release_timer();
 
     rthal_irq_release(RTHAL_TIMER_IRQ);
 
@@ -110,9 +109,7 @@ unsigned long rthal_timer_calibrate(void)
 }
 
 int rthal_irq_host_request(unsigned irq,
-                           irqreturn_t(*handler) (int irq,
-                                                  void *dev_id,
-                                                  struct pt_regs *regs),
+                           rthal_irq_host_handler_t handler,
                            char *name, void *dev_id)
 {
     unsigned long flags;

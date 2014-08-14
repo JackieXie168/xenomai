@@ -42,7 +42,7 @@
  * requests ranging from the maximum page size to twice this size.
  */
 
-#if defined(__KERNEL__) || defined(__XENO_UVM__) || defined(__XENO_SIM__)
+#if defined(__KERNEL__) || defined(__XENO_SIM__)
 
 #define XNHEAP_MINLOG2    3
 #define XNHEAP_MAXLOG2    22
@@ -57,47 +57,47 @@
 
 typedef struct xnextent {
 
-    xnholder_t link;
+	xnholder_t link;
 
 #define link2extent(laddr) \
 ((xnextent_t *)(((char *)laddr) - (int)(&((xnextent_t *)0)->link)))
 
-    caddr_t membase,	/* Base address of the page array */
-	    memlim,	/* Memory limit of page array */
-	    freelist;	/* Head of the free page list */
+	caddr_t membase,	/* Base address of the page array */
+		memlim,		/* Memory limit of page array */
+		freelist;	/* Head of the free page list */
 
-    u_char pagemap[1];	/* Beginning of page map */
+	u_char pagemap[1];	/* Beginning of page map */
 
 } xnextent_t;
 
 typedef struct xnheap {
 
-    xnholder_t link;
+	xnholder_t link;
 
 #define link2heap(laddr) \
 ((xnheap_t *)(((char *)laddr) - (int)(&((xnheap_t *)0)->link)))
 
-    u_long extentsize,
-           pagesize,
-           pageshift,
-	   hdrsize,
-	   npages,	/* Number of pages per extent */
-	   ubytes,
-           maxcont;
+	u_long extentsize,
+		pagesize,
+		pageshift,
+		hdrsize,
+		npages,		/* Number of pages per extent */
+		ubytes,
+		maxcont;
 
-    xnqueue_t extents;
+	xnqueue_t extents;
 
 #ifdef CONFIG_SMP
-    xnlock_t lock;
+	xnlock_t lock;
 #endif /* CONFIG_SMP */
 
-    caddr_t buckets[XNHEAP_NBUCKETS];
+	caddr_t buckets[XNHEAP_NBUCKETS];
 
-    xnholder_t *idleq;
+	xnholder_t *idleq;
 
-    xnarch_heapcb_t archdep;
+	xnarch_heapcb_t archdep;
 
-    XNARCH_DECL_DISPLAY_CONTEXT();
+	XNARCH_DECL_DISPLAY_CONTEXT();
 
 } xnheap_t;
 
@@ -129,7 +129,7 @@ do { \
 static inline size_t xnheap_rounded_size (size_t hsize, size_t psize)
 {
 	/* Account for the overhead so that the actual heap space is
-	   large enough to match the requested size. Using a large
+	   large enough to match the requested size. Using a small
 	   page size for large single-block heaps might reserve a lot
 	   of useless page map memory, but this should never get
 	   pathological anyway, since we are only consuming 1 byte per
@@ -216,7 +216,7 @@ int xnheap_check_block(xnheap_t *heap,
 }
 #endif
 
-#endif /* __KERNEL__ || __XENO_UVM__ || __XENO_SIM__ */
+#endif /* __KERNEL__ || __XENO_SIM__ */
 
 #define XNHEAP_DEV_NAME  "/dev/rtheap"
 

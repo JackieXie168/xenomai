@@ -49,7 +49,7 @@
 <a name="l00020"></a>00020 <span class="preprocessor">#ifndef _XENO_NUCLEUS_COMPILER_H</span>
 <a name="l00021"></a>00021 <span class="preprocessor"></span><span class="preprocessor">#define _XENO_NUCLEUS_COMPILER_H</span>
 <a name="l00022"></a>00022 <span class="preprocessor"></span>
-<a name="l00023"></a>00023 <span class="preprocessor">#if __GNUC__ &gt; 3 || (__GNUC__ == 3 &amp;&amp; __GNUC_MINOR__ &gt; 0)</span>
+<a name="l00023"></a>00023 <span class="preprocessor">#if !defined(__IN_XENOMAI__) &amp;&amp; (__GNUC__ &gt; 3 || (__GNUC__ == 3 &amp;&amp; __GNUC_MINOR__ &gt; 0))</span>
 <a name="l00024"></a>00024 <span class="preprocessor"></span><span class="preprocessor">#define __deprecated_call__             __attribute__((deprecated))</span>
 <a name="l00025"></a>00025 <span class="preprocessor"></span><span class="preprocessor">#if defined(__KERNEL__) || defined(__XENO_SIM__)</span>
 <a name="l00026"></a>00026 <span class="preprocessor"></span><span class="preprocessor">#define __deprecated_call_in_user__</span>
@@ -58,7 +58,7 @@
 <a name="l00029"></a>00029 <span class="preprocessor">#define __deprecated_call_in_user__     __deprecated_call__</span>
 <a name="l00030"></a>00030 <span class="preprocessor"></span><span class="preprocessor">#define __deprecated_call_in_kernel__</span>
 <a name="l00031"></a>00031 <span class="preprocessor"></span><span class="preprocessor">#endif </span><span class="comment">/* __KERNEL__ || __XENO_SIM__ */</span>
-<a name="l00032"></a>00032 <span class="preprocessor">#else </span><span class="comment">/* !(__GNUC__ &gt; 3 || (__GNUC__ == 3 &amp;&amp; __GNUC_MINOR__ &gt; 0)) */</span>
+<a name="l00032"></a>00032 <span class="preprocessor">#else </span><span class="comment">/* __IN_XENOMAI__ || !(__GNUC__ &gt; 3 || (__GNUC__ == 3 &amp;&amp; __GNUC_MINOR__ &gt; 0)) */</span>
 <a name="l00033"></a>00033 <span class="preprocessor">#define __deprecated_call__</span>
 <a name="l00034"></a>00034 <span class="preprocessor"></span><span class="preprocessor">#define __deprecated_call_in_user__</span>
 <a name="l00035"></a>00035 <span class="preprocessor"></span><span class="preprocessor">#define __deprecated_call_in_kernel__</span>
@@ -74,7 +74,7 @@
 <a name="l00045"></a>00045 <span class="preprocessor"></span><span class="preprocessor">#endif </span><span class="comment">/* !defined(likely) */</span>
 <a name="l00046"></a>00046 
 <a name="l00047"></a>00047 <span class="preprocessor">#endif </span><span class="comment">/* !_XENO_NUCLEUS_COMPILER_H */</span>
-</pre></div><hr size="1"><address style="align: right;"><small>Generated on Tue Mar 20 10:02:18 2007 for Xenomai API by&nbsp;
+</pre></div><hr size="1"><address style="align: right;"><small>Generated on Mon Dec 25 13:57:10 2006 for Xenomai API by&nbsp;
 <a href="http://www.doxygen.org/index.html">
 <img src="doxygen.png" alt="doxygen" align="middle" border="0"></a> 1.4.6 </small></address>
 </body>

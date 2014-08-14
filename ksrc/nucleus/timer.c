@@ -42,11 +42,10 @@
  *
  *@{*/
 
-#define XENO_TIMER_MODULE 1
-
 #include <nucleus/pod.h>
 #include <nucleus/thread.h>
 #include <nucleus/timer.h>
+#include <asm/xenomai/bits/timer.h>
 
 static inline void xntimer_enqueue_aperiodic(xntimer_t *timer)
 {
@@ -99,20 +98,15 @@ static void xntimer_do_start_aperiodic(xntimer_t *timer,
 	if (!testbits(timer->status, XNTIMER_DEQUEUED))
 		xntimer_dequeue_aperiodic(timer);
 
-	if (value != XN_INFINITE) {
-		xntimerh_date(&timer->aplink) =
-		    xnarch_get_cpu_tsc() + xnarch_ns_to_tsc(value);
-		timer->interval = xnarch_ns_to_tsc(interval);
-		xntimer_enqueue_aperiodic(timer);
-		if (xntimer_heading_p(timer)) {
-			if (xntimer_sched(timer) != xnpod_current_sched())
-				xntimer_next_remote_shot(xntimer_sched(timer));
-			else
-				xntimer_next_local_shot(xntimer_sched(timer));
-		}
-	} else {
-		xntimerh_date(&timer->aplink) = XN_INFINITE;
-		timer->interval = XN_INFINITE;
+	xntimerh_date(&timer->aplink) =
+	    xnarch_get_cpu_tsc() + xnarch_ns_to_tsc(value);
+	timer->interval = xnarch_ns_to_tsc(interval);
+	xntimer_enqueue_aperiodic(timer);
+	if (xntimer_heading_p(timer)) {
+		if (xntimer_sched(timer) != xnpod_current_sched())
+			xntimer_next_remote_shot(xntimer_sched(timer));
+		else
+			xntimer_next_local_shot(xntimer_sched(timer));
 	}
 }
 
@@ -217,7 +211,7 @@ static void xntimer_do_tick_aperiodic(void)
 
 		if (timer != &nkpod->htimer) {
 			if (!testbits(nkpod->status, XNTLOCK)) {
-				timer->handler(timer->cookie);
+				timer->handler(timer);
 
 				if (timer->interval == XN_INFINITE ||
 				    !testbits(timer->status, XNTIMER_DEQUEUED)
@@ -303,14 +297,9 @@ static void xntimer_do_start_periodic(xntimer_t *timer,
 	if (!testbits(timer->status, XNTIMER_DEQUEUED))
 		xntimer_dequeue_periodic(timer);
 
-	if (value != XN_INFINITE) {
-		xntlholder_date(&timer->plink) = nkpod->jiffies + value;
-		timer->interval = interval;
-		xntimer_enqueue_periodic(timer);
-	} else {
-		xntlholder_date(&timer->plink) = XN_INFINITE;
-		timer->interval = XN_INFINITE;
-	}
+	xntlholder_date(&timer->plink) = nkpod->jiffies + value;
+	timer->interval = interval;
+	xntimer_enqueue_periodic(timer);
 }
 
 static void xntimer_do_stop_periodic(xntimer_t *timer)
@@ -398,7 +387,7 @@ static void xntimer_do_tick_periodic(void)
 
 		if (timer != &nkpod->htimer) {
 			if (!testbits(nkpod->status, XNTLOCK)) {
-				timer->handler(timer->cookie);
+				timer->handler(timer);
 
 				if (timer->interval == XN_INFINITE ||
 				    !testbits(timer->status, XNTIMER_DEQUEUED)
@@ -472,7 +461,7 @@ void xntimer_set_periodic_mode(void)
 #endif /* CONFIG_XENO_OPT_TIMING_PERIODIC */
 
 /*! 
- * \fn void xntimer_init(xntimer_t *timer,void (*handler)(void *cookie),void *cookie)
+ * \fn void xntimer_init(xntimer_t *timer,void (*handler)(xntimer_t *timer))
  * \brief Initialize a timer object.
  *
  * Creates a timer. When created, a timer is left disarmed; it must be
@@ -484,9 +473,6 @@ void xntimer_set_periodic_mode(void)
  * permanent memory.
  *
  * @param handler The routine to call upon expiration of the timer.
- *
- * @param cookie A user-defined opaque cookie the nucleus will pass
- * unmodified to the handler as its unique argument.
  *
  * There is no limitation on the number of timers which can be
  * created/active concurrently.
@@ -503,8 +489,7 @@ void xntimer_set_periodic_mode(void)
  * Rescheduling: never.
  */
 
-void xntimer_init(xntimer_t *timer,
-		  void (*handler) (void *cookie), void *cookie)
+void xntimer_init(xntimer_t *timer, void (*handler) (xntimer_t *timer))
 {
 	/* CAUTION: Setup from xntimer_init() must not depend on the
 	   periodic/aperiodic timing mode. */
@@ -518,7 +503,6 @@ void xntimer_init(xntimer_t *timer,
 	xntimer_set_priority(timer, XNTIMER_STDPRIO);
 	timer->status = XNTIMER_DEQUEUED;
 	timer->handler = handler;
-	timer->cookie = cookie;
 	timer->interval = 0;
 	timer->sched = xnpod_current_sched();
 
@@ -553,54 +537,6 @@ void xntimer_destroy(xntimer_t *timer)
 	xntimer_stop(timer);
 	__setbits(timer->status, XNTIMER_KILLED);
 	timer->sched = NULL;
-}
-
-/*! 
- * \fn void xntimer_start(xntimer_t *timer,xnticks_t value,xnticks_t interval)
- * \brief Arm a timer.
- *
- * Activates a timer so that the associated timeout handler will be
- * fired after each expiration time. A timer can be either periodic or
- * single-shot, depending on the reload value passed to this
- * routine. The given timer must have been previously initialized by a
- * call to xntimer_init().
- *
- * @param timer The address of a valid timer descriptor.
- *
- * @param value The relative date of the initial timer shot, expressed
- * in clock ticks (see note).
- *
- * @param interval The reload value of the timer. It is a periodic
- * interval value to be used for reprogramming the next timer shot,
- * expressed in clock ticks (see note). If @a interval is equal to
- * XN_INFINITE, the timer will not be reloaded after it has expired.
- *
- * @return 0 is always returned.
- *
- * Environments:
- *
- * This service can be called from:
- *
- * - Kernel module initialization/cleanup code
- * - Interrupt service routine
- * - Kernel-based task
- * - User-space task
- *
- * Rescheduling: never.
- *
- * @note This service is sensitive to the current operation mode of
- * the system timer, as defined by the xnpod_start_timer() service. In
- * periodic mode, clock ticks are interpreted as periodic jiffies. In
- * oneshot mode, clock ticks are interpreted as nanoseconds.
- */
-
-void xntimer_start(xntimer_t *timer, xnticks_t value, xnticks_t interval)
-{
-	spl_t s;
-
-	xnlock_get_irqsave(&nklock, s);
-	nktimer->do_timer_start(timer, value, interval);
-	xnlock_put_irqrestore(&nklock, s);
 }
 
 #if defined(CONFIG_SMP)
@@ -828,7 +764,6 @@ xntmops_t *nktimer = &timer_ops_aperiodic;
 
 EXPORT_SYMBOL(xntimer_init);
 EXPORT_SYMBOL(xntimer_destroy);
-EXPORT_SYMBOL(xntimer_start);
 #if defined(CONFIG_SMP)
 EXPORT_SYMBOL(xntimer_set_sched);
 #endif /* CONFIG_SMP */

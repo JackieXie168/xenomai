@@ -183,12 +183,12 @@ int pse51_node_get(pse51_node_t ** nodep,
 
 			cur = xnpod_current_thread();
 
-			if (xnthread_test_flags(cur, XNRMID)) {
+			if (xnthread_test_info(cur, XNRMID)) {
 				err = EAGAIN;
 				break;
 			}
 
-			if (xnthread_test_flags(cur, XNBREAK)) {
+			if (xnthread_test_info(cur, XNBREAK)) {
 				pse51_node_put(node);
 				return EINTR;
 			}
@@ -450,7 +450,7 @@ int pse51_reg_pkg_init(unsigned buckets_count, unsigned maxfds)
 	size = sizeof(pse51_node_t) * buckets_count +
 	    sizeof(pse51_desc_t) * maxfds + sizeof(long) * mapsize;
 
-	chunk = (char *)xnmalloc(size);
+	chunk = (char *)xnarch_sysalloc(size);
 	if (!chunk)
 		return ENOMEM;
 
@@ -484,21 +484,29 @@ int pse51_reg_pkg_init(unsigned buckets_count, unsigned maxfds)
 
 void pse51_reg_pkg_cleanup(void)
 {
+	size_t size;
 	unsigned i;
 	for (i = 0; i < pse51_reg.maxfds; i++)
 		if (pse51_reg.descs[i]) {
-#ifdef CONFIG_XENO_OPT_DEBUG
-			xnprintf("Posix: destroying descriptor %d.\n",i);
-#endif /* CONFIG_XENO_OPT_DEBUG */
+#if XENO_DEBUG(POSIX)
+			xnprintf("Posix: destroying descriptor %d.\n", i);
+#endif /* XENO_DEBUG(POSIX) */
 			pse51_desc_destroy(pse51_reg.descs[i]);
 		}
-#ifdef CONFIG_XENO_OPT_DEBUG
+#if XENO_DEBUG(POSIX)
 	for (i = 0; i < pse51_reg.buckets_count; i++) {
 		pse51_node_t *node;
-		for (node = pse51_reg.node_buckets[i]; node; node = node->next)
-			xnprintf("Posix: node \"%s\" left aside.\n", node->name);
+		for (node = pse51_reg.node_buckets[i];
+		     node;
+		     node = node->next)
+			xnprintf("Posix: node \"%s\" left aside.\n",
+				 node->name);
 	}
-#endif /* CONFIG_XENO_OPT_DEBUG */
+#endif /* XENO_DEBUG(POSIX) */
 
-	xnfree(pse51_reg.node_buckets);
+	size = sizeof(pse51_node_t) * pse51_reg.buckets_count
+		+ sizeof(pse51_desc_t) * pse51_reg.maxfds
+		+ sizeof(long) * pse51_reg.mapsz;
+
+	xnarch_sysfree(pse51_reg.node_buckets, size);
 }

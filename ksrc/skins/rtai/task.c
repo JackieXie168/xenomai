@@ -39,7 +39,7 @@ static void __task_delete_hook(xnthread_t *thread)
 
 	rtai_mark_deleted(task);
 
-	if (xnthread_test_flags(&task->thread_base, XNSHADOW))
+	if (xnthread_test_state(&task->thread_base, XNSHADOW))
 		xnfreesafe(&task->thread_base, task, &task->link);
 }
 
@@ -140,7 +140,7 @@ int rt_task_init(RT_TASK *task,
 	return err ? -EINVAL : 0;
 }
 
-int rt_task_resume(RT_TASK *task)
+int __rtai_task_resume(RT_TASK *task)
 {
 	int err = 0;
 	spl_t s;
@@ -166,7 +166,7 @@ int rt_task_resume(RT_TASK *task)
 	return err;
 }
 
-int rt_task_suspend(RT_TASK *task)
+int __rtai_task_suspend(RT_TASK *task)
 {
 	int err = 0;
 	spl_t s;
@@ -190,7 +190,7 @@ int rt_task_suspend(RT_TASK *task)
 	if (task->suspend_depth++ == 0) {
 		xnpod_suspend_thread(&task->thread_base,
 				     XNSUSP, XN_INFINITE, NULL);
-		if (xnthread_test_flags(&task->thread_base, XNBREAK))
+		if (xnthread_test_info(&task->thread_base, XNBREAK))
 		    err = -EINTR;
 	}
 
@@ -201,7 +201,7 @@ int rt_task_suspend(RT_TASK *task)
 	return err;
 }
 
-int rt_task_delete(RT_TASK *task)
+int __rtai_task_delete(RT_TASK *task)
 {
 	int err = 0;
 	spl_t s;
@@ -293,15 +293,15 @@ int rt_task_make_periodic(RT_TASK *task, RTIME start_time, RTIME period)
 	return err;
 }
 
-void rt_task_wait_period(void)
+void __rtai_task_wait_period(void)
 {
 	xnpod_wait_thread_period(NULL);
 }
 
 EXPORT_SYMBOL(rt_task_init);
-EXPORT_SYMBOL(rt_task_resume);
-EXPORT_SYMBOL(rt_task_suspend);
-EXPORT_SYMBOL(rt_task_delete);
+EXPORT_SYMBOL(__rtai_task_resume);
+EXPORT_SYMBOL(__rtai_task_suspend);
+EXPORT_SYMBOL(__rtai_task_delete);
 EXPORT_SYMBOL(rt_task_make_periodic_relative_ns);
 EXPORT_SYMBOL(rt_task_make_periodic);
-EXPORT_SYMBOL(rt_task_wait_period);
+EXPORT_SYMBOL(__rtai_task_wait_period);

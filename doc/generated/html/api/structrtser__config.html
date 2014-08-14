@@ -67,18 +67,18 @@ int&nbsp;</td><td class="memItemRight" valign="bottom"><a class="el" href="struc
 int&nbsp;</td><td class="memItemRight" valign="bottom"><a class="el" href="structrtser__config.html#5faa8ddcdeed03f5da72fe64d825fbf0">fifo_depth</a></td></tr>
 
 <tr><td class="mdescLeft">&nbsp;</td><td class="mdescRight">reception FIFO interrupt threshold, see <a class="el" href="group__rtserial.html#RTSER_FIFO_xxx">RTSER_FIFO_xxx</a> <br></td></tr>
-<tr><td class="memItemLeft" nowrap align="right" valign="top"><a class="anchor" name="9af27891d9d8f939860d0d47438bc492"></a><!-- doxytag: member="rtser_config::rx_timeout" ref="9af27891d9d8f939860d0d47438bc492" args="" -->
-int64_t&nbsp;</td><td class="memItemRight" valign="bottom"><a class="el" href="structrtser__config.html#9af27891d9d8f939860d0d47438bc492">rx_timeout</a></td></tr>
+<tr><td class="memItemLeft" nowrap align="right" valign="top"><a class="anchor" name="a8eb74102424c5623a38e030ff337dcd"></a><!-- doxytag: member="rtser_config::rx_timeout" ref="a8eb74102424c5623a38e030ff337dcd" args="" -->
+<a class="el" href="group__rtdm.html#gededf91e760e3268235351dcc9d9dcda">nanosecs_rel_t</a>&nbsp;</td><td class="memItemRight" valign="bottom"><a class="el" href="structrtser__config.html#a8eb74102424c5623a38e030ff337dcd">rx_timeout</a></td></tr>
 
-<tr><td class="mdescLeft">&nbsp;</td><td class="mdescRight">reception timeout in ns, see <a class="el" href="group__rtserial.html#RTSER_TIMEOUT_xxx">RTSER_TIMEOUT_xxx</a> for special values <br></td></tr>
-<tr><td class="memItemLeft" nowrap align="right" valign="top"><a class="anchor" name="b25d5cb719facc0ac7bc77cd2f209cc0"></a><!-- doxytag: member="rtser_config::tx_timeout" ref="b25d5cb719facc0ac7bc77cd2f209cc0" args="" -->
-int64_t&nbsp;</td><td class="memItemRight" valign="bottom"><a class="el" href="structrtser__config.html#b25d5cb719facc0ac7bc77cd2f209cc0">tx_timeout</a></td></tr>
+<tr><td class="mdescLeft">&nbsp;</td><td class="mdescRight">reception timeout, see <a class="el" href="group__rtserial.html#RTSER_TIMEOUT_xxx">RTSER_TIMEOUT_xxx</a> for special values <br></td></tr>
+<tr><td class="memItemLeft" nowrap align="right" valign="top"><a class="anchor" name="ed6d0fa7c04609143f86add774c400e5"></a><!-- doxytag: member="rtser_config::tx_timeout" ref="ed6d0fa7c04609143f86add774c400e5" args="" -->
+<a class="el" href="group__rtdm.html#gededf91e760e3268235351dcc9d9dcda">nanosecs_rel_t</a>&nbsp;</td><td class="memItemRight" valign="bottom"><a class="el" href="structrtser__config.html#ed6d0fa7c04609143f86add774c400e5">tx_timeout</a></td></tr>
 
-<tr><td class="mdescLeft">&nbsp;</td><td class="mdescRight">transmission timeout in ns, see <a class="el" href="group__rtserial.html#RTSER_TIMEOUT_xxx">RTSER_TIMEOUT_xxx</a> for special values <br></td></tr>
-<tr><td class="memItemLeft" nowrap align="right" valign="top"><a class="anchor" name="46644e233fbbe1c7e901584ac42de100"></a><!-- doxytag: member="rtser_config::event_timeout" ref="46644e233fbbe1c7e901584ac42de100" args="" -->
-int64_t&nbsp;</td><td class="memItemRight" valign="bottom"><a class="el" href="structrtser__config.html#46644e233fbbe1c7e901584ac42de100">event_timeout</a></td></tr>
+<tr><td class="mdescLeft">&nbsp;</td><td class="mdescRight">transmission timeout, see <a class="el" href="group__rtserial.html#RTSER_TIMEOUT_xxx">RTSER_TIMEOUT_xxx</a> for special values <br></td></tr>
+<tr><td class="memItemLeft" nowrap align="right" valign="top"><a class="anchor" name="f4f58135d0258420dd9eb2b8fc07269a"></a><!-- doxytag: member="rtser_config::event_timeout" ref="f4f58135d0258420dd9eb2b8fc07269a" args="" -->
+<a class="el" href="group__rtdm.html#gededf91e760e3268235351dcc9d9dcda">nanosecs_rel_t</a>&nbsp;</td><td class="memItemRight" valign="bottom"><a class="el" href="structrtser__config.html#f4f58135d0258420dd9eb2b8fc07269a">event_timeout</a></td></tr>
 
-<tr><td class="mdescLeft">&nbsp;</td><td class="mdescRight">event timeout in ns, see <a class="el" href="group__rtserial.html#RTSER_TIMEOUT_xxx">RTSER_TIMEOUT_xxx</a> for special values <br></td></tr>
+<tr><td class="mdescLeft">&nbsp;</td><td class="mdescRight">event timeout, see <a class="el" href="group__rtserial.html#RTSER_TIMEOUT_xxx">RTSER_TIMEOUT_xxx</a> for special values <br></td></tr>
 <tr><td class="memItemLeft" nowrap align="right" valign="top"><a class="anchor" name="98288843bb8f8488c63fa4f17b8e5187"></a><!-- doxytag: member="rtser_config::timestamp_history" ref="98288843bb8f8488c63fa4f17b8e5187" args="" -->
 int&nbsp;</td><td class="memItemRight" valign="bottom"><a class="el" href="structrtser__config.html#98288843bb8f8488c63fa4f17b8e5187">timestamp_history</a></td></tr>
 
@@ -90,7 +90,7 @@ int&nbsp;</td><td class="memItemRight" valign="bottom"><a class="el" href="struc
 </table>
 <hr>The documentation for this struct was generated from the following file:<ul>
 <li>include/rtdm/<a class="el" href="rtserial_8h-source.html">rtserial.h</a></ul>
-<hr size="1"><address style="align: right;"><small>Generated on Tue Mar 20 10:02:19 2007 for Xenomai API by&nbsp;
+<hr size="1"><address style="align: right;"><small>Generated on Mon Dec 25 13:57:10 2006 for Xenomai API by&nbsp;
 <a href="http://www.doxygen.org/index.html">
 <img src="doxygen.png" alt="doxygen" align="middle" border="0"></a> 1.4.6 </small></address>
 </body>

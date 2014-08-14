@@ -148,8 +148,6 @@ static inline __attribute_const__ unsigned long ffnz (unsigned long ul)
 
 #define RTHAL_NMICLK_FREQ	RTHAL_CPU_FREQ
 
-#define rthal_irq_descp(irq)  (irq_desc + irq)
-
 static inline void rthal_grab_control(void)
 {
     rthal_smi_init();

@@ -314,7 +314,7 @@ Resolve file descriptor to device context.
   </table>
 </dl>
 <dl compact><dt><b>Returns:</b></dt><dd>Pointer to associated device context, or NULL on error</dd></dl>
-<dl compact><dt><b>Note:</b></dt><dd>The device context has to be unlocked using rtdm_context_unlock() when it is no longer referenced.</dd></dl>
+<dl compact><dt><b>Note:</b></dt><dd>The device context has to be unlocked using <a class="el" href="group__interdrv.html#ga48a3e04fd74cec81691d5d2187d7ef2">rtdm_context_unlock()</a> when it is no longer referenced.</dd></dl>
 Environments:<p>
 This service can be called from:<p>
 <ul>
@@ -396,7 +396,7 @@ Decrement context reference counter.
     <tr><td valign="top"><tt>[in]</tt>&nbsp;</td><td valign="top"><em>context</em>&nbsp;</td><td>Device context</td></tr>
   </table>
 </dl>
-<dl compact><dt><b>Note:</b></dt><dd>Every successful call to <a class="el" href="group__interdrv.html#g99e8509f4c8b404f0d5795b575d4c9cb">rtdm_context_get()</a> must be matched by a rtdm_context_unlock() invocation.</dd></dl>
+<dl compact><dt><b>Note:</b></dt><dd>Every successful call to <a class="el" href="group__interdrv.html#g99e8509f4c8b404f0d5795b575d4c9cb">rtdm_context_get()</a> must be matched by a <a class="el" href="group__interdrv.html#ga48a3e04fd74cec81691d5d2187d7ef2">rtdm_context_unlock()</a> invocation.</dd></dl>
 Environments:<p>
 This service can be called from:<p>
 <ul>
@@ -1281,7 +1281,7 @@ Depends on driver implementation, see <a class="el" href="group__profiles.html">
 Rescheduling: possible.     </td>
   </tr>
 </table>
-<hr size="1"><address style="align: right;"><small>Generated on Tue Mar 20 10:02:19 2007 for Xenomai API by&nbsp;
+<hr size="1"><address style="align: right;"><small>Generated on Mon Dec 25 13:57:11 2006 for Xenomai API by&nbsp;
 <a href="http://www.doxygen.org/index.html">
 <img src="doxygen.png" alt="doxygen" align="middle" border="0"></a> 1.4.6 </small></address>
 </body>

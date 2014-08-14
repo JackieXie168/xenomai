@@ -42,9 +42,7 @@
 extern "C" {
 #endif
 
-
 extern int __rtdm_muxid;
-
 
 int __init rtdm_syscall_init(void);
 

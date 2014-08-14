@@ -32,7 +32,6 @@
 #include <linux/slab.h>
 #include <linux/errno.h>
 #include <linux/module.h>
-#include <linux/interrupt.h>
 #include <linux/console.h>
 #include <linux/kallsyms.h>
 #include <asm/system.h>
@@ -485,7 +484,8 @@ void rthal_apc_kicker(unsigned virq, void *cookie)
  * threaded IRQ model.
  *
  * @param name is a symbolic name identifying the APC which will get
- * reported through the /proc/xenomai/apc interface.
+ * reported through the /proc/xenomai/apc interface. Passing NULL to
+ * create an anonymous APC is allowed.
  *
  * @param handler The address of the fault handler to call upon
  * exception condition. The handle will be passed the @a cookie value
@@ -622,25 +622,9 @@ static int hal_read_proc(char *page,
 {
     int len, major, minor, patchlevel;
 
-#ifdef CONFIG_IPIPE
     major = IPIPE_MAJOR_NUMBER;
     minor = IPIPE_MINOR_NUMBER;
     patchlevel = IPIPE_PATCH_NUMBER;
-#else /* !CONFIG_IPIPE */
-    /* Canonicalize the Adeos relno-candidate information to some
-       major.minor.patchlevel format to be parser-friendly. */
-
-    major = ADEOS_MAJOR_NUMBER;
-
-    if (ADEOS_MINOR_NUMBER < 255) {
-        --major;
-        minor = 99;
-        patchlevel = ADEOS_MINOR_NUMBER;
-    } else {
-        minor = 0;
-        patchlevel = 0;
-    }
-#endif /* CONFIG_IPIPE */
 
     len = sprintf(page, "%d.%d-%.2d\n", major, minor, patchlevel);
     len -= off;
@@ -719,7 +703,8 @@ static int apc_read_proc(char *page,
             p += sprintf(p, "%12lu", rthal_apc_table[apc].hits[cpu]);
         }
 
-        p += sprintf(p, "    (%s)", rthal_apc_table[apc].name);
+	if (rthal_apc_table[apc].name)
+	    p += sprintf(p, "    (%s)", rthal_apc_table[apc].name);
     }
 
     p += sprintf(p, "\n");
@@ -795,12 +780,6 @@ static void rthal_proc_unregister(void)
 int rthal_init(void)
 {
     int err;
-
-#ifdef CONFIG_SMP
-    /* The nucleus also sets the same CPU affinity so that both
-       modules keep their execution sequence on SMP boxen. */
-    set_cpus_allowed(current, cpumask_of_cpu(0));
-#endif /* CONFIG_SMP */
 
     err = rthal_arch_init();
 
@@ -900,12 +879,6 @@ int rthal_init(void)
 
 void rthal_exit(void)
 {
-#ifdef CONFIG_SMP
-    /* The nucleus also sets the same CPU affinity so that both
-       modules keep their execution sequence on SMP boxen. */
-    set_cpus_allowed(current, cpumask_of_cpu(0));
-#endif /* CONFIG_SMP */
-
 #ifdef CONFIG_PROC_FS
     rthal_proc_unregister();
 #endif /* CONFIG_PROC_FS */

@@ -28,10 +28,10 @@
  * Queue services.
  *
  * Message queueing is a method by which real-time tasks can exchange
- * or pass data through a xeno-managed queue of messages. Messages can
- * vary in length and be assigned different types or usages. A message
- * queue can be created by one task and used by multiple tasks that
- * send and/or receive messages to the queue.
+ * or pass data through a Xenomai-managed queue of messages. Messages
+ * can vary in length and be assigned different types or usages. A
+ * message queue can be created by one task and used by multiple tasks
+ * that send and/or receive messages to the queue.
  *
  * This implementation is based on a zero-copy scheme for message
  * buffers. Message buffer pools are built over the nucleus's heap
@@ -56,9 +56,10 @@ static int __queue_read_proc(char *page,
 	int len;
 	spl_t s;
 
-	p += sprintf(p, "type=%s:poolsz=%lu:limit=%d:mcount=%d\n",
+	p += sprintf(p, "type=%s:poolsz=%lu:usedmem=%lu:limit=%d:mcount=%d\n",
 		     q->mode & Q_SHARED ? "shared" : "local",
-		     xnheap_usable_mem(&q->bufpool), q->qlimit, countq(&q->pendq));
+		     xnheap_usable_mem(&q->bufpool), xnheap_used_mem(&q->bufpool),
+		     q->qlimit, countq(&q->pendq));
 
 	xnlock_get_irqsave(&nklock, s);
 
@@ -819,11 +820,11 @@ ssize_t rt_queue_receive(RT_QUEUE *q, void **bufp, RTIME timeout)
 
 		task = xeno_current_task();
 
-		if (xnthread_test_flags(&task->thread_base, XNRMID))
+		if (xnthread_test_info(&task->thread_base, XNRMID))
 			err = -EIDRM;	/* Queue deleted while pending. */
-		else if (xnthread_test_flags(&task->thread_base, XNTIMEO))
+		else if (xnthread_test_info(&task->thread_base, XNTIMEO))
 			err = -ETIMEDOUT;	/* Timeout. */
-		else if (xnthread_test_flags(&task->thread_base, XNBREAK))
+		else if (xnthread_test_info(&task->thread_base, XNBREAK))
 			err = -EINTR;	/* Unblocked. */
 		else {
 			msg = task->wait_args.qmsg;
@@ -987,6 +988,7 @@ int rt_queue_inquire(RT_QUEUE *q, RT_QUEUE_INFO *info)
 	info->nmessages = countq(&q->pendq);
 	info->qlimit = q->qlimit;
 	info->poolsize = xnheap_usable_mem(&q->bufpool);
+	info->usedmem = xnheap_used_mem(&q->bufpool);
 	info->mode = q->mode;
 
       unlock_and_exit:
@@ -1036,6 +1038,12 @@ int rt_queue_inquire(RT_QUEUE *q, RT_QUEUE_INFO *info)
  * - -EPERM is returned if this service should block, but was called
  * from a context which cannot sleep (e.g. interrupt, non-realtime or
  * scheduler locked).
+ *
+ * - -ENOENT is returned if the special file /dev/rtheap
+ * (character-mode, major 10, minor 254) is not available from the
+ * filesystem. This device is needed to map the memory pool used by
+ * the shared queue into the caller's address space. udev-based
+ * systems should not need manual creation of such device entry.
  *
  * Environments:
  *

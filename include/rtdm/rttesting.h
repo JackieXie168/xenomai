@@ -23,7 +23,7 @@
 
 /*!
  * @ingroup profiles
- * @defgroup rttesting Testing Device
+ * @defgroup rttesting Testing Devices
  *
  * This group of devices is intended to provide in-kernel testing results.
  * Feel free to comment on this profile via the Xenomai mailing list
@@ -77,6 +77,7 @@ typedef struct rttst_overall_bench_res {
     long                    *histogram_avg;
     long                    *histogram_min;
     long                    *histogram_max;
+    void                    *__padding; /* align to dwords on 32-bit archs */
 } rttst_overall_bench_res_t;
 
 
@@ -85,8 +86,8 @@ typedef struct rttst_overall_bench_res {
 
 typedef struct rttst_tmbench_config {
     int                     mode;
-    uint64_t                period;
     int                     priority;
+    nanosecs_rel_t          period;
     int                     warmup_loops;
     int                     histogram_size;
     int                     histogram_bucketsize;

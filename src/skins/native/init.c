@@ -24,6 +24,8 @@
 #include <pthread.h>
 #include <native/syscall.h>
 #include <native/task.h>
+#include <asm-generic/bits/bind.h>
+#include <asm-generic/bits/mlock_alert.h>
 
 pthread_key_t __native_tskey;
 
@@ -39,7 +41,7 @@ static __attribute__ ((constructor))
 void __init_xeno_interface(void)
 {
 	__native_muxid =
-	    xeno_user_skin_init(XENO_SKIN_MAGIC, "native", "xeno_native");
+	    xeno_bind_skin(XENO_SKIN_MAGIC, "native", "xeno_native");
 
 	/* Allocate a TSD key for indexing self task pointers. */
 

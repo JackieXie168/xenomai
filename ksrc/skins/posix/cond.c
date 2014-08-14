@@ -296,9 +296,9 @@ int pse51_cond_timedwait_prologue(xnthread_t *cur,
 
 	err = 0;
 
-	if (xnthread_test_flags(cur, XNBREAK))
+	if (xnthread_test_info(cur, XNBREAK))
 		err = EINTR;
-	else if (xnthread_test_flags(cur, XNTIMEO))
+	else if (xnthread_test_info(cur, XNTIMEO))
 		err = ETIMEDOUT;
 
       unlock_and_return:
@@ -561,11 +561,10 @@ void pse51_condq_cleanup(pse51_kqueues_t *q)
 	while ((holder = getheadq(&q->condq)) != NULL) {
 		cond_destroy_internal(link2cond(holder), q);
 		xnlock_put_irqrestore(&nklock, s);
-#ifdef CONFIG_XENO_OPT_DEBUG
-		xnprintf
-		    ("Posix: destroying condition variable %p.\n",
-		     link2cond(holder));
-#endif /* CONFIG_XENO_OPT_DEBUG */
+#if XENO_DEBUG(POSIX)
+		xnprintf("Posix: destroying condition variable %p.\n",
+			 link2cond(holder));
+#endif /* XENO_DEBUG(POSIX) */
 		xnlock_get_irqsave(&nklock, s);
 	}
 

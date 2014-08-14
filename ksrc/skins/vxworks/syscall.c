@@ -116,6 +116,8 @@ static int __wind_task_init(struct task_struct *curr, struct pt_regs *regs)
 
 	if (taskInit(task, name, prio, flags, NULL, 0, NULL,
 		     0, 0, 0, 0, 0, 0, 0, 0, 0, 0) == OK) {
+		/* Let the skin discard the TCB memory upon exit. */
+		task->auto_delete = 1;
 		/* Copy back the registry handle to the ph struct. */
 		ph.handle = xnthread_handle(&task->threadbase);
 		__xn_copy_to_user(curr, (void __user *)__xn_reg_arg2(regs), &ph,
@@ -678,7 +680,7 @@ static int __wind_taskinfo_status(struct task_struct *curr,
 		return S_objLib_OBJ_ID_ERROR;
 	}
 
-	status = xnthread_status_flags(&pTcb->threadbase);
+	status = xnthread_state_flags(&pTcb->threadbase);
 
 	xnlock_put_irqrestore(&nklock, s);
 
@@ -1168,10 +1170,10 @@ static int __wind_wd_wait(struct task_struct *curr, struct pt_regs *regs)
 
 	xnsynch_sleep_on(&wd->synchbase, XN_INFINITE);
 
-	if (xnthread_test_flags(&pTcb->threadbase, XNRMID))
-		err = -EIDRM;	/* Watchdog deleted while pending. */
-	else if (xnthread_test_flags(&pTcb->threadbase, XNBREAK))
+	if (xnthread_test_info(&pTcb->threadbase, XNBREAK))
 		err = -EINTR;	/* Unblocked. */
+	else if (xnthread_test_info(&pTcb->threadbase, XNRMID))
+		err = -EIDRM;	/* Watchdog deleted while pending. */
 	else
 		__xn_copy_to_user(curr, (void __user *)__xn_reg_arg2(regs),
 				  &wd->wdt, sizeof(wd->wdt));
@@ -1250,7 +1252,7 @@ static xnsysent_t __systab[] = {
 static void __shadow_delete_hook(xnthread_t *thread)
 {
 	if (xnthread_get_magic(thread) == VXWORKS_SKIN_MAGIC &&
-	    thread->mapped)
+	    xnthread_test_state(thread, XNMAPPED))
 		xnshadow_unmap(thread);
 }
 

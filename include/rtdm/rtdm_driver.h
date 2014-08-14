@@ -99,9 +99,9 @@ struct rtdm_dev_context;
 
 
 /*!
- * @anchor versioning @name Versioning
- * Current revisions of RTDM structures and interfaces, encoding of driver
- * versions.
+ * @anchor drv_versioning @name Driver Versioning
+ * Current revisions of RTDM structures, encoding of driver versions. See
+ * @ref api_versioning "API Versioning" for the interface revision.
  * @{
  */
 /** Version of struct rtdm_device */
@@ -109,12 +109,6 @@ struct rtdm_dev_context;
 
 /** Version of struct rtdm_dev_context */
 #define RTDM_CONTEXT_STRUCT_VER     3
-
-/** Driver API version */
-#define RTDM_API_VER                4
-
-/** Minimum API revision compatible with the current release */
-#define RTDM_API_MIN_COMPAT_VER     4
 
 /** Flag indicating a secure variant of RTDM (not supported here) */
 #define RTDM_SECURE_DEVICE          0x80000000
@@ -131,7 +125,7 @@ struct rtdm_dev_context;
 
 /** Get patch version number from driver revision code */
 #define RTDM_DRIVER_PATCH_VER(ver)  ((ver) & 0xFF)
-/** @} Versioning */
+/** @} Driver Versioning */
 
 
 /*!
@@ -343,7 +337,7 @@ struct rtdm_operations {
  * RTDM takes care of its creation and destruction and passes it to the
  * operation handlers when being invoked.
  *
- * Driver get attach arbitrary data immediately after the official structure.
+ * Drivers can attach arbitrary data immediately after the official structure.
  * The size of this data is provided via rtdm_device.context_size during
  * device registration.
  */
@@ -358,7 +352,7 @@ struct rtdm_dev_context {
     /** Set of active device operation handlers */
     struct rtdm_operations          *ops;
     /** Reference to owning device */
-    volatile struct rtdm_device     *device;
+    struct rtdm_device              *device;
     /** Begin of driver defined context data structure */
     char                            dev_private[0];
 };
@@ -378,7 +372,7 @@ struct rtdm_dev_reserved {
  */
 struct rtdm_device {
     /** Revision number of this structure, see
-     *  @ref versioning "Versioning" defines */
+     *  @ref drv_versioning "Driver Versioning" defines */
     int                             struct_version;
 
     /** Device flags, see @ref dev_flags "Device Flags" for details */
@@ -418,7 +412,7 @@ struct rtdm_device {
     int                             device_sub_class;
     /** Informational driver name (reported via /proc) */
     const char                      *driver_name;
-    /** Driver version, see @ref versioning "Versioning" defines */
+    /** Driver version, see @ref drv_versioning "Driver Versioning" defines */
     int                             driver_version;
     /** Informational peripheral name the device is attached to
      *  (reported via /proc) */
@@ -471,6 +465,7 @@ int rtdm_dev_unregister(struct rtdm_device* device, unsigned int poll_delay);
 
 struct rtdm_dev_context *rtdm_context_get(int fd);
 
+#ifndef DOXYGEN_CPP /* Avoid static inline tags for RTDM in doxygen */
 static inline void rtdm_context_lock(struct rtdm_dev_context *context)
 {
     atomic_inc(&context->close_lock_count);
@@ -483,10 +478,11 @@ static inline void rtdm_context_unlock(struct rtdm_dev_context *context)
 
 
 /* --- clock services --- */
-static inline uint64_t rtdm_clock_read(void)
+static inline nanosecs_abs_t rtdm_clock_read(void)
 {
     return xnpod_ticks2ns(xnpod_get_time());
 }
+#endif /* !DOXYGEN_CPP */
 
 
 /* --- spin lock services --- */
@@ -550,10 +546,10 @@ static inline uint64_t rtdm_clock_read(void)
 /**
  * Static lock initialisation
  */
-#define RTDM_LOCK_UNLOCKED          SPIN_LOCK_UNLOCKED
+#define RTDM_LOCK_UNLOCKED          RTHAL_SPIN_LOCK_UNLOCKED
 
 /** Lock variable */
-typedef spinlock_t                  rtdm_lock_t;
+typedef rthal_spinlock_t            rtdm_lock_t;
 
 /** Variable to save the context while holding a lock */
 typedef unsigned long               rtdm_lockctx_t;
@@ -573,7 +569,7 @@ typedef unsigned long               rtdm_lockctx_t;
  *
  * Rescheduling: never.
  */
-#define rtdm_lock_init(lock)        spin_lock_init(lock)
+#define rtdm_lock_init(lock)        rthal_spin_lock_init(lock)
 
 /**
  * Acquire lock from non-preemptible contexts
@@ -753,6 +749,7 @@ typedef int (*rtdm_irq_handler_t)(rtdm_irq_t *irq_handle);
 #define rtdm_irq_get_arg(irq_handle, type)  ((type *)irq_handle->cookie)
 /** @} rtdmirq */
 
+#ifndef DOXYGEN_CPP /* Avoid static inline tags for RTDM in doxygen */
 static inline int rtdm_irq_request(rtdm_irq_t *irq_handle,
                                    unsigned int irq_no,
                                    rtdm_irq_handler_t handler,
@@ -778,6 +775,7 @@ static inline int rtdm_irq_disable(rtdm_irq_t *irq_handle)
 {
     return xnintr_disable(irq_handle);
 }
+#endif /* !DOXYGEN_CPP */
 
 
 /* --- non-real-time signalling services --- */
@@ -802,6 +800,7 @@ typedef void (*rtdm_nrtsig_handler_t)(rtdm_nrtsig_t nrt_sig);
 /** @} nrtsignal */
 
 
+#ifndef DOXYGEN_CPP /* Avoid static inline tags for RTDM in doxygen */
 static inline int rtdm_nrtsig_init(rtdm_nrtsig_t *nrt_sig,
                                    rtdm_nrtsig_handler_t handler)
 {
@@ -824,6 +823,7 @@ static inline void rtdm_nrtsig_pend(rtdm_nrtsig_t *nrt_sig)
 {
     rthal_trigger_irq(*nrt_sig);
 }
+#endif /* !DOXYGEN_CPP */
 
 
 /* --- task and timing services --- */
@@ -862,8 +862,9 @@ typedef void (*rtdm_task_proc_t)(void *arg);
 
 int rtdm_task_init(rtdm_task_t *task, const char *name,
                    rtdm_task_proc_t task_proc, void *arg,
-                   int priority, uint64_t period);
+                   int priority, nanosecs_rel_t period);
 
+#ifndef DOXYGEN_CPP /* Avoid static inline tags for RTDM in doxygen */
 static inline void rtdm_task_destroy(rtdm_task_t *task)
 {
     xnpod_delete_thread(task);
@@ -877,8 +878,11 @@ static inline void rtdm_task_set_priority(rtdm_task_t *task, int priority)
     xnpod_schedule();
 }
 
-static inline int rtdm_task_set_period(rtdm_task_t *task, uint64_t period)
+static inline int rtdm_task_set_period(rtdm_task_t *task,
+                                       nanosecs_rel_t period)
 {
+    if (period < 0)
+        period = 0;
     return xnpod_set_thread_periodic(task, XN_INFINITE,
                                      xnpod_ns2ticks(period));
 }
@@ -901,20 +905,24 @@ static inline int rtdm_task_wait_period(void)
     XENO_ASSERT(RTDM, !xnpod_unblockable_p(), return -EPERM;);
     return xnpod_wait_thread_period(NULL);
 }
+#endif /* !DOXYGEN_CPP */
 
-int rtdm_task_sleep(uint64_t delay);
-int rtdm_task_sleep_until(uint64_t wakeup_time);
-void rtdm_task_busy_sleep(uint64_t delay);
+int rtdm_task_sleep(nanosecs_rel_t delay);
+int rtdm_task_sleep_until(nanosecs_abs_t wakeup_time);
+void rtdm_task_busy_sleep(nanosecs_rel_t delay);
 
 
 /* --- timeout sequences */
 
-typedef uint64_t                    rtdm_toseq_t;
+typedef nanosecs_abs_t              rtdm_toseq_t;
 
-static inline void rtdm_toseq_init(rtdm_toseq_t *timeout_seq, int64_t timeout)
+#ifndef DOXYGEN_CPP /* Avoid static inline tags for RTDM in doxygen */
+static inline void rtdm_toseq_init(rtdm_toseq_t *timeout_seq,
+                                   nanosecs_rel_t timeout)
 {
     *timeout_seq = xnpod_get_time() + xnpod_ns2ticks(timeout);
 }
+#endif /* !DOXYGEN_CPP */
 
 
 /* --- event services --- */
@@ -925,6 +933,7 @@ typedef struct {
 
 #define RTDM_EVENT_PENDING          XNSYNCH_SPARE1
 
+#ifndef DOXYGEN_CPP /* Avoid static inline tags for RTDM in doxygen */
 static inline void rtdm_event_init(rtdm_event_t *event, unsigned long pending)
 {
     xnsynch_init(&event->synch_base, XNSYNCH_PRIO);
@@ -939,15 +948,16 @@ static inline void rtdm_event_destroy(rtdm_event_t *event)
     _rtdm_synch_flush(&event->synch_base, XNRMID);
 }
 
-int rtdm_event_wait(rtdm_event_t *event);
-int rtdm_event_timedwait(rtdm_event_t *event, int64_t timeout,
-                         rtdm_toseq_t *timeout_seq);
-void rtdm_event_signal(rtdm_event_t *event);
-
 static inline void rtdm_event_pulse(rtdm_event_t *event)
 {
     _rtdm_synch_flush(&event->synch_base, 0);
 }
+#endif /* !DOXYGEN_CPP */
+
+int rtdm_event_wait(rtdm_event_t *event);
+int rtdm_event_timedwait(rtdm_event_t *event, nanosecs_rel_t timeout,
+                         rtdm_toseq_t *timeout_seq);
+void rtdm_event_signal(rtdm_event_t *event);
 
 void rtdm_event_clear(rtdm_event_t *event);
 
@@ -959,6 +969,7 @@ typedef struct {
     xnsynch_t                       synch_base;
 } rtdm_sem_t;
 
+#ifndef DOXYGEN_CPP /* Avoid static inline tags for RTDM in doxygen */
 static inline void rtdm_sem_init(rtdm_sem_t *sem, unsigned long value)
 {
     sem->value = value;
@@ -969,9 +980,10 @@ static inline void rtdm_sem_destroy(rtdm_sem_t *sem)
 {
     _rtdm_synch_flush(&sem->synch_base, XNRMID);
 }
+#endif /* !DOXYGEN_CPP */
 
 int rtdm_sem_down(rtdm_sem_t *sem);
-int rtdm_sem_timeddown(rtdm_sem_t *sem, int64_t timeout,
+int rtdm_sem_timeddown(rtdm_sem_t *sem, nanosecs_rel_t timeout,
                        rtdm_toseq_t *timeout_seq);
 void rtdm_sem_up(rtdm_sem_t *sem);
 
@@ -982,6 +994,7 @@ typedef struct {
     xnsynch_t                       synch_base;
 } rtdm_mutex_t;
 
+#ifndef DOXYGEN_CPP /* Avoid static inline tags for RTDM in doxygen */
 static inline void rtdm_mutex_init(rtdm_mutex_t *mutex)
 {
     xnsynch_init(&mutex->synch_base, XNSYNCH_PRIO|XNSYNCH_PIP);
@@ -992,10 +1005,6 @@ static inline void rtdm_mutex_destroy(rtdm_mutex_t *mutex)
     _rtdm_synch_flush(&mutex->synch_base, XNRMID);
 }
 
-int rtdm_mutex_lock(rtdm_mutex_t *mutex);
-int rtdm_mutex_timedlock(rtdm_mutex_t *mutex, int64_t timeout,
-                         rtdm_toseq_t *timeout_seq);
-
 static inline void rtdm_mutex_unlock(rtdm_mutex_t *mutex)
 {
     XENO_ASSERT(RTDM, !xnpod_asynch_p(), return;);
@@ -1003,12 +1012,18 @@ static inline void rtdm_mutex_unlock(rtdm_mutex_t *mutex)
     if (unlikely(xnsynch_wakeup_one_sleeper(&mutex->synch_base) != NULL))
         xnpod_schedule();
 }
+#endif /* !DOXYGEN_CPP */
+
+int rtdm_mutex_lock(rtdm_mutex_t *mutex);
+int rtdm_mutex_timedlock(rtdm_mutex_t *mutex, nanosecs_rel_t timeout,
+                         rtdm_toseq_t *timeout_seq);
 
 
 /* --- utility functions --- */
 
 #define rtdm_printk(format, ...)    printk(format, ##__VA_ARGS__)
 
+#ifndef DOXYGEN_CPP /* Avoid static inline tags for RTDM in doxygen */
 static inline void *rtdm_malloc(size_t size)
 {
     return xnmalloc(size);
@@ -1019,10 +1034,17 @@ static inline void rtdm_free(void *ptr)
     xnfree(ptr);
 }
 
-int rtdm_mmap_to_user(rtdm_user_info_t *user_info, void *src_addr, size_t len,
+#ifdef CONFIG_XENO_OPT_PERVASIVE
+int rtdm_mmap_to_user(rtdm_user_info_t *user_info,
+                      void *src_addr, size_t len,
                       int prot, void **pptr,
                       struct vm_operations_struct *vm_ops,
                       void *vm_private_data);
+int rtdm_iomap_to_user(rtdm_user_info_t *user_info,
+                       unsigned long src_addr, size_t len,
+                       int prot, void **pptr,
+                       struct vm_operations_struct *vm_ops,
+                       void *vm_private_data);
 int rtdm_munmap(rtdm_user_info_t *user_info, void *ptr, size_t len);
 
 static inline int rtdm_read_user_ok(rtdm_user_info_t *user_info,
@@ -1044,11 +1066,27 @@ static inline int rtdm_copy_from_user(rtdm_user_info_t *user_info,
     return __xn_copy_from_user(user_info, dst, src, size) ? -EFAULT : 0;
 }
 
+static inline int rtdm_safe_copy_from_user(rtdm_user_info_t *user_info,
+                                           void *dst, const void __user *src,
+                                           size_t size)
+{
+    return (!__xn_access_ok(user_info, VERIFY_READ, src, size) ||
+            __xn_copy_from_user(user_info, dst, src, size)) ? -EFAULT : 0;
+}
+
 static inline int rtdm_copy_to_user(rtdm_user_info_t *user_info,
                                     void __user *dst, const void *src,
                                     size_t size)
 {
     return __xn_copy_to_user(user_info, dst, src, size) ? -EFAULT : 0;
+}
+
+static inline int rtdm_safe_copy_to_user(rtdm_user_info_t *user_info,
+                                         void __user *dst, const void *src,
+                                         size_t size)
+{
+    return (!__xn_access_ok(user_info, VERIFY_WRITE, dst, size) ||
+            __xn_copy_to_user(user_info, dst, src, size)) ? -EFAULT : 0;
 }
 
 static inline int rtdm_strncpy_from_user(rtdm_user_info_t *user_info,
@@ -1060,11 +1098,24 @@ static inline int rtdm_strncpy_from_user(rtdm_user_info_t *user_info,
         return -EFAULT;
     return __xn_strncpy_from_user(user_info, dst, src, count);
 }
+#else /* !CONFIG_XENO_OPT_PERVASIVE */
+/* Define void user<->kernel services that simply fail */
+#define rtdm_mmap_to_user(...)          ({ -ENOSYS; })
+#define rtdm_munmap(...)                ({ -ENOSYS; })
+#define rtdm_read_user_ok(...)          ({ 0; })
+#define rtdm_rw_user_ok(...)            ({ 0; })
+#define rtdm_copy_from_user(...)        ({ -ENOSYS; })
+#define rtdm_safe_copy_from_user(...)   ({ -ENOSYS; })
+#define rtdm_copy_to_user(...)          ({ -ENOSYS; })
+#define rtdm_safe_copy_to_user(...)     ({ -ENOSYS; })
+#define rtdm_strncpy_from_user(...)     ({ -ENOSYS; })
+#endif /* CONFIG_XENO_OPT_PERVASIVE */
 
 static inline int rtdm_in_rt_context(void)
 {
     return (rthal_current_domain != rthal_root_domain);
 }
+#endif /* !DOXYGEN_CPP */
 
 int rtdm_exec_in_rt(struct rtdm_dev_context *context,
                     rtdm_user_info_t *user_info, void *arg,

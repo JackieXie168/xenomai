@@ -1,21 +1,111 @@
-2007-03-20  Philippe Gerum  <rpm@xenomai.org>
+2006-12-26  Philippe Gerum  <rpm@xenomai.org>
 
- 	* RELEASE: Xenomai 2.2.6 (Starry Night)
+	* RELEASE: Xenomai 2.3 (Baroque)
 
 2006-12-25  Philippe Gerum  <rpm@xenomai.org>
+
+	* ksrc/arch/ia64/patches: Upgrade to 2.6.16-1.4-00.
+
+	* include/asm-ia64/wrappers.h: Include missing <linux/interrupt.h>.
+
+	* include/asm-ia64/atomic.h: Define xnarch_atomic_xchg() in kernel
+	section.
 
 	* ksrc/nucleus/pod.c (xnpod_preempt_current_thread): Check
 	scheduling hook value in the simulation case.
 
+	* ksrc/arch/blackfin/patches: Upgrade to bf53x-CVS-20061215-1.6-00
+	(2.6.18-based).
+
+	* ksrc/arch/i386/patches: Upgrade to 2.6.19-1.6-03, and
+	2.4.34-1.3-01.
+
+2006-12-24  Philippe Gerum  <rpm@xenomai.org>
+
+	* include/asm-blackfin/syscall.h: Add weak placeholders for
+	shm_open and shm_unlink.
+
+2006-12-21  Sebastian Smolorz <ssm@emlix.com>, Gilles Chanteperdrix  <gilles.chanteperdrix@laposte.net>
+
+	* ksrc/arch/arm/patches: Upgrade to 2.6.{14,15}-1.5-03, adding
+	support for the Samsung S3C24xx platform and the tracer.
+
+	* ksrc/arch/arm/hal.c (rthal_timer_release): Use
+	new __ipipe_mach_release_timer() service.
+
+2006-12-18  Wolfgang Grandegger  <wg@grandegger.com>
+
+         * ksrc/arch/powerpc/patches: Upgrade to 2.6.14-ppc-1.5-02,
+	 2.6.18-ppc-1.5-01 and 2.6.19-ppc-1.5-01. These patches fix the
+	 problems with PIC for Galileo's GT64260 reported by Antonio
+	 Barbalace and add support for 2.6.19.
+
+2006-12-18  Jan Kiszka  <jan.kiszka@web.de>
+
+	* scripts/xeno-test.in, src/testsuite/*: Install testsuite binaries
+	to $(exec_prefix)/bin and related start scripts with runinfos to
+	$(exec_prefix)/share/xenomai/testsuite.
+
+	* src/testsuite/cyclic/cyclictest.c: Clean shutdown of multiple
+	threads (patch by Pavel Pisa's against original cyclictest). Set
+	default top priority to 99.
+
+2006-12-17  Philippe Gerum  <rpm@xenomai.org>
+
+	* RELEASE: Xenomai 2.3-rc3
+
+2006-12-17  Philippe Gerum  <rpm@xenomai.org>
+
+	* include/asm-blackfin, ksrc/arch/blackfin: Upgrade to Blackfin
+	CVS head (>= 2.6.18).
+
+2006-12-10  Thomas Necker <Thomas.Necker@marconi.com>
+
+	* src/skins/psos+/tm.c, ksrc/skins/psos+/syscall.c: Implement
+	timer-related calls.
+
+2006-12-14  Philippe Gerum  <rpm@xenomai.org>
+
+	* include/nucleus/pod.h: Move xnprint* wrappers to
+	nucleus/types.h, since we need them early in the include stack.
+
+	* include/nucleus/assert.h: Include nucleus/types.h instead of
+	nucleus/compiler.h, since we depend on arch-dependent definitions.
+
+	* ksrc/arch/i386/hal.c (rthal_irq_end): Use I-pipe's interrupt end
+	call available with 2.6.19 and beyond.
+
+	* ksrc/arch/i386/patches: Upgrade to 2.6.19-1.6-02.
+
+2006-12-10  Thomas Necker <Thomas.Necker@marconi.com>
+
+	* ksrc/skins/psos+/syscall.c, src/skins/psos+/sem.c: Add sm_p()
+	and sm_v() services.
+
+2006-12-10  Philippe Gerum  <rpm@xenomai.org>
+
+	* ksrc/skins/psos+: Remove useless xnpod_unblockable_p() checks.
+
 2006-12-09  Gilles Chanteperdrix  <gilles.chanteperdrix@laposte.net>, Philippe Gerum  <rpm@xenomai.org>
 
-	* ksrc/skins/*/syscall.c (__shadow_delete_hook): Do not call
-	xnshadow_unmap() for unmapped threads.
+	* ksrc/skins/*/syscall.c (__shadow_delete_hook): Only call
+	xnshadow_unmap() for mapped threads (XNMAPPED bit set).
+
+2006-12-09  Philippe Gerum  <rpm@xenomai.org>
+
+	* include/nucleus/thread.h: Split the former single status word in
+	now separate state and info bitmasks. Add XNMAPPED bit to flag
+	mapped shadows.
 
 2006-12-08  Philippe Gerum  <rpm@xenomai.org>, Jan Kiszka  <jan.kiszka@web.de>
 
 	* ksrc/nucleus/shadow.c (xnshadow_harden): Add scheduling tail
 	callout. Use it to fix the "lost ioperm" issue on x86.
+
+2006-12-08  Philippe Gerum  <rpm@xenomai.org>
+
+	* ksrc/skins/native/queue.c (__queue_read_proc, rt_queue_inquire):
+	Return amount of pool memory used.
 
 2006-12-08  Jan Kiszka <jan.kiszka@web.de>, Dmitry Adamushko  <dmitry.adamushko@gmail.com>:
 
@@ -28,12 +118,63 @@
 	keeping irqs disabled while updating rthal_apc_pending and
 	scheduling the virq. Clean up the return code.
 
+2006-12-04  Philippe Gerum  <rpm@xenomai.org>
+
+	* ksrc/nucleus/pod.c (xnpod_schedule_runnable): Trace the target
+	thread instead of the active one.
+
+2006-12-03  Wolfgang Grandegger  <wg@grandegger.com>
+
+	* ksrc/drivers/can/rtcan_module.c,
+	ksrc/drivers/can/rtcan_raw.c,
+	ksrc/drivers/can/rtcan_raw.h,
+	ksrc/drivers/can/rtcan_raw_filter.c,
+	ksrc/drivers/can/rtcan_socket.c,
+	ksrc/drivers/can/rtcan_socket.h,
+	src/utils/can/rtcansend.c,
+	include/rtdm/rtcan.h: It is now possible to define an empty filter
+	list with setsockopt, which is recommanded for write-only sockets.
+
+2006-12-02  Jan Kiszka  <jan.kiszka@web.de>
+
+	* ksrc/nucleus, include/nucleus, ksrc/skins/posix: Use debug
+	assertions. Enhance granularity of debug options.
+	
+	* include/asm-generic/system.h: Decouple lock debugging from
+	runtime stats activation.
+	
+	* ksrc/skins/rtdm/Kconfig: Turn on debugging checks by default.
+	
+2006-12-02  Philippe Gerum  <rpm@xenomai.org>
+
+	* ksrc/arch/i386/patches: Upgrade to 2.6.19-1.6-01.
+
+2006-12-02  Jan Kiszka  <jan.kiszka@web.de>
+
+	* ksrc/arch/i386/nmi.c: Fix build against 2.6.19.
+
 2006-12-02  Jeff Webb <jeff.webb@nta-inc.net>
 
 	* ksrc/skins/posix/syscall.c (__pse51_sem_timed_wait): Fix return
 	code in the success case.
 
+2006-12-01  Philippe Gerum  <rpm@xenomai.org>
+
+	* ksrc/arch/i386/patches: Upgrade to 2.6.19.
+
+	* src/skins/native/mutex.c: Add actual rt_mutex_lock/unlock
+	wrappers to rt_mutex_acquire/release to resolve dynamic linking
+	properly for legacy builds.
+
+2006-11-30  Jan Kiszka  <jan.kiszka@web.de>
+
+	* ksrc/skins/rtdm/proc.c: Print driver names in named_devices and
+	protocol_devices /proc listings.
+
 2006-11-24  Philippe Gerum  <rpm@xenomai.org>
+
+	* ksrc/nucleus/heap.c (xnheap_free): Distinguish -EFAULT from
+	-EINVAL status upon block address error.
 
 	* ksrc/skins/vrtx/heap.c (heap_destroy_internal): Free heap
 	control block.
@@ -41,15 +182,75 @@
 	* src/skins/vxworks/taskLib.c (taskInit): Pass user-defined args
 	to the trampoline as expected.
 
-2006-11-23  Gilles Chanteperdrix <gilles.chanteperdrix@laposte.net>
+2006-11-24  Wolfgang Grandegger  <wg@grandegger.com>
+
+	* ksrc/drivers/can/README: Update list of supported CAN controllers
+	and boards.
+
+	* ksrc/drivers/can/rtcan_dev.h,
+	ksrc/drivers/can/rtcan_socket.h,
+	ksrc/drivers/can/rtcan_socket.c,
+	ksrc/drivers/can/rtcan_raw.c,
+	ksrc/drivers/can/rtcan_modules.c,
+	ksrc/drivers/can/rtcan_virt.c,
+	ksrc/drivers/can/sja1000/rtcan_sja1000.c,
+	ksrc/drivers/can/mscan/rtcan_mscan.c,
+	ksrc/drivers/can/Kconfig,
+	ksrc/drivers/can/Config.in,
+	src/utils/can/rtcansend.c,
+	include/rtdm/rtcan.h,: Add feature TX loopback to local sockets.
+
+	* ksrc/drivers/can/rtcan_raw.c,
+	ksrc/drivers/can/sja1000/rtcan_sja1000.c,
+	ksrc/drivers/can/mscan/rtcan_mscan.c: timestamps are now read and
+	copied in rtcan_recv() and rtcan_tx_loopbcak().
+
+	* ksrc/drivers/can/rtcan_raw.c, include/rtdm/rtcan.h:
+	Remove locks for the setting and reading of the RX and TX timeout
+	values and add a warning to the documentation.
+
+	* src/utils/rtcansend.c: use sendto() by default to avoid binding
+	a default filter and add option "-s" for using bind() and send().
+
+	* src/utils/rtcanrecv.c: add option "-R" for relative timestamps.
+
+	* ksrc/drivers/can/rtcan_internal.h: use now RTCAN_ASSERT macros
+	when CONFIG_XENO_DRIVERS_CAN_DEBUG is set.
+
+	* ksrc/drivers/can/mscan/Kconfig, ksrc/drivers/can/sja1000/Kconfig,
+	ksrc/drivers/can/Kconfig: add more help for kernel parameters.
+
+	* ksrc/drivers/can/rtcan_virt.c (rtcan_virt_init): fix bug in
+	cleanup code.
+
+	* ksrc/drivers/can/sja1000/rtcan_sja1000.c,
+	ksrc/drivers/can/sja1000/rtcan_isa.c,
+	ksrc/drivers/can/sja1000/rtcan_mem.c,
+	ksrc/drivers/can/sja1000/rtcan_peak_pci.c,
+	ksrc/drivers/can/sja1000/rtcan_peak_dng.c: Remove rtcan_dev_free()
+	from rtcan_sja1000_unregister() to allow proper cleanup after the
+	device has been unregistered.
+
+	* ksrc/drivers/can/sja1000/rtcan_ixxat_pci.c,
+	ksrc/drivers/can/sja1000/Kconfig,
+	ksrc/drivers/can/sja1000/Config.in,
+	ksrc/drivers/can/sja1000/Makefile: SJA1000 driver for IXXAT PCI
+	cards added.
+
+	* src/drivers/Makefile, ksrc/drivers/can/*, scripts/Modules.frag,
+	src/utils/can/README: Replace "rtcan" with "can" in macro definitions
+	CONFIG_XENO_DRIVERS_RTCAN_* and module names xeno_rtcan_* to comply to
+	the common naming scheme.
+
+2006-11-23  Gilles Chanteperdrix  <gilles.chanteperdrix@laposte.net>
 
 	* src/skins/posix/thread.c (__pthread_trampoline): Do not use
 	iargs->policy after having posted the semaphore.
 
 2006-11-20  Philippe Gerum  <rpm@xenomai.org>
 
-	* configure.in: Switch to FDPIC library format for the Blackfin
-	architecture.
+	* ksrc/skins/psos+/tm.c (tm_wkafter, tm_wkwhen, t_suspend): 
+	Check for XNBREAK condition.
 
 	* ksrc/skins/rtai/task.c (__rtai_task_suspend): 
 	Check for XNBREAK condition.
@@ -60,11 +261,33 @@
 	* ksrc/skins/vxworks/taskLib.c (taskSuspend, taskDeleteForce):
 	Check for XNBREAK condition.
 
-2006-11-17  Philippe Gerum  <rpm@xenomai.org>
+2006-11-19  Philippe Gerum  <rpm@xenomai.org>
+
+ 	* RELEASE: Xenomai 2.3-rc2
+
+2006-11-19  Philippe Gerum  <rpm@xenomai.org>
+
+	* ksrc/skins/vrtx/syscall.c: Fix exec mode for sc_tsuspend() and
+	sc_tresume().
+
+2006-11-18  Philippe Gerum  <rpm@xenomai.org>
+
+	* src/skins/psos+/task.c: Add preliminary user-space support.
+
+	* ksrc/skins/vxworks/syscall.c (__wind_task_init): Set TCB
+	auto-delete flag for user-space VxWorks tasks.
+
+	* ksrc/skins/vrtx/task.c (vrtxtask_delete_hook): Release the TCB
+	using safe memory release call.
 
 	* ksrc/nucleus/shadow.c (do_taskexit_event): Make sure to force a
 	rescheduling since we are removing the shadow part of a relaxed
 	thread, so the former can't be current Xenomai-wise.
+
+	* configure.in: Switch to FDPIC library format for the Blackfin
+	architecture.
+
+2006-11-17  Philippe Gerum  <rpm@xenomai.org>
 
 	* ksrc/nucleus/pod.c (xnpod_set_thread_mode): Reset the interrupt
 	shield for secondary mode threads only.
@@ -88,6 +311,11 @@
 	* ksrc/nucleus/heap.c (xnheap_mmap): Prevent from mapping
 	multi-extent heaps.
 
+2006-11-12  Gilles Chanteperdrix  <gilles.chanteperdrix@laposte.net>
+
+	* ksrc/arch/arm/switch.S (rthal_thread_switch): Make sure r0
+	contains the last "current" value upon return.
+
 2006-11-12  Philippe Gerum  <rpm@xenomai.org>
 
 	* ksrc/nucleus/heap.c (xnheap_extend): Account for new extents
@@ -102,21 +330,35 @@
 	* ksrc/arch/powerpc/switch.S (rthal_thread_switch): Make sure r3
 	contains the last "current" value upon return.
 
+2006-11-11  Gilles Chanteperdrix  <gilles.chanteperdrix@laposte.net>
+
+	* include/asm-i386/system.h, include/asm-i386/bits/pod.h: Another
+	attempt to cope with vanilla Linux drivers using FPU in
+	kernel-space.
+
 2006-11-11  Wolfgang Grandegger  <wg@grandegger.com>
 
 	* scripts/prepare_kernel.sh, scripts/help_from_kconfig.pl:
 	prepare_kernel.sh will now add help for Xenomai configuration
 	parameters to the Configure.help file of 2.4 kernels. The help
 	is extracted from Xenomai's Kconfig files using a perl script.
- 
-2006-11-10  Philippe Gerum  <rpm@xenomai.org>
 
-	* ksrc/nucleus/heap.c (xnheap_alloc): Fix ubytes leakage for
-	allocation requests larger than 2 * pagesize.
+2006-11-09  Philippe Gerum  <rpm@xenomai.org>
+
+	* ksrc/skins/vrtx/syscall.c (__sc_pcreate): Return ER_MEM upon
+	initial heap allocation failure.
+
+2006-11-08  Wolfgang Grandegger  <wg@grandegger.com>
+
+	* ksrc/drivers/can/sja1000/rtcan_peak_dng.c: Fix warnings when
+	building for ARM and fix bugs in the exit code.
+
+	* ksrc/drivers/can/sja1000/rtcan_mem.c: Fix warnings when
+	building for ARM.
 
 2006-11-05  Philippe Gerum  <rpm@xenomai.org>
 
- 	* RELEASE: Xenomai 2.2.5 (Redshift Riders)
+ 	* RELEASE: Xenomai 2.3-rc1
 
 2006-11-05  Philippe Gerum  <rpm@xenomai.org>
 
@@ -130,6 +372,36 @@
 	* include/posix/pthread.h: Include nucleus/intr.h for user-space
 	readers.
 
+2006-11-01  Wolfgang Grandegger  <wg@grandegger.com>
+
+	* include/asm-powerpc/atomic.h: remove atomic_xchg because it's
+	used in the kernel since 2.6.18 with different arguments (pointer
+	of type atomic_t).
+
+2006-10-31  Philippe Gerum  <rpm@xenomai.org>
+
+	* include/asm-i386/wrappers.h: Add accessors to the IRQ descriptor
+	fields.
+
+	* ksrc/skins/rtdm/proc.c: Build only if CONFIG_PROC_FS is enabled.
+
+2006-10-31  Jan Kiszka  <jan.kiszka@web.de>
+
+	* src/testsuite/cyclic/cyclictest.c: Make -n the one and only mode for
+	now. It is default also when -n is not explicitely given.
+
+2006-10-30  Wolfgang Grandegger  <wg@grandegger.com>
+
+	* src/utils/can/rtcanrecv: Add timestamp support via rt_dev_recvmsg().
+
+	* ksrc/drivers/can/mscan/rtcan_mscan.c (rtcan_mscan_interrupt),
+	ksrc/drivers/can/mscan/rtcan_mscan_regs.h: Restrict MSCAN TX hardware
+	buffer usage to one for the sake of real-time. Fix bug with TX IRQ
+	handling. Copy timestamp also for error messages.
+
+	* ksrc/drivers/can/sja1000/rtcan_sja1000.c (rtcan_sja_interrupt):
+	Copy timestamp also for error messages.
+
 2006-10-27  Jan Kiszka  <jan.kiszka@web.de>
 
 	* ksrc/nucleus/pod.c (xnpod_set_thread_periodic): Fix LART in
@@ -137,13 +409,43 @@
 
 2006-10-27  Andrew Dennison <andrewd.lists@gmail.com>
 
-	* scripts/prepare-kernel.sh: Fix patch code for 2.4
-	drivers/Makefile.
+	* scripts/prepare-kernel.sh: Fix patch code for 2.4 drivers/Makefile.
+
+2006-10-27  Dmitry Adamushko  <dmitry.adamushko@gmail.com>,
+            Jan Kiszka  <jan.kiszka@web.de>
+
+	* ksrc/nucleus: Introduce xnstat accounting support.
+
+	* ksrc/nucleus/intr.c: Improve IRQ-related accounting.
+
+2006-10-27  Gilles Chanteperdrix  <gilles.chanteperdrix@laposte.net>
+
+	* src/testsuite/switchtest/switchtest.c (main): Only join the
+	threads once they all have been canceled in order to avoid
+	deadlocks.
+	(main): Loop when closing RTDM devices.
 
 2006-10-26  Jan Kiszka  <jan.kiszka@web.de>
 
-	* ksrc/skins/native/queue.c (rt_queue_send): Track message count
-	correctly when broadcasting to a queue without listeners.
+	* ksrc/skins/native/queue.c (rt_queue_send): Track message reference
+	count correctly when broadcasting to a queue without listeners.
+
+2006-10-26  Jan Kiszka  <jan.kiszka@web.de>
+
+	* ksrc/drivers/testing/irqbench.c: Register with pnp subsystem to
+	enabled parport on modern PCs. Register I/O regions.
+
+2006-10-25  Jan Kiszka  <jan.kiszka@web.de>
+
+	* ksrc/drivers/testing/irqbench.c, doc/txt/irqbench.txt,
+	src/testsuite/irqbench/{irqloop.c,irqbench.c}: Make parallel port
+	working using LapLink cable, usability improvements, doc update.
+
+2006-10-21  Jan Kiszka  <jan.kiszka@web.de>,
+            Manfred Schlaegl  <manfred.schlaegl@gmx.at>
+
+	* include/rtdm/rttesting.h: Pad rttst_overall_bench_res to dwords
+	to avoid another aligment issue between kernel and user space.
 
 2006-10-21  Philippe Gerum  <rpm@xenomai.org>
 
@@ -159,9 +461,19 @@
 	Since Linux 2.4.15, __put_user and __get_user call migth_sleep.
 	To avoid that, wrapper functions have been added.
 
-2006-10-16  Philippe Gerum  <rpm@xenomai.org>
+2006-10-18  Jan Kiszka  <jan.kiszka@web.de>
 
- 	* RELEASE: Xenomai 2.2.4 (Headless Horseman)
+	* configure.in, scripts/xeno-config.in: Reducing CFLAGS and LDFLAGS
+	return by xeno-config to the required minimum while keeping the
+	original flags internally.
+
+	* include/rtdm/rttesting.h: Reorder rttst_tmbench_config to avoid
+	aligment issues between kernel and user space.
+
+2006-10-16  Jan Kiszka  <jan.kiszka@web.de>
+
+	* ksrc/nucleus/intr.c (xnintr_irq_attach): Return error on
+	mismatching shared-IRQ support.
 
 2006-10-15  Philippe Gerum  <rpm@xenomai.org>
 
@@ -172,10 +484,10 @@
 
 	* include/asm-*/syscall.h (__xn_copy_from_user,
 	__xn_copy_to_user): Make sure the local variable used to
-	temporarily store the return value won't match any copy
-	argument. This bug used to cause weird return values from Xenomai
-	syscalls using "err" as a copy argument to user-space.
-
+	temporarily store the return value won't match any copy argument.
+	This bug used to cause weird return values from Xenomai syscalls
+	using "err" as a copy argument to user-space.
+	
 2006-10-14  Philippe Gerum  <rpm@xenomai.org>
 
 	* ksrc/arch/i386/patches: Upgrade to 2.4.33-1.3-01 and
@@ -183,6 +495,25 @@
 
 	* ksrc/arch/powerpc/patches: Upgrade to 2.6.18-ppc-1.4-01.
 	
+2006-10-13  Jan Kiszka  <jan.kiszka@web.de>
+
+	* ksrc/skins/rtdm/{proc.c,device.c}: Turn static proc_name sanity
+	check into XENO_ASSERT and move to more prominent place.
+
+2006-10-11  Jan Kiszka  <jan.kiszka@web.de>
+
+	* ksrc/drivers/can/{mscan/rtcan_mscan.c,sja1000/rtcan_sja1000.c}:
+	Bundle rtdm_irq_request with immediate rtdm_irq_enable to pave the
+	way for according RTDM change.
+
+	* ksrc/skins/rtdm/device.c (rtdm_dev_register): Turn static sanity
+	checks into XENO_ASSERTs to save object size.
+
+2006-10-11  Gilles Chanteperdrix  <gilles.chanteperdrix@laposte.net>
+
+	* doc/doxygen/Makefile.am: Generate API documentation in pdf
+	format.
+
 2006-10-10  Philippe Gerum  <rpm@xenomai.org>
 
 	* ksrc/nucleus/pod.c (xnpod_start_timer): Set up the watchdog
@@ -193,6 +524,10 @@
 	* ksrc/arch/blackfin, include/asm-blackfin/hal.h: Use
 	kernel-defined accessors for reading/writing MMIO registers.
 
+2006-10-10  Jan Kiszka  <jan.kiszka@web.de>
+
+	* ksrc/drivers/serial/16550A.c: Switch to compat_module_param_array.
+
 2006-10-08  Gilles Chanteperdrix  <gilles.chanteperdrix@laposte.net>
 
 	* src/testsuite/*/Makefile.am: Link with libtool libraries, in
@@ -201,11 +536,37 @@
 
 2006-10-08  Jan Kiszka  <jan.kiszka@web.de>
 
-	* include/rtdm/rtdm_driver.h (rtdm_copy_to/from_user): Fix
+	* include/rtdm/rtdm_driver.h (rtdm_*copy_to/from_user): Fix
 	return code.
 
 	* ksrc/skins/rtdm/drvlib.c (rtdm_strncpy_from_user): Adapt doc to
 	actual success return code, the string length.
+
+2006-10-08  Wolfgang Grandegger  <wg@grandegger.com>
+
+	* include/asm-generic/wrappers.h: MODULE_PARM has been removed
+	in Linux 2.6.17. Module parameter compatibility functions
+	reimplemented and moved to Xenomai's wrapping header.
+
+	* ksrc/drivers/can/mscan/rtcan_mscan.c,
+	ksrc/drivers/can/sja1000/rtcan_isa.c,
+	ksrc/drivers/can/sja1000/rtcan_mem.c: Use new module parameter
+	compatibility functions.
+
+	* ksrc/drivers/can/mscan/rtcan_mscan.c (rtcan_mscan_init): Error
+	handling corrected.
+
+	* ksrc/drivers/can/mscan/rtcan_mscan_regs.h: Fix invalid address
+	for MPC5200 GPIO registers. Now the MSCAN driver works for Linux
+	2.6.17.
+
+	* ksrc/drivers/can/rtcan_module.c (rtcan_dev_get_state_name): Bug
+	fix. Function did return invalid state name.
+
+2006-10-06  Jan Kiszka  <jan.kiszka@web.de>
+
+	* src/testsuite/cyclic/cyclictest.c: Align to latest v0.11,
+	specifically integrating average stats.
 
 2006-10-03  Gilles Chanteperdrix  <gilles.chanteperdrix@laposte.net>
 
@@ -215,27 +576,39 @@
 2006-10-02  Wolfgang Grandegger  <wg@grandegger.com>
 
 	* include/asm-powerpc/atomic.h: Wrap atomic_xchg() for kernel
-	versions earlier than 2.6.15.
+	versions >= 2.6.15.
 	
 2006-10-01  Philippe Gerum  <rpm@xenomai.org>
 
-	* ksrc/skins/uvm/syscall.c (__vm_thread_activate): Iron interrupt
-	mask handling and deeply rework context switch emulation to
-	prevent spurious wakeups upon Linux signals.
-
 	* ksrc/skins/psos+/task.c (t_mode): Reschedule after mode change.
+
+2006-10-02  Jan Kiszka  <jan.kiszka@web.de>
+
+	* ksrc/skins/rtdm/core.c (cleanup_instance): Remove unneeded
+	indirection of s argument.
+
+2006-09-30  Stelian Pop  <stelian.pop@openwide.fr>
+
+	* ksrc/skins/posix/thread.c (pthread_make_periodic_np): Clarify
+	usage.
 
 2006-09-28  Philippe Gerum  <rpm@xenomai.org>
 
-	* ksrc/nucleus/pod.c (xnpod_watchdog_handler): Rework the watchdog
-	support so that it does _not_ depend on xnpod_announce_tick()
-	being called: the latter does not happen whenever host ticks are
-	attached to another IRQ channel than the nucleus timer one
-	(e.g. x86 + CONFIG_X86_LOCAL_APIC enabled). Also kill the runaway
-	thread, instead of just disabling it, since it could be awaken by
-	a Linux signal otherwise, and start spinning anew.
-	(xnpod_set_thread_periodic): Add LART to catch periods shorter
-	than the declared scheduling latency value.
+ 	* ksrc/nucleus/pod.c (xnpod_watchdog_handler): Rework the watchdog
+ 	support so that it does _not_ depend on xnpod_announce_tick()
+ 	being called: the latter does not happen whenever host ticks are
+ 	attached to another IRQ channel than the nucleus timer one
+ 	(e.g. x86 + CONFIG_X86_LOCAL_APIC enabled). Also kill the runaway
+ 	thread, instead of just disabling it, since it could be awaken by
+ 	a Linux signal otherwise, and start spinning anew.
+ 	(xnpod_set_thread_periodic): Add LART to catch periods shorter
+ 	than the declared scheduling latency value.
+ 
+2006-09-26  Jan Kiszka  <jan.kiszka@web.de>, Dmitry Adamushko  <dmitry.adamushko@gmail.com>
+
+	* ksrc/nucleus/intr.c: Reorganise locking around xnintr_attach,
+	and xnintr_detach in order to avoid races with xnintr_irq_proc,
+	provide IRQ owner names also for non-shared setups, refactor code.
 
 2006-09-25  Niklaus Giger <niklaus.giger@member.fsf.org>
 
@@ -258,20 +631,23 @@
 	munlockall() are now being defined by uClibc. Add placeholder for
 	pthread_atfork().
 
+2006-09-22  Stelian Pop  <stelian.pop@openwide.fr>
+
+	* include/rtdm/rtdm_driver.h, ksrc/skins/rtdm/drvlib.c: Add new
+	service rtdm_iomap_to_user.
+
+2006-09-21  Philippe Gerum  <rpm@xenomai.org>
+
 	* ksrc/arch/arm/patches: Upgrade to 2.6.1{4,5}-1.5-01.
 
 2006-09-20  Gilles Chanteperdrix  <gilles.chanteperdrix@laposte.net>
 
-	* include/asm-i386/system.h:
-	Partially revert #1595 to fix FPU management regression issues.
+	* include/asm-i386/bits/pod.h, include/asm-i386/system.h:
+	Partially revert #1597 to fix FPU management regression issues.
 
 2006-09-18  Thomas Necker <thomas.necker@marconi.com>
 
 	* ksrc/skins/psos/queue.c: Fix sizeof(msgbuf) expr.
-
-2006-09-17  Philippe Gerum  <rpm@xenomai.org>
-
- 	* RELEASE: Xenomai 2.2.3 (Memories)
 
 2006-09-17  Philippe Gerum  <rpm@xenomai.org>
 
@@ -288,23 +664,21 @@
 	* ksrc/nucleus/shadow.c: Use per-task I-pipe event filter
 	(PF_EVNOTIFY) when available.
 
-2006-09-15  Philippe Gerum  <rpm@xenomai.org>
+2006-09-15  Gilles Chanteperdrix  <gilles.chanteperdrix@laposte.net>
 
-	* include/asm-generic/wrappers.h: Wrap
-	schedule_timeout_interruptible() for 2.4.
+	* src/skins/posix/shm.c (shm_close): Let ENOSYS be handled by
+	__wrap_close.
 
 2006-09-15  Wolfgang Grandegger  <wg@grandegger.com>
 
 	* ksrc/arch/*/hal.c (rthal_irq_enable, rthal_irq_disable): Switch
 	the IRQ_DISABLED bit appropriately in the status field of the IRQ
 	descriptor.
- 
-2006-09-15  Philippe Gerum  <rpm@xenomai.org>
-
-	* ksrc/skins/native/pipe.c: Backport optimization for data
-	streaming.
 
 2006-09-14  Gilles Chanteperdrix  <gilles.chanteperdrix@laposte.net>
+
+	* ksrc/skins/posix/registry.c (pse51_reg_pkg_init): Do not use the
+	system heap for allocating the registry memory.
 
 	* ksrc/skins/posix/thread.c (pthread_join): Have pthread_join work
 	when called from module initialization or cleanup routine.
@@ -317,12 +691,70 @@
 	* ksrc/nucleus/pipe.c: Support partial buffer reading from the
 	character device endpoint.
 
+	* include/asm-generic/wrappers.h: Wrap atomic_cmpxchg() for 2.4.
+
+2006-09-14  Niklaus Giger <niklaus.giger@member.fsf.org>
+
+	* src/testsuite/cyclic/cyclictest.c: Add quiet mode.
+
+2006-09-13  Gilles Chanteperdrix  <gilles.chanteperdrix@laposte.net>
+
+	* src/testsuite/switchtest/switchtest.c (main): Change the meaning
+	of the -n flag: disable any use of FPU hardware.
+
+2006-09-12  Matthias Fuchs  <matthias.fuchs@esd-electronics.com>
+
+	* ksrc/drivers/can/sja1000/{rtcan_mem.c,Makefile,Kconfig,Config.in},
+	scripts/Modules.frag: Add memory mapped driver for SJA1000
+	controllers.
+
 2006-09-12  Gilles Chanteperdrix  <gilles.chanteperdrix@laposte.net>
 
 	* include/asm-i386/bits/pod.h (xnarch_*_fpu): Restore root thread
 	fpu context consistently with ts bit value in cr0, fixes a bug
 	that occured when Xenomai preempted Linux in the middle of 
 	dup_task_struct().
+
+2006-09-12  Wolfgang Grandegger  <wg@grandegger.com>
+
+	* ksrc/drivers/can/sja1000/rtcan_isa.c: Rename module parameter
+	"isa" to "io", switch "clock" parameter to external frequency.
+
+2006-09-12  Jan Kiszka  <jan.kiszka@web.de>
+
+	* scripts/xeno-test: Fix test for getopts in busybox.
+
+	* ksrc/drivers/can/sja1000/rtcan_isa.c: Refactor code and add
+	roll-back on init error.
+
+	* ksrc/drivers/can/sja1000/Config.in: Include Peak dongle in 2.4
+	config, refactoring.
+
+	* include/rtai/{sem.h,task.h}, ksrc/skins/rtai/{sem.c,task.c},
+	ksrc/skins/rtai/{Kconfig,Config.in}: Resolve naming conflict with
+	native skin and relax dependencies.
+
+2006-09-11  Philippe Gerum  <rpm@xenomai.org>
+
+	* ksrc: Define -D__IN_XENOMAI__ when compiling the kernel support.
+
+	* include/nucleus/types.h: Never send deprecation warnings when
+	compiling the kernel support.
+
+2006-09-11  Wolfgang Grandegger <wg@grandegger.com>
+
+	* include/asm-powerpc, ksrc/arch/powerpc/hal.c,
+	scripts/prepare-kernel.sh: Fix porting issues for running over
+	2.6.18/ppc.
+
+2006-09-11  Philippe Gerum  <rpm@xenomai.org>
+
+	* ksrc/skins/native/pipe.c: Optimize for data streaming.
+	Deprecate rt_pipe_flush().
+
+2006-09-10  Philippe Gerum  <rpm@xenomai.org>
+
+	* ksrc/arch/arm/patches: Upgrade to 2.6.1{4,5}-1.4-00.
 
 2006-09-09  Philippe Gerum  <rpm@xenomai.org>
 
@@ -339,14 +771,62 @@
 	xnpipe_send_more(). Note: the output handler is now always called
 	with nklock held, interrupts off.
 
+2006-09-08  Philippe Gerum  <rpm@xenomai.org>
+
+	* ksrc/nucleus/pipe.c (xnpipe_disconnect): Flush the output queue
+	even if the user-space side did not connect to the closed pipe;
+	some data might linger there.
+	(xnpipe_send): Allow sending data from the kernel side of a pipe
+	which has not been opened by any user-space process (i.e. buffer
+	until open).
+
 2006-09-09  Jan Kiszka <jan.kiszka@web.de>
+
+	* ksrc/drivers/can/sja1000/rtcan_isa.c: Fix type of irq mod-param,
+	fix cleanup of devices.
 
 	* ksrc/nucleus/Config.in: Add CONFIG_XENO_OPT_RPIDISABLE switch to
 	2.4 configuration.
 
-2006-09-03  Philippe Gerum  <rpm@xenomai.org>
+2006-09-08  Gilles Chanteperdrix  <gilles.chanteperdrix@laposte.net>
 
- 	* RELEASE: Xenomai 2.2.2 (Ride)
+	* scripts/xeno-load.in: Find whether sudo is available in a
+	way compatible with busybox.
+
+2006-09-06  Jan Kiszka <jan.kiszka@web.de>
+
+	* src/testsuite/irqbench/irqloop.c: Make cleanup more robust
+	against busy device on close.
+
+2006-09-05  Jan Kiszka <jan.kiszka@web.de>
+
+	* ksrc/drivers/testing/irqbench.c: Reorder IRQ enabling during
+	setup to prepare merging rtdm_irq_enable into rtdm_irq_request.
+
+2006-09-04  Jan Kiszka <jan.kiszka@web.de>
+
+	* include/rtdm/{rtdm.h,rtdm_driver.h}: Move API version to rtdm.h
+	in order to include user API into the revisioning. Minor doc
+	refactoring.
+
+2006-09-03  Wolfgang Grandegger <wg@grandegger.com>
+
+	* ksrc/drivers/can/rtcan_dev.c (rtcan_dev_register): Bug fixed
+	when maximum number of devices is exceeded.
+
+2006-09-03  Jan Kiszka <jan.kiszka@web.de>
+
+	* ksrc/drivers/can/{Config.in,Kconfig,Makefile,rtcan_virt.c},
+	scripts/Modules.frag: Add virtual CAN bus driver.
+
+	* src/utils/can/rtcan{recv,send}: Refactor rtcanrecv/send thread
+	management, print input device in rtcanrecv, support for listening
+	on all CAN devices, fix output of RTR frames.
+
+2006-09-03  Gilles Chanteperdrix  <gilles.chanteperdrix@laposte.net>
+
+	* src/testsuite/switchtest/switchtest.c (clean_exit): Fix
+	switchtest termination on FPU bug.
 
 2006-09-03  Philippe Gerum  <rpm@xenomai.org>
 
@@ -355,11 +835,32 @@
 	NULL for resources pended on by priority but which do not enforce
 	PIP).
 
+2006-08-31  Gilles Chanteperdrix  <gilles.chanteperdrix@laposte.net>
+
+	* include/asm-generic/system.h (__xnlock_get): Simplify spinlocks
+	implementation.
+
+2006-08-30  Dmitry Adamushko  <dmitry.adamushko@gmail.com>
+
+	* ksrc/nucleus/intr.c (xnintr_*irq_handler): Disable unhandled IRQ
+	line after a given number of unsuccessful tries.
+
+2006-08-30  Jan Kiszka  <jan.kiszka@web.de>
+
+	* include/rtdm/rtdm_driver.h, ksrc/skins/rtdm/drvlib.c: Void
+	kernel<->user RTDM services if CONFIG_XENO_OPT_PERVASIVE is not
+	enabled.
+
 2006-08-28  Philippe Gerum  <rpm@xenomai.org>
 
-	* src/skins/posix/posix.wrappers, configure.in,
-	scripts/xeno-config.in: Backport from trunk/ optimization for
-	reading wrapping directives from a file.
+	* ksrc/arch/generic/hal.c (apc_read_proc): Allow for anonymous
+	APCs.
+
+2006-08-28  Jan Kiszka  <jan.kiszka@web.de>
+
+	* include/rtdm/rtserial.h, ksrc/drivers/serial/16550A.c: Refine
+	RTSER_RTIOC_GET_STATUS so that it returns also past errors (and
+	cleared) occured during read access.
 
 2006-08-27  Philippe Gerum  <rpm@xenomai.org>
 
@@ -388,8 +889,34 @@
 	* ksrc/nucleus/pod.c (xnpod_welcome_thread): Only release the
 	nklock and interrupts when the initialization work is finished.
 
+2006-08-23  Wolfgang Grandegger <wg@grandegger.com>
+
+	* ksrc/drivers/can/rtcan_dev.c, ksrc/drivers/can/rtcan_dev.h,
+	ksrc/drivers/can/rtcan_modules.c: Suppress handling of refcount 
+	if module support is not enabled or modules cannot be unloaded.
+
+	* ksrc/drivers/can/mscan/rtcan_mscan.c,
+	ksrc/drivers/can/mscan/rtcan_mscan_proc.c,
+	ksrc/drivers/can/mscan/rtcan_mscan_regs.h: Make the MSCAN driver
+	work on Linux 2.6. We now use our own set of MSCAN register
+	definitions because they differ between 2.4 and 2.6 (prefix).
+	
+	* scripts/Modules.frag: bug fix for making PEAK device drivers.
+
+2006-08-23  Paul Corner <paul_c@tuxcnc.org>
+
+	* configure.in: Fix possibly ambiguous use of semicolons and
+	various unquoted echos.
+	
 2006-08-23  Philippe Gerum  <rpm@xenomai.org>
 
+	* ksrc/arch/i386/patches: Upgrade to 2.4.33-1.2-08, 2.6.17-1.3-10.
+
+	* ksrc/arch/powerpc/patches: Upgrade to 2.6.14-ppc-1.3-07,
+	2.6.14-ppc64-1.2-04, 2.4.25-CVS-20060707-1.1-05.
+	
+	* ksrc/arch/ia64/patches: Upgrade to 2.6.16-1.3-03.
+	
 	* include/asm-i386/features.h (xeno_x86_features_check): Try
 	explaining the requirements for SEP a bit better.
 
@@ -397,10 +924,24 @@
 	TASK_NOWAKEUP when available, to prevent Linux from waking up the
 	signaled task until it has been relaxed.
 
+2006-08-23  Philippe Gerum  <rpm@xenomai.org>
+
+	* ksrc/generic/hal.c (rthal_init, rthal_exit): Do not force CPU
+	affinity for the current task, which is useless since the HAL must
+	be statically built into the kernel.
+
 2006-08-21  Gilles Chanteperdrix  <gilles.chanteperdrix@laposte.net>
 
 	* ksrc/arch/powerpc/Kconfig: Make CONFIG_XENO_HW_FPU depend on
 	CONFIG_PPC_FPU.
+
+2006-08-21  Jim Cromie <jim.cromie@gmail.com>
+
+	* scripts/xeno-test.in (run_w_load): Do not pass -n option to
+	switchbench.
+
+	* src/testsuite/switchbench/switchbench.c (main): Disregard null
+	nsamples. Reformat histograms output.
 
 2006-08-21  Dmitry Adamushko  <dmitry.adamushko@gmail.com>
 
@@ -420,22 +961,82 @@
 	(__pthread_setschedparam): Use EPERM instead of EAGAIN to signal
 	to user-space that __real_pthread_setschedparam should be used.
 
+	* src/testsuite/switchtest/switchtest.c: Reformat output.
+
 	* ksrc/skins/posix/timer.c (timer_settime): Bind the timer to the
 	timer owner (i.e. the caller) CPU.
 
-2006-08-18  Philippe Gerum  <rpm@xenomai.org>
-	
- 	* RELEASE: Xenomai 2.2.1 (Tumble)
+2006-08-18  Jim Cromie <jim.cromie@gmail.com>
+
+	* scripts/xeno-test.in: Add switchtest, switchbench and irqbench.
+
+2006-08-18  Jan Kiszka  <jan.kiszka@web.de>
+
+	* src/skins/posix/posix.wrappers, configure.in,
+	scripts/xeno-config.in: Read wrapping options from file instead of
+	passing them via command line.
+
+2006-08-18  Gilles Chanteperdrix  <gilles.chanteperdrix@laposte.net>
+
+	* include/asm-*/hal.h (rthal_timer_program_shot): Directly trigger
+	IRQ through Adeos upon null delay.
 
 2006-08-18  Philippe Gerum  <rpm@xenomai.org>
 
 	* ksrc/arch/i386/patches: Upgrade to 2.4.3{2,3}-1.2-07.
+
+2006-08-18  Jan Kiszka  <jan.kiszka@web.de>
+
+	* ksrc/arch/i386/hal.c: Fix mksound workaround.
+
+2006-08-18  Gilles Chanteperdrix  <gilles.chanteperdrix@laposte.net>
+
+	* include/asm-generic, include/asm-arm, ksrc/nucleus/pod.c:
+	Provide support for shared timer IRQ.
+
+	* ksrc/skins/vxworks/sysLib.c (__tickAnnounce): Properly forward
+	xnpod_announce_tick() status.
+
+2006-08-16  Sebastian Smolorz  <Sebastian.Smolorz@stud.uni-hannover.de>
+
+	* include/rtdm/rtcan.h, ksrc/drivers/can/rtcan_{module,socket,raw}.c:
+	Get rid of RTCAN_TIMEOUT_* defines and replace them with
+	RTDM_TIMEOUT_*.
+
+2006-08-16  Jan Kiszka  <jan.kiszka@web.de>
+
+	* include/rtdm/*.h, ksrc/skins/rtdm/drvlib.c: Refactor RTDM types
+	for timeouts and dates.
+
+2006-08-15  Jan Kiszka  <jan.kiszka@web.de>
+
+	* include/asm-generic/bits/{bind.h,mlock_alert.h},
+	include/<skin>/syscall.h, src/skins/<skin>/init.c: Split up
+	include/nucleus/bind.h and move the fragments to asm-generic/bits.
+
+2006-08-14  Jan Kiszka  <jan.kiszka@web.de>
+
+	* ksrc/drivers/{serial,Kconfig,Config.in,Makefile},
+	scripts/Modules.frag: Renamed drivers/16550A directory to a more
+	appropriate drivers/serial.
+
+2006-08-14  Gilles Chanteperdrix  <gilles.chanteperdrix@laposte.net>
+
+	* configure.in: Add the --enable-posix-auto-mlockall option.
+
+	* src/skins/posix/thread.c (__wrap_sched_yield): Also yield to
+	threads running in secondary mode when running under the
+	SCHED_OTHER policy.
 
 2006-08-12  Philippe Gerum  <rpm@xenomai.org>
 
 	* ksrc/nucleus/synch.c (xnsynch_flush): Do not clear the current
 	owner: flushing should not alter ownership.
 	(xnsynch_sleep_on): Fully refactor the resource stealing feature.
+
+2006-08-12  Ulrich Schwab  <schwab@inmess.de>
+ 
+	* ksrc/arch/i386/smi.c added id of Intel ICH7 to list of SMI chipsets
 
 2006-08-12  Gilles Chanteperdrix  <gilles.chanteperdrix@laposte.net>
 
@@ -448,14 +1049,28 @@
 	* ksrc/skins/posix/cond.c (pthread_cond_wait): Split this service
 	in order to correctly handle cancellation requests in user-space.
 
+	* ksrc/skins/posix/syscall.c: Make the shared memory and
+	interrupts support optional and disabled by default.
+
 2006-08-10  Jan Kiszka  <jan.kiszka@web.de>
 
 	* scripts/Modules.frag: Fix 2.4 in-kernel build of irqbench.
+
+2006-08-10  Wolfgang Grandegger <wg@grandegger.com>
+
+	* ksrc/drivers/can, include/rtdm/rtcan.h: RT-Socket-CAN, a RTDM 
+	  compliant driver for CAN devices added.
 
 2006-08-11  Philippe Gerum  <rpm@xenomai.org>
 
 	* ksrc/nucleus/synch.c (xnsynch_sleep_on): Check for wait abortion
 	bits after returning from xnpod_suspend_thread().
+
+2006-08-07  Jan Kiszka  <jan.kiszka@web.de>
+
+	* include/rtdm/rtdm_driver.h, ksrc/skins/rtdm/{core.c,proc.c}:
+	Cleanup volatile device pointer in context structure, enhance
+	non-RT locking during /proc access.
 
 2006-08-05  Philippe Gerum  <rpm@xenomai.org>
 
@@ -481,6 +1096,23 @@
 	* ksrc/nucleus/pod.c (xnpod_suspend_thread): Don't send migration
 	signal to dormant threads.
 
+2006-07-26  Philippe Gerum  <rpm@xenomai.org>
+
+	* ksrc/arch/i386/hal.c (rthal_arch_init, rthal_arch_cleanup):
+	Prevent the 2.4 speaker code from bugging our TSC emulation, also
+	based on PIT channel 2.
+
+2006-07-26  Jan Kiszka  <jan.kiszka@web.de>
+
+	* ksrc/drivers/16550A/16550A.c, ksrc/drivers/testing/irqbench.c,
+	ksrc/drivers/testing/timerbench.c: Apply rtdm_safe_copy_to/from_user
+	and refactor code.
+
+2006-07-26  Wolfgang Grandegger  <wg@grandegger.com>
+
+	* include/rtdm/rtdm_driver.h, ksrc/skins/rtdm/drvlib.c: Add combined
+	services rtdm_safe_copy_to/from_user.
+
 2006-07-25  Jan Kiszka  <jan.kiszka@web.de>
 
 	* include/native/task.h, ksrc/native/task.c: Kill unused timer field
@@ -497,24 +1129,44 @@
 
 2006-07-20  Philippe Gerum  <rpm@xenomai.org>
 
-	* ksrc/skins/uvm: Deprecate the UVM support. Will be removed from
-	v2.3.
+	* include/asm-*/system.h: Cleanup the arch-dep layer, splitting
+	headers, and moving the nucleus bits to a related
+	include/asm-*/bits directory.
 
-2006-07-19  Philippe Gerum  <rpm@xenomai.org>
+	* ksrc/skins/uvm, src/skins/uvm, include/asm-uvm: Remove the UVM
+	support, which became obsolete with the generalization of direct
+	syscall interfaces to skin modules.
 
-	* ksrc/arch/i386/patches: Upgrade to 2.6.1[67]-1.3-08.
-
-	* ksrc/arch/powerpc/patches: Upgrade to 2.6.14-1.3-06.
-	
 2006-07-19  Gilles Chanteperdrix  <gilles.chanteperdrix@laposte.net>
 
 	* src/skins/posix/init.c (__init_posix_interface): Register
 	__init_posix_interface to be called by process children when
 	forking.
 
+2006-07-19  Philippe Gerum  <rpm@xenomai.org>
+
+	* include/nucleus/bind.h: Provide for optional skin binding
+	routine (used by RTDM).
+
+2006-17-19  Jan Kiszka  <jan.kiszka@web.de>
+
+	* include/nucleus/timer.h, ksrc/nucleus/timer.c: Kill timer cookie
+	in favour of container_of, remove locking from xntimer_start, do not
+	accept timers with XN_INFINITE delays.
+
+	* include/asm-sim/system.h, include/asm-uvm/system.h: Introduce
+	container_of.
+
+	* ksrc/*, sim/skins/*: Adapt xntimer users to these changes.
+
 2006-07-18  Philippe Gerum  <rpm@xenomai.org>
 
 	* ksrc/arch/powerpc/patches: Upgrade to 2.6.14-1.3-05.
+
+2006-07-18  Gilles Chanteperdrix  <gilles.chanteperdrix@laposte.net>
+
+	* include/nucleus/timer.h: Add aperiodic timers wheel, an
+	alternative data structure for handling timers list.
 
 2006-07-17  Philippe Gerum  <rpm@xenomai.org>
 

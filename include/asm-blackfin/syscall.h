@@ -17,8 +17,8 @@
  * 02111-1307, USA.
  */
 
-#ifndef _XENO_ASM_BFINNOMMU_SYSCALL_H
-#define _XENO_ASM_BFINNOMMU_SYSCALL_H
+#ifndef _XENO_ASM_BLACKFIN_SYSCALL_H
+#define _XENO_ASM_BLACKFIN_SYSCALL_H
 
 #include <asm-generic/xenomai/syscall.h>
 
@@ -26,7 +26,8 @@
    marker. Note: watch out for the p0 sign convention used by Linux
    (i.e. negative syscall number in orig_p0 meaning "non-syscall
    entry"). */
-#define __xn_mux_code(id,op)   ((id << 24)|((op << 16) & 0xff0000)|(__xn_sys_mux & 0xffff))
+#define __xn_mux_code(shifted_id,op) (shifted_id|((op << 16) & 0xff0000)|(__xn_sys_mux & 0xffff))
+#define __xn_mux_shifted_id(id) (id << 24)
 
 /* Local syscalls -- the braindamage thing about this arch is the
    absence of atomic ops usable from user-space; so we export what
@@ -35,7 +36,6 @@
 
 #ifdef __KERNEL__
 
-#include <linux/config.h>
 #include <linux/errno.h>
 #include <asm/uaccess.h>
 #include <asm/ptrace.h>
@@ -213,7 +213,8 @@ static inline int __xn_interrupted_p(struct pt_regs *regs)
   __res;								\
 })
 
-#define XENOMAI_DO_SYSCALL(nr, id, op, args...)	__emit_syscall##nr(__xn_mux_code(id,op), ##args)
+#define XENOMAI_DO_SYSCALL(nr, shifted_id, op, args...) \
+    __emit_syscall##nr(__xn_mux_code(shifted_id,op), ##args)
 
 #define XENOMAI_SYSCALL0(op)                XENOMAI_DO_SYSCALL(0,0,op)
 #define XENOMAI_SYSCALL1(op,a1)             XENOMAI_DO_SYSCALL(1,0,op,a1)
@@ -265,6 +266,22 @@ inline __attribute__((weak)) int pthread_atfork(void (*prepare)(void),
 	return 0;
 }
 
+#include <errno.h>
+
+inline __attribute__((weak)) int shm_open(const char *name,
+					  int oflag,
+					  mode_t mode)
+{
+	errno = ENOSYS;
+	return -1;
+}
+
+inline __attribute__((weak)) int shm_unlink(const char *name)
+{
+	errno = ENOSYS;
+	return -1;
+}
+
 #endif /* __KERNEL__ */
 
-#endif /* !_XENO_ASM_BFINNOMMU_SYSCALL_H */
+#endif /* !_XENO_ASM_BLACKFIN_SYSCALL_H */

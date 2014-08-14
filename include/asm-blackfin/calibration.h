@@ -17,10 +17,12 @@
  * 02111-1307, USA.
  */
 
-#ifndef _XENO_ASM_BFINNOMMU_CALIBRATION_H
-#define _XENO_ASM_BFINNOMMU_CALIBRATION_H
+#ifndef _XENO_ASM_BLACKFIN_CALIBRATION_H
+#define _XENO_ASM_BLACKFIN_CALIBRATION_H
 
-#include <linux/config.h>
+#ifndef _XENO_ASM_BLACKFIN_BITS_INIT_H
+#error "please don't include asm/calibration.h directly"
+#endif
 
 static inline unsigned long xnarch_get_sched_latency (void)
 
@@ -31,7 +33,7 @@ static inline unsigned long xnarch_get_sched_latency (void)
 #ifdef CONFIG_BF533
 #define __sched_latency 20000
 #elif CONFIG_BF537
-#define __sched_latency 18000
+#define __sched_latency 16500
 #else
 #define __sched_latency 1000	/* Default */
 #endif
@@ -42,4 +44,4 @@ static inline unsigned long xnarch_get_sched_latency (void)
 
 #undef __sched_latency
 
-#endif /* !_XENO_ASM_BFINNOMMU_CALIBRATION_H */
+#endif /* !_XENO_ASM_BLACKFIN_CALIBRATION_H */

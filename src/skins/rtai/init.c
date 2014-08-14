@@ -20,6 +20,8 @@
 #include <stdlib.h>
 #include <string.h>
 #include <rtai/syscall.h>
+#include <asm-generic/bits/bind.h>
+#include <asm-generic/bits/mlock_alert.h>
 
 int __rtai_muxid = -1;
 
@@ -27,5 +29,5 @@ static __attribute__ ((constructor))
 void __init_rtai_interface(void)
 {
 	__rtai_muxid =
-	    xeno_user_skin_init(RTAI_SKIN_MAGIC, "RTAI", "xeno_rtai");
+	    xeno_bind_skin(RTAI_SKIN_MAGIC, "RTAI", "xeno_rtai");
 }

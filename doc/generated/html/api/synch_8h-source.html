@@ -58,7 +58,7 @@
 <a name="l00029"></a>00029 <span class="preprocessor"></span><span class="preprocessor">#define XNSYNCH_PIP     0x2</span>
 <a name="l00030"></a>00030 <span class="preprocessor"></span><span class="preprocessor">#define XNSYNCH_DREORD  0x4</span>
 <a name="l00031"></a>00031 <span class="preprocessor"></span>
-<a name="l00032"></a>00032 <span class="preprocessor">#if defined(__KERNEL__) || defined(__XENO_UVM__) || defined(__XENO_SIM__)</span>
+<a name="l00032"></a>00032 <span class="preprocessor">#if defined(__KERNEL__) || defined(__XENO_SIM__)</span>
 <a name="l00033"></a>00033 <span class="preprocessor"></span>
 <a name="l00034"></a>00034 <span class="preprocessor">#define XNSYNCH_CLAIMED 0x8     </span><span class="comment">/* Claimed by other thread(s) w/ PIP */</span>
 <a name="l00035"></a>00035 
@@ -149,10 +149,10 @@
 <a name="l00120"></a>00120 <span class="preprocessor"></span>}
 <a name="l00121"></a>00121 <span class="preprocessor">#endif</span>
 <a name="l00122"></a>00122 <span class="preprocessor"></span>
-<a name="l00123"></a>00123 <span class="preprocessor">#endif </span><span class="comment">/* __KERNEL__ || __XENO_UVM__ || __XENO_SIM__ */</span>
+<a name="l00123"></a>00123 <span class="preprocessor">#endif </span><span class="comment">/* __KERNEL__ || __XENO_SIM__ */</span>
 <a name="l00124"></a>00124 
 <a name="l00125"></a>00125 <span class="preprocessor">#endif </span><span class="comment">/* !_XENO_NUCLEUS_SYNCH_H_ */</span>
-</pre></div><hr size="1"><address style="align: right;"><small>Generated on Tue Mar 20 10:02:18 2007 for Xenomai API by&nbsp;
+</pre></div><hr size="1"><address style="align: right;"><small>Generated on Mon Dec 25 13:57:10 2006 for Xenomai API by&nbsp;
 <a href="http://www.doxygen.org/index.html">
 <img src="doxygen.png" alt="doxygen" align="middle" border="0"></a> 1.4.6 </small></address>
 </body>

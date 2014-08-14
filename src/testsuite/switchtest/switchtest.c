@@ -1173,8 +1173,12 @@ int main(int argc, const char *argv[])
 			if (param->type != RTK && param->thread)
 				pthread_cancel(param->thread);
 		}
+	}
+	
+	for (i = 0; i < nr_cpus; i ++) {
+		struct cpu_tasks *cpu = &cpus[i];
 
-		/* join them. */
+		/* join the user-space tasks. */
 		for (j = 0; j < cpu->tasks_count; j++) {
 			struct task_params *param = &cpu->tasks[j];
 
@@ -1191,7 +1195,14 @@ int main(int argc, const char *argv[])
 			display_switches_count(&cpus[i], &now);
 
 			/* Kill the kernel-space tasks. */
-			close(cpus[i].fd);
+			while (close(cpus[i].fd) == -1 && errno == EAGAIN) {
+				struct timespec ts;
+
+				ts.tv_nsec = 10000000; /* 10 ms */
+				ts.tv_sec = 0;
+
+				nanosleep(&ts, NULL);
+			}
 		}
 		free(cpu->tasks);
 	}

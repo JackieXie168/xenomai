@@ -91,7 +91,10 @@
  * - ENOMEM, insufficient memory exists in the system heap to create the
  *   interrupt object, increase CONFIG_XENO_OPT_SYS_HEAPSZ;
  * - EINVAL, a low-level error occured while attaching the interrupt;
- * - EBUSY, an interrupt handler was already registered for the irq line @a irq.
+ * - EBUSY, an interrupt handler was already registered for the irq line @a irq;
+ * - ENOSYS, kernel-space Xenomai POSIX skin was built without support for
+ *   interrupts, use RTDM or enable CONFIG_XENO_OPT_POSIX_INTR in kernel
+ *   configuration.
  */
 int pthread_intr_attach_np(pthread_intr_t * intrp,
 			   unsigned irq,
@@ -182,7 +185,10 @@ int pse51_intr_detach_inner(pthread_intr_t intr, pse51_kqueues_t *q)
  *
  * @retval 0 on success;
  * @retval -1 with @a errno set if:
- * - EINVAL, the interrupt object @a intr is invalid.
+ * - EINVAL, the interrupt object @a intr is invalid;
+ * - ENOSYS, kernel-space Xenomai POSIX skin was built without support for
+ *   interrupts, use RTDM or enable CONFIG_XENO_OPT_POSIX_INTR in kernel
+ *   configuration.
  */
 int pthread_intr_detach_np(pthread_intr_t intr)
 {
@@ -202,7 +208,10 @@ int pthread_intr_detach_np(pthread_intr_t intr)
  *
  * @retval 0 on success;
  * @retval -1 with @a errno set if:
- * - EINVAL, the identifier @a intr or @a cmd is invalid.
+ * - EINVAL, the identifier @a intr or @a cmd is invalid;
+ * - ENOSYS, kernel-space Xenomai POSIX skin was built without support for
+ *   interrupts, use RTDM or enable CONFIG_XENO_OPT_POSIX_INTR in kernel
+ *   configuration.
  */
 int pthread_intr_control_np(pthread_intr_t intr, int cmd)
 {
@@ -252,11 +261,10 @@ void pse51_intrq_cleanup(pse51_kqueues_t *q)
 	while ((holder = getheadq(&q->intrq)) != NULL) {
 		pthread_intr_detach_np(link2intr(holder));
 		xnlock_put_irqrestore(&nklock, s);
-#ifdef CONFIG_XENO_OPT_DEBUG
-		xnprintf
-		    ("Posix interruption handler %p was not destroyed,"
-		     " destroying now.\n", link2intr(holder));
-#endif /* CONFIG_XENO_OPT_DEBUG */
+#if XENO_DEBUG(POSIX)
+		xnprintf("Posix interruption handler %p was not destroyed, "
+			 "destroying now.\n", link2intr(holder));
+#endif /* XENO_DEBUG(POSIX) */
 		xnlock_get_irqsave(&nklock, s);
 	}
 
@@ -293,7 +301,10 @@ void pse51_intr_pkg_cleanup(void)
  * @return -1 with @a errno set if:
  * - EIDRM, the interrupt object was deleted;
  * - ETIMEDOUT, the timeout specified by @a to expired;
- * - EINTR, pthread_intr_wait_np() was interrupted by a signal.
+ * - EINTR, pthread_intr_wait_np() was interrupted by a signal;
+ * - ENOSYS, kernel-space Xenomai POSIX skin was built without support for
+ *   interrupts, use RTDM or enable CONFIG_XENO_OPT_POSIX_INTR in kernel
+ *   configuration.
  */
 int pthread_intr_wait_np(pthread_intr_t intr, const struct timespec *to);
 #endif /* Doxygen */

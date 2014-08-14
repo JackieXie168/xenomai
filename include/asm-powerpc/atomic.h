@@ -30,9 +30,7 @@
 #include <asm/atomic.h>
 #include <asm/system.h>
 
-#if LINUX_VERSION_CODE < KERNEL_VERSION(2,6,15) 
-#define atomic_xchg(ptr,v)       xchg(ptr,v)
-#endif /* LINUX_VERSION_CODE < KERNEL_VERSION(2,6,15) */ 
+#define xnarch_atomic_xchg(ptr,v)  xchg(ptr,v)
 #define xnarch_memory_barrier()  smp_mb()
 
 #ifdef CONFIG_PPC64
@@ -159,13 +157,12 @@ static __inline__ unsigned long
     return x;
 }
 
-#define atomic_xchg(ptr,x) \
+#define xnarch_atomic_xchg(ptr,x) \
     ({                                                                         \
 	__typeof__(*(ptr)) _x_ = (x);                                          \
 	(__typeof__(*(ptr))) __xchg((ptr), (unsigned long)_x_, sizeof(*(ptr)));\
     })
 
-#define xnarch_atomic_xchg(ptr,v)   atomic_xchg(ptr,v)
 #define xnarch_memory_barrier()     __asm__ __volatile__("": : :"memory")
 
 #define cpu_relax()  xnarch_memory_barrier()

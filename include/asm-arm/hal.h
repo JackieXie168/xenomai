@@ -104,13 +104,14 @@ static inline struct task_struct *rthal_current_host_task (int cpuid)
 static inline void rthal_timer_program_shot (unsigned long delay)
 {
     if(!delay)
-        delay = 10;
-    __ipipe_mach_set_dec(delay);
+	rthal_trigger_irq(RTHAL_TIMER_IRQ);
+    else
+	__ipipe_mach_set_dec(delay);
 }
 
     /* Private interface -- Internal use only */
 
-asmlinkage void rthal_thread_switch(struct thread_info *out, struct thread_info *in);
+asmlinkage void rthal_thread_switch(struct task_struct *prev, struct thread_info *out, struct thread_info *in);
 
 asmlinkage void rthal_thread_trampoline(void);
 

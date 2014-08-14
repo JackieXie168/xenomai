@@ -17,12 +17,7 @@
  * Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  */
 
-#include <linux/config.h>
-
-#ifdef CONFIG_PROC_FS
-
 #include <linux/proc_fs.h>
-
 #include "rtdm/core.h"
 #include "rtdm/device.h"
 
@@ -64,14 +59,15 @@ static int proc_read_named_devs(char* buf, char** start, off_t offset,
     if (down_interruptible(&nrt_dev_lock))
         return -ERESTARTSYS;
 
-    if (!RTDM_PROC_PRINT("Hash\tName\t\t\t\t/proc\n"))
+    if (!RTDM_PROC_PRINT("Hash\tName\t\t\t\tDriver\t\t/proc\n"))
         goto done;
 
     for (i = 0; i < devname_hashtab_size; i++)
         list_for_each(entry, &rtdm_named_devices[i]) {
             device = list_entry(entry, struct rtdm_device, reserved.entry);
 
-            if (!RTDM_PROC_PRINT("%02X\t%-31s\t%s\n", i, device->device_name,
+            if (!RTDM_PROC_PRINT("%02X\t%-31s\t%-15s\t%s\n", i,
+                                 device->device_name,  device->driver_name,
                                  device->proc_name))
                 break;
         }
@@ -96,7 +92,8 @@ static int proc_read_proto_devs(char* buf, char** start, off_t offset,
     if (down_interruptible(&nrt_dev_lock))
         return -ERESTARTSYS;
 
-    if (!RTDM_PROC_PRINT("Hash\tProtocolFamily:SocketType\t/proc\n"))
+    if (!RTDM_PROC_PRINT("Hash\tProtocolFamily:SocketType\tDriver\t\t"
+                         "/proc\n"))
         goto done;
 
     for (i = 0; i < protocol_hashtab_size; i++)
@@ -105,8 +102,8 @@ static int proc_read_proto_devs(char* buf, char** start, off_t offset,
 
             snprintf(txt, sizeof(txt), "%u:%u", device->protocol_family,
                      device->socket_type);
-            if (!RTDM_PROC_PRINT("%02X\t%-31s\t%s\n", i, txt,
-                                 device->proc_name))
+            if (!RTDM_PROC_PRINT("%02X\t%-31s\t%-15s\t%s\n", i, txt,
+                                 device->driver_name, device->proc_name))
                 break;
         }
 
@@ -130,6 +127,9 @@ static int proc_read_open_fildes(char* buf, char** start, off_t offset,
     if (!RTDM_PROC_PRINT("Index\tLocked\tDevice\n"))
         goto done;
 
+    if (down_interruptible(&nrt_dev_lock))
+        return -ERESTARTSYS;
+
     for (i = 0; i < RTDM_FD_MAX; i++) {
         xnlock_get_irqsave(&rt_fildes_lock, s);
 
@@ -140,7 +140,7 @@ static int proc_read_open_fildes(char* buf, char** start, off_t offset,
 
         close_lock_count =
             atomic_read(&fildes_table[i].context->close_lock_count);
-        device = (struct rtdm_device *)fildes_table[i].context->device;
+        device = fildes_table[i].context->device;
 
         xnlock_put_irqrestore(&rt_fildes_lock, s);
 
@@ -149,6 +149,8 @@ static int proc_read_open_fildes(char* buf, char** start, off_t offset,
                              device->device_name : device->proc_name))
             break;
     }
+
+    up(&nrt_dev_lock);
 
   done:
     RTDM_PROC_PRINT_DONE;
@@ -190,7 +192,7 @@ static int proc_read_fildes(char* buf, char** start, off_t offset,
     RTDM_PROC_PRINT_VARS(80);
 
 
-    RTDM_PROC_PRINT("total:\t%d\nopen:\t%d\nfree:\t%d\n", RTDM_FD_MAX,
+    RTDM_PROC_PRINT("total=%d:open=%d:free=%d\n", RTDM_FD_MAX,
                     open_fildes, RTDM_FD_MAX - open_fildes);
 
     RTDM_PROC_PRINT_DONE;
@@ -239,10 +241,6 @@ int rtdm_proc_register_device(struct rtdm_device* device)
     struct proc_dir_entry   *dev_dir;
     struct proc_dir_entry   *proc_entry;
 
-    if (device->proc_name == NULL) {
-        xnlogerr("RTDM: missing device proc name\n");
-        return -EINVAL;
-    }
 
     dev_dir = create_proc_entry(device->proc_name, S_IFDIR, rtdm_proc_root);
     if (!dev_dir)
@@ -312,5 +310,3 @@ void rtdm_proc_cleanup(void)
     remove_proc_entry("named_devices", rtdm_proc_root);
     remove_proc_entry("xenomai/rtdm", NULL);
 }
-
-#endif /* CONFIG_PROC_FS */

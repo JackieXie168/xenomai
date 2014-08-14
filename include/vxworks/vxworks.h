@@ -144,7 +144,7 @@ typedef struct wind_wd_utarget {
 
 } wind_wd_utarget_t;
 
-#if defined(__KERNEL__) || defined(__XENO_SIM__)  || defined(__XENO_UVM__)
+#if defined(__KERNEL__) || defined(__XENO_SIM__)
 
 #include <nucleus/pod.h>
 #include <nucleus/synch.h>
@@ -260,13 +260,13 @@ int *wind_current_context_errno(void);
 }
 #endif
 
-#else /* !(__KERNEL__ || __XENO_SIM__ || __XENO_UVM__) */
+#else /* !(__KERNEL__ || __XENO_SIM__) */
 
 #include <vxworks/syscall.h>
 
 typedef WIND_TCB_PLACEHOLDER WIND_TCB;
 
-#endif /* __KERNEL__ || __XENO_SIM__ || __XENO_UVM__ */
+#endif /* __KERNEL__ || __XENO_SIM__ */
 
 #ifdef __cplusplus
 extern "C" {
@@ -316,7 +316,7 @@ STATUS taskPrioritySet(TASK_ID task_id,
 STATUS taskPriorityGet(TASK_ID task_id,
 		       int *pprio);
 
-void taskExit(int code); /* User-space may directly use exit(3). */
+void taskExit(int code);
     
 STATUS taskLock(void);
 

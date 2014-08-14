@@ -24,7 +24,7 @@
   </ul></div>
 <h1>Real-Time Driver Model</h1><hr><a name="_details"></a><h2>Detailed Description</h2>
 The Real-Time Driver Model (RTDM) provides a unified interface to both users and developers of real-time device drivers. Specifically, it addresses the constraints of mixed RT/non-RT systems like Xenomai. RTDM conforms to POSIX semantics (IEEE Std 1003.1) where available and applicable.<p>
-<b>API</b> <b>Revision:</b> 4 
+<b>API</b> <b>Revision:</b> 5 
 <p>
 <table border="0" cellpadding="0" cellspacing="0">
 <tr><td></td></tr>
@@ -35,8 +35,86 @@ The Real-Time Driver Model (RTDM) provides a unified interface to both users and
 
 <tr><td class="memItemLeft" nowrap align="right" valign="top">&nbsp;</td><td class="memItemRight" valign="bottom"><a class="el" href="group__profiles.html">Device Profiles</a></td></tr>
 
+<tr><td colspan="2"><br><h2>API Versioning</h2></td></tr>
+<tr><td colspan="2"><a class="anchor" name="api_versioning"></a> <br><br></td></tr>
+<tr><td class="memItemLeft" nowrap align="right" valign="top"><a class="anchor" name="gdd2020d36782ebb916b065d6554f2631"></a><!-- doxytag: member="rtdm::RTDM_API_VER" ref="gdd2020d36782ebb916b065d6554f2631" args="" -->
+#define&nbsp;</td><td class="memItemRight" valign="bottom"><a class="el" href="group__rtdm.html#gdd2020d36782ebb916b065d6554f2631">RTDM_API_VER</a>&nbsp;&nbsp;&nbsp;5</td></tr>
+
+<tr><td class="mdescLeft">&nbsp;</td><td class="mdescRight">Common user and driver API version. <br></td></tr>
+<tr><td class="memItemLeft" nowrap align="right" valign="top"><a class="anchor" name="g29d0fb2c233815a4a1d99f6a19f50b97"></a><!-- doxytag: member="rtdm::RTDM_API_MIN_COMPAT_VER" ref="g29d0fb2c233815a4a1d99f6a19f50b97" args="" -->
+#define&nbsp;</td><td class="memItemRight" valign="bottom"><a class="el" href="group__rtdm.html#g29d0fb2c233815a4a1d99f6a19f50b97">RTDM_API_MIN_COMPAT_VER</a>&nbsp;&nbsp;&nbsp;5</td></tr>
+
+<tr><td class="mdescLeft">&nbsp;</td><td class="mdescRight">Minimum API revision compatible with the current release. <br></td></tr>
+<tr><td colspan="2"><br><h2>RTDM_TIMEOUT_xxx</h2></td></tr>
+<tr><td colspan="2"><a class="anchor" name="RTDM_TIMEOUT_xxx"></a> Special timeout values <br><br></td></tr>
+<tr><td class="memItemLeft" nowrap align="right" valign="top"><a class="anchor" name="gbdd7dfed8d8c38213f7edff5dc8b85a9"></a><!-- doxytag: member="rtdm::RTDM_TIMEOUT_INFINITE" ref="gbdd7dfed8d8c38213f7edff5dc8b85a9" args="" -->
+#define&nbsp;</td><td class="memItemRight" valign="bottom"><a class="el" href="group__rtdm.html#gbdd7dfed8d8c38213f7edff5dc8b85a9">RTDM_TIMEOUT_INFINITE</a>&nbsp;&nbsp;&nbsp;0</td></tr>
+
+<tr><td class="mdescLeft">&nbsp;</td><td class="mdescRight">Block forever. <br></td></tr>
+<tr><td class="memItemLeft" nowrap align="right" valign="top"><a class="anchor" name="g9d1d1557083c4b10226f360bea137fde"></a><!-- doxytag: member="rtdm::RTDM_TIMEOUT_NONE" ref="g9d1d1557083c4b10226f360bea137fde" args="" -->
+#define&nbsp;</td><td class="memItemRight" valign="bottom"><a class="el" href="group__rtdm.html#g9d1d1557083c4b10226f360bea137fde">RTDM_TIMEOUT_NONE</a>&nbsp;&nbsp;&nbsp;(-1)</td></tr>
+
+<tr><td class="mdescLeft">&nbsp;</td><td class="mdescRight">Any negative timeout means non-blocking. <br></td></tr>
+<tr><td colspan="2"><br><h2>Typedefs</h2></td></tr>
+<tr><td class="memItemLeft" nowrap align="right" valign="top">typedef uint64_t&nbsp;</td><td class="memItemRight" valign="bottom"><a class="el" href="group__rtdm.html#gd3b24c25feabadba465f8797d8c7fe27">nanosecs_abs_t</a></td></tr>
+
+<tr><td class="mdescLeft">&nbsp;</td><td class="mdescRight">RTDM type for representing absolute dates.  <a href="#gd3b24c25feabadba465f8797d8c7fe27"></a><br></td></tr>
+<tr><td class="memItemLeft" nowrap align="right" valign="top">typedef int64_t&nbsp;</td><td class="memItemRight" valign="bottom"><a class="el" href="group__rtdm.html#gededf91e760e3268235351dcc9d9dcda">nanosecs_rel_t</a></td></tr>
+
+<tr><td class="mdescLeft">&nbsp;</td><td class="mdescRight">RTDM type for representing relative intervals.  <a href="#gededf91e760e3268235351dcc9d9dcda"></a><br></td></tr>
 </table>
-<hr size="1"><address style="align: right;"><small>Generated on Tue Mar 20 10:02:19 2007 for Xenomai API by&nbsp;
+<hr><h2>Typedef Documentation</h2>
+<a class="anchor" name="gd3b24c25feabadba465f8797d8c7fe27"></a><!-- doxytag: member="rtdm.h::nanosecs_abs_t" ref="gd3b24c25feabadba465f8797d8c7fe27" args="" --><p>
+<table class="mdTable" cellpadding="2" cellspacing="0">
+  <tr>
+    <td class="mdRow">
+      <table cellpadding="0" cellspacing="0" border="0">
+        <tr>
+          <td class="md" nowrap valign="top">typedef uint64_t <a class="el" href="group__rtdm.html#gd3b24c25feabadba465f8797d8c7fe27">nanosecs_abs_t</a>          </td>
+        </tr>
+      </table>
+    </td>
+  </tr>
+</table>
+<table cellspacing="5" cellpadding="0" border="0">
+  <tr>
+    <td>
+      &nbsp;
+    </td>
+    <td>
+
+<p>
+RTDM type for representing absolute dates. 
+<p>
+Its base type is a 64 bit unsigned integer. The unit is 1 nanosecond.     </td>
+  </tr>
+</table>
+<a class="anchor" name="gededf91e760e3268235351dcc9d9dcda"></a><!-- doxytag: member="rtdm.h::nanosecs_rel_t" ref="gededf91e760e3268235351dcc9d9dcda" args="" --><p>
+<table class="mdTable" cellpadding="2" cellspacing="0">
+  <tr>
+    <td class="mdRow">
+      <table cellpadding="0" cellspacing="0" border="0">
+        <tr>
+          <td class="md" nowrap valign="top">typedef int64_t <a class="el" href="group__rtdm.html#gededf91e760e3268235351dcc9d9dcda">nanosecs_rel_t</a>          </td>
+        </tr>
+      </table>
+    </td>
+  </tr>
+</table>
+<table cellspacing="5" cellpadding="0" border="0">
+  <tr>
+    <td>
+      &nbsp;
+    </td>
+    <td>
+
+<p>
+RTDM type for representing relative intervals. 
+<p>
+Its base type is a 64 bit signed integer. The unit is 1 nanosecond. Relative intervals can also encode the special timeouts "infinite" and "non-blocking", see <a class="el" href="group__rtdm.html#RTDM_TIMEOUT_xxx">RTDM_TIMEOUT_xxx</a>.     </td>
+  </tr>
+</table>
+<hr size="1"><address style="align: right;"><small>Generated on Mon Dec 25 13:57:11 2006 for Xenomai API by&nbsp;
 <a href="http://www.doxygen.org/index.html">
 <img src="doxygen.png" alt="doxygen" align="middle" border="0"></a> 1.4.6 </small></address>
 </body>
