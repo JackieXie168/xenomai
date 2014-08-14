@@ -2127,7 +2127,6 @@ static int __rt_queue_delete(struct task_struct *curr, struct pt_regs *regs)
 {
 	RT_QUEUE_PLACEHOLDER ph;
 	RT_QUEUE *q;
-	int err;
 
 	if (!__xn_access_ok(curr, VERIFY_READ, __xn_reg_arg1(regs), sizeof(ph)))
 		return -EFAULT;
@@ -2136,17 +2135,11 @@ static int __rt_queue_delete(struct task_struct *curr, struct pt_regs *regs)
 			    sizeof(ph));
 
 	q = (RT_QUEUE *)xnregistry_fetch(ph.opaque);
-
 	if (!q)
-		err = -ESRCH;
-	else {
-		/* Callee will check the queue descriptor for validity again. */
-		err = rt_queue_delete_inner(q, (void __user *)ph.mapbase);
-		if (!err && q->cpid)
-			xnfree(q);
-	}
+		return -ESRCH;
 
-	return err;
+	/* Callee will check the queue descriptor for validity again. */
+	return rt_queue_delete_inner(q, (void __user *)ph.mapbase);
 }
 
 /*
@@ -2180,6 +2173,7 @@ static int __rt_queue_alloc(struct task_struct *curr, struct pt_regs *regs)
 
 	if (!q) {
 		err = -ESRCH;
+		buf = NULL;
 		goto unlock_and_exit;
 	}
 
@@ -2659,7 +2653,6 @@ static int __rt_heap_delete(struct task_struct *curr, struct pt_regs *regs)
 {
 	RT_HEAP_PLACEHOLDER ph;
 	RT_HEAP *heap;
-	int err;
 
 	if (!__xn_access_ok(curr, VERIFY_READ, __xn_reg_arg1(regs), sizeof(ph)))
 		return -EFAULT;
@@ -2670,15 +2663,10 @@ static int __rt_heap_delete(struct task_struct *curr, struct pt_regs *regs)
 	heap = (RT_HEAP *)xnregistry_fetch(ph.opaque);
 
 	if (!heap)
-		err = -ESRCH;
-	else {
-		/* Callee will check the heap descriptor for validity again. */
-		err = rt_heap_delete_inner(heap, (void __user *)ph.mapbase);
-		if (!err && heap->cpid)
-			xnfree(heap);
-	}
+		return -ESRCH;
 
-	return err;
+	/* Callee will check the heap descriptor for validity again. */
+	return rt_heap_delete_inner(heap, (void __user *)ph.mapbase);
 }
 
 /*
