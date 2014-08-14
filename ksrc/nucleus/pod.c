@@ -1514,9 +1514,12 @@ void xnpod_suspend_thread (xnthread_t *thread,
        non-current thread. XNPEND is always added by the caller to its
        own state, XNDORMANT is a pre-runtime state, and XNRELAX has
        special semantics escaping this issue.
+
+       Also note that we don't signal threads which are in a
+       dormant state, since they are suspended by definition.
      */
 
-    else if (testbits(thread->status,XNSHADOW|XNRELAX) == (XNSHADOW|XNRELAX) &&
+    else if (testbits(thread->status,XNSHADOW|XNRELAX|XNDORMANT) == (XNSHADOW|XNRELAX) &&
 	     (mask & (XNDELAY|XNSUSP)) != 0)
 	xnshadow_suspend(thread);
 

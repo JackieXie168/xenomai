@@ -378,10 +378,8 @@ int ftruncate(int fd, off_t len)
        is aligned). */
     if (len)
         {
-        len += PAGE_SIZE + xnheap_overhead(len, PAGE_SIZE);
+        len += PAGE_SIZE + PAGE_ALIGN(xnheap_overhead(len, PAGE_SIZE));
         len = PAGE_ALIGN(len);
-        if (len == 2 * PAGE_SIZE)
-            len = 3 * PAGE_SIZE;
         }
 
     err = 0;
@@ -427,7 +425,7 @@ int ftruncate(int fd, off_t len)
             }
         }
     else if (len != xnheap_size(&shm->heapbase))
-        err = EINVAL;
+        err = EBUSY;
 
     up(&shm->maplock);
 
@@ -704,28 +702,38 @@ static int pse51_assoc_lookup_inner(pse51_assocq_t *q,
 
     holder = getheadq(q);
 
-    if (holder)
+    if (!holder)
         {
-        do 
-            {
-            assoc = link2assoc(holder);
-            holder = nextq(q, holder);
-            }
-        while (holder && (assoc->uobj < uobj ||
-                          (assoc->uobj == uobj && assoc->mm < mm)));
+        /* empty list. */
+        xnlock_put_irqrestore(&pse51_assoc_lock, s);
+        *passoc = NULL;
+        return 0;
+        }
 
-        if (assoc->mm == mm && assoc->uobj == uobj)
-            {
-            /* found */
-            *passoc = assoc;
-            xnlock_put_irqrestore(&pse51_assoc_lock, s);
-            return 1;
-            }
+    do 
+        {
+        assoc = link2assoc(holder);
+        holder = nextq(q, holder);
+        }
+    while (holder && (assoc->uobj < uobj ||
+                      (assoc->uobj == uobj && assoc->mm < mm)));
+    
+    if (assoc->mm == mm && assoc->uobj == uobj)
+        {
+        /* found */
+        *passoc = assoc;
+        xnlock_put_irqrestore(&pse51_assoc_lock, s);
+        return 1;
         }
 
     /* not found. */
+    if (assoc->uobj < uobj || (assoc->uobj == uobj && assoc->mm < mm))
+        *passoc = holder ? link2assoc(holder) : NULL;
+    else
+        *passoc = assoc;
+
     xnlock_put_irqrestore(&pse51_assoc_lock, s);
-    *passoc = holder ? link2assoc(holder) : NULL;
+
     return 0;
 }
 
@@ -841,10 +849,16 @@ void pse51_shm_pkg_cleanup(void)
     while ((holder = getheadq(&pse51_shmq)))
         {
         pse51_shm_t *shm = link2shm(holder);
+        pse51_node_t *node;
+        spl_t s;
+
 #ifdef CONFIG_XENO_OPT_DEBUG
         xnprintf("POSIX shared memory \"%s\" discarded.\n", shm->nodebase.name);
 #endif /* CONFIG_XENO_OPT_DEBUG */
+        xnlock_get_irqsave(&nklock, s);
+        pse51_node_remove(&node, shm->nodebase.name, PSE51_SHM_MAGIC);
         pse51_shm_destroy(shm, 1);
+        xnlock_put_irqrestore(&nklock, s);
         }
 }
 

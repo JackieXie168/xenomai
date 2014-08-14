@@ -1,3 +1,57 @@
+2006-08-19  Philippe Gerum  <rpm@xenomai.org>
+
+ 	* RELEASE: Xenomai 2.1.3 (Chords Of Life)
+
+2006-08-19  Philippe Gerum  <rpm@xenomai.org>
+
+	* ksrc/arch/i386/patches: Upgrade to 2.4.3{2,3}-1.2-07,
+	2.6.17-1.3-09.
+
+	* ksrc/arch/powerpc/patches: Upgrade to 2.6.14-1.3-06,
+	2.4.25-CVS-20060707-1.1-04.
+
+2006-07-30  Philippe Gerum  <rpm@xenomai.org>
+
+	* ksrc/skins/native/task.c (rt_task_delete): Do not send SIGKILL
+	to dormant threads.
+
+	* ksrc/arch/i386/patches: Upgrade to 2.6.17-1.3-09.
+
+2006-07-28  Philippe Gerum  <rpm@xenomai.org>
+
+	* ksrc/arch/i386/patches: Upgrade to 2.4.32-1.2-06.
+
+2006-07-27  Philippe Gerum  <rpm@xenomai.org>
+
+	* ksrc/nucleus/pod.c (xnpod_suspend_thread): Don't send migration
+	signal to dormant threads.
+
+2006-07-25  Jan Kiszka  <jan.kiszka@web.de>
+
+	* include/native/task.h, ksrc/native/task.c: Kill unused timer field
+	in RT_TASK. Return ptimer of the underlying thread on rt_task_inquire.
+ 
+2006-07-23  Jan Kiszka  <jan.kiszka@web.de>
+
+	* ksrc/skins/native/Makefile: Fixed typo that messed up modularised
+	native skin build under 2.4.
+
+2006-06-25  Philippe Gerum  <rpm@xenomai.org>
+
+	* sim/acinclude.m4 (SC_PATH_TIX): Fix for Ubuntu namings.
+
+2006-06-07  Gilles Chanteperdrix  <gilles.chanteperdrix@laposte.net>
+
+	* ksrc/skins/posix/shm.c (ftruncate): Rework allocation of shared
+	memory with the size that is not a multiple of the page size.
+	(pse51_shm_pkg_cleanup): Hold the nklock while calling
+	pse51_shm_destroy to avoid a panic when compiled in debug mode.
+
+2006-06-05  Philippe Gerum  <rpm@xenomai.org>
+
+	* ksrc/arch/blackfin/patches: Upgrade to R06R1RC2-bf53x-1.4-03 and
+	cvs-20060604-bf53x-1.4-03.
+
 2006-05-19  Philippe Gerum  <rpm@xenomai.org>
 
  	* RELEASE: Xenomai 2.1.2 (Seven String)
