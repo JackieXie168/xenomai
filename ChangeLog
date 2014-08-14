@@ -1,3 +1,145 @@
+2005-12-17  Philippe Gerum  <rpm@xenomai.org>
+
+ 	* RELEASE: Xenomai 2.0.2 (Ceremony)
+
+2005-12-16  Philippe Gerum  <rpm@xenomai.org>
+
+	* nucleus/pod.c (xnpod_delete_thread): Prevent double deletion.
+
+	* arch/ppc/patches: Upgrade to Adeos 2.6.14-1.0-08.
+
+	* arch/i386/patches: Upgrade to Adeos 2.6.14-1.0-12.
+
+	* nucleus/shadow.c (xnshadow_harden): Fix potential lockups caused
+	by a bad scheduling sequence between the gatekeeper and the
+	hardening task.
+
+2005-12-14  Philippe Gerum  <rpm@xenomai.org>
+
+	* nucleus/shadow.c (xnshadow_relax): Make the root priority boost
+	and the suspension on XNRELAX an atomic sequence.
+
+2005-12-12  Philippe Gerum  <rpm@xenomai.org>
+
+	* nucleus/shadow.c (do_schedule_event): Do not trigger a fatal
+	error for unstarted Xenomai shadows. A Linux preemption could
+	occur on the return path from xnshadow_map() to the wait barrier
+	syscall from user-space.
+
+2005-12-09  Jan Kiszka  <jan.kiszka@web.de>
+	
+	* skins/native/lib/GNUmakefile.am, skins/posix/lib/GNUmakefile.am:
+	Add -pthread to LDFLAGS.
+
+2005-12-07  Philippe Gerum  <rpm@xenomai.org>
+
+	* skins/uvm/syscall.c (__vm_shadow_helper): 
+	* skins/native/syscall.c (__rt_task_create): Do not stall the
+	Xenomai domain during shadow mapping; this is useless and induces
+	jitter since we end up locking the interrupts out across Linux
+	schedulings. Issue spotted by Jan Kiszka.
+
+2005-12-06  Philippe Gerum  <rpm@xenomai.org>
+
+	* arch/ppc/patches: Discontinue support for kernel 2.6.10.
+
+2005-11-29  Philippe Gerum  <rpm@xenomai.org>
+
+	* arch/ppc/patches: Upgrade to Adeos 2.6.14-1.0-07.
+
+	* arch/i386/patches: Upgrade to Adeos 2.6.14-1.0-11.
+
+2005-11-27  Gilles Chanteperdrix  <gilles.chanteperdrix@laposte.net>
+
+	* nucleus/intr.c: Fix Doxygen comment.
+
+	* skins/vxworks/defs.h (wind_errnoset): Handle correctly the
+	case wind_current_task() == NULL.
+
+2005-11-25  Jan Kiszka <jan.kiszka@web.de>
+
+	* drivers/16550A/16550A.c (RTSER_RTIOC_SET_CONFIG): Fix ENOMEM detection
+        (once again). Found by Paolo Mantegazza through cross-usage.
+
+2005-11-21  Philippe Gerum  <rpm@xenomai.org>
+
+	* skins/native, nucleus/pipe.c: Globally replace ENOSPC by
+	ENOBUFS.
+
+2005-11-21  Dmitry Adamushko <dmitry.adamushko@gmail.com>
+
+	* nucleus/pipe.c (xnpipe_send): Return -ENOBUFS instead of -ENOSPC
+	when a given buffer is not big enough for the entire message to be
+	written in. perror() gives a, hopefully, more-precise and less-confusing
+	description for the former one.
+
+2005-11-18  Dmitry Adamushko <dmitry.adamushko@gmail.com>
+
+	* nucleus/pipe.c (xnpipe_cleanup_user_conn): Clear
+	XNPIPE_USER_CONN flag and cleanup the associated data queues in
+	one atomic step.
+	
+2005-11-18  Philippe Gerum  <rpm@xenomai.org>
+
+	* ksrc/arch/{ppc*,ia64}/hal.c: Fix default value for
+	rthal_timerfreq_arg.
+
+2005-11-16  Dmitry Adamushko <dmitry.adamushko@gmail.com>
+
+	* nucleus/pipe.c, skins/native/pipe.c: Support for auto-allocation
+	of minor values for the pipe objects. Passing P_MINOR_AUTO as a
+	third argument to the rt_pipe_create() causes the minor value to
+	be auto-allocated. In such a case, standard linux processes must
+	make use of the valid pipe name exported through the registry
+	interface in order to get connected to the pipe
+	(i.e. /proc/xenomai/registry/pipes/*).
+
+2005-11-14  Philippe Gerum  <rpm@xenomai.org>
+
+	* skins/native/pipe.h: Declare rt_pipe_flush() in kernel section.
+
+2005-11-14  Heikki Lindholm <holindho@cs.helsinki.fi>
+	
+	* arch/ppc64/patches: Upgrade to Adeos 2.6.10-ppc64-r3.
+
+	* arch/ppc64, include/asm-ppc64: Make I-pipe compliant.
+
+2005-11-12  Sebastian Smolorz  <Sebastian.Smolorz@stud.uni-hannover.de>
+
+	* skins/rtdm/syscall.c (sys_rtdm_recvmsg): Fix error checking.
+
+2005-11-09  Philippe Gerum  <rpm@xenomai.org>
+
+	* nucleus/pipe.c (xnpipe_disconnect): Flush the output queue
+	upon closure. Issue spotted by Sebastian Smolorz.
+	(xnpipe_release): Flush the input queue upon closure.
+
+2005-11-08  Philippe Gerum  <rpm@xenomai.org>
+
+	* nucleus/shadow.c (lostage_handler): Fix thread priority
+	transition while relaxing a shadow by downgrading the root thread
+	priority to its base one whenever, we happen to run the APC over a
+	non-shadow. This prevents the temporary priority boost from
+	leaking to some current regular thread before the shadow actually
+	resumes.
+
+2005-11-08  Jan Kiszka <jan.kiszka@web.de>
+
+	* skins/rtdm (rtdm_task_init): Fix a cleanup-on-error problem and
+	move this call into drvlib.
+
+	* skins/rtdm: Get rid of __u64 and __s64 usages in favour of
+	uint64_t and int64_t. Improve the documentation of
+	rtdm_device.device_name and RTDM_EXECUTE_ATOMICALLY. Move
+	EXPORT_SYMBOLs to their related functions.
+
+	* drivers/16550A: Allow for the baud rate to be provided as an
+	integer token instead of the previous low-level encoded value.
+
+2005-11-08  Ulrich Schwab  <schwab@inmess.de>
+
+	* skins/native/task.c (rt_task_receive): Fix documentation.
+
 2005-11-06  Philippe Gerum  <rpm@xenomai.org>
 
  	* RELEASE: Xenomai 2.0.1 (Crushing Day)

@@ -288,6 +288,15 @@ static void lostage_handler (void *cookie)
 		    set_cpus_allowed(p, cpumask_of_cpu(cpuid));
 #endif /* CONFIG_SMP */
 
+		/* We need to downgrade the root thread priority
+		   whenever the APC runs over a non-shadow, so that
+		   the temporary boost we applied in xnshadow_relax()
+		   is not spuriously inherited by the latter until the
+		   relaxed shadow actually resumes in secondary
+		   mode. */
+
+		if (!xnshadow_thread(current))
+		    xnpod_renice_root(XNPOD_ROOT_PRIO_BASE);
  do_wakeup:
 
 #ifdef CONFIG_XENO_OPT_ISHIELD
@@ -297,6 +306,10 @@ static void lostage_handler (void *cookie)
 #endif /* CONFIG_XENO_OPT_ISHIELD */
 
 		wake_up_process(p);
+
+		if (xnsched_resched_p())
+		    xnpod_schedule();
+
 		break;
 
 	    case LO_RENICE_REQ:
@@ -345,13 +358,7 @@ static int gatekeeper_thread (void *data)
     
     sigfillset(&this_task->blocked);
     set_cpus_allowed(this_task, cpumask_of_cpu(cpu));
-#ifdef CONFIG_PREEMPT_RT
-    /* FIXME -- PREEMPT_RT badly changes the semantics of
-       wake_up_interruptible_sync(), we need to work around this. */
-    set_linux_task_priority(this_task,1);
-#else /* CONFIG_PREEMPT_RT */
     set_linux_task_priority(this_task,MAX_RT_PRIO-1);
-#endif /* CONFIG_PREEMPT_RT */
 
     init_waitqueue_head(&gk->waitq);
     add_wait_queue_exclusive(&gk->waitq,&wait);
@@ -445,23 +452,47 @@ int xnshadow_harden (void)
     gk->thread = thread;
     set_current_state(TASK_INTERRUPTIBLE);
     wake_up_interruptible_sync(&gk->waitq);
-    schedule();
-
-    /* Rare case: we have been awaken by a signal before the
-       gatekeeper sent us to primary mode. Since TASK_UNINTERRUPTIBLE
-       is unavailable to us without wrecking the runqueue's count of
-       uniniterruptible tasks, we just notice the issue and gracefully
-       fail; the caller will have to process this signal anyway. */
 
     if (rthal_current_domain == rthal_root_domain) {
+
+        /* On non-preemptible kernels, we always enter this code,
+	   since there is no preemption opportunity before we
+	   explicitely call schedule(). On preemptible kernels, we
+	   might have been switched out on our way in/out
+	   wake_up_interruptible_sync(), and scheduled back after the
+	   gatekeeper kicked the Xenomai scheduler. In such a case, we
+	   need to check the current Adeos domain: if this is Xenomai,
+	   then the switch has already taken place and the current
+	   task is already running in primary mode; if it's not, then
+	   we need to call schedule() in order to force the current
+	   task out and let the gatekeeper switch us back in primary
+	   mode. The small race window between the test and the call
+	   to schedule() is closed by the latter routine, which denies
+	   rescheduling over non-root domains (I-pipe patches >=
+	   1.0-08 for ppc, or 1.0-12 for x86). */
+
+	schedule();
+
+	/* Rare case: we might have been awaken by a signal before the
+	   gatekeeper sent us to primary mode. Since
+	   TASK_UNINTERRUPTIBLE is unavailable to us without wrecking
+	   the runqueue's count of uniniterruptible tasks, we just
+	   notice the issue and gracefully fail; the caller will have
+	   to process this signal anyway. */
+
+	if (rthal_current_domain == rthal_root_domain) {
 #ifdef CONFIG_XENO_OPT_DEBUG
-	if (!signal_pending(this_task))
-	    xnpod_fatal("xnshadow_harden() failed for thread %s[%d]",
-			thread->name,
-			xnthread_user_pid(thread));
+	    if (!signal_pending(this_task) ||
+		this_task->state != TASK_RUNNING)
+		xnpod_fatal("xnshadow_harden() failed for thread %s[%d]",
+			    thread->name,
+			    xnthread_user_pid(thread));
 #endif /* CONFIG_XENO_OPT_DEBUG */
-	return -ERESTARTSYS;
+	    return -ERESTARTSYS;
+	}
     }
+
+    /* "current" is now running into the Xenomai domain. */
 
 #ifdef CONFIG_XENO_HW_FPU
     xnpod_switch_fpu(xnpod_current_sched());
@@ -475,8 +506,6 @@ int xnshadow_harden (void)
     xnlock_clear_irqon(&nklock);
 
     xnltt_log_event(xeno_ev_primary,thread->name);
-
-    /* "current" is now running into the Xenomai domain. */
 
     return 0;
 }
@@ -514,6 +543,7 @@ void xnshadow_relax (int notify)
 {
     xnthread_t *thread = xnpod_current_thread();
     int cprio;
+    spl_t s;
 
 #ifdef CONFIG_XENO_OPT_DEBUG
     if (testbits(thread->status,XNROOT))
@@ -539,8 +569,10 @@ void xnshadow_relax (int notify)
 
     schedule_linux_call(LO_WAKEUP_REQ,current,0);
 
+    splhigh(s);
     xnpod_renice_root(thread->cprio);
     xnpod_suspend_thread(thread,XNRELAX,XN_INFINITE,NULL);
+    splexit(s);
 #ifdef CONFIG_XENO_OPT_DEBUG
     if (rthal_current_domain != rthal_root_domain)
 	xnpod_fatal("xnshadow_relax() failed for thread %s[%d]",
@@ -1437,6 +1469,7 @@ static inline void do_schedule_event (struct task_struct *next)
         if (!(next->ptrace & PT_PTRACED) &&
 	    /* Allow ptraced threads to run shortly in order to
 	       properly recover from a stopped state. */
+	    testbits(status,XNSTARTED) &&
 	    testbits(status,XNTHREAD_BLOCK_BITS))
 	    {
 	    show_stack(xnthread_user_task(threadin),NULL);
@@ -1561,7 +1594,7 @@ static inline void do_setsched_event (struct task_struct *p, int priority)
     if (thread->cprio != priority)
 	xnpod_renice_thread_inner(thread,priority,0);
 
-    if (current == p && thread->cprio != xnpod_current_root()->cprio)
+    if (current == p)
 	xnpod_renice_root(thread->cprio);
 
     if (xnsched_resched_p())
@@ -1618,7 +1651,7 @@ int xnshadow_register_interface (const char *name,
 
     xnlock_put_irqrestore(&nklock,s);
     
-    return -ENOSPC;
+    return -ENOBUFS;
 }
 
 /*

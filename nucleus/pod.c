@@ -1005,12 +1005,12 @@ void xnpod_restart_thread (xnthread_t *thread)
  * - XNSHIELD enables the interrupt shield for the current user-space
  * task. When engaged, the interrupt shield protects the shadow task
  * running in secondary mode from any preemption by the regular Linux
- * interrupt handlers, without delaying in any way the Xenomai's
- * interrupt handling. The shield is operated on a per-task basis at
- * each context switch, depending on the setting of this flag. This
- * feature is only available if the CONFIG_XENO_OPT_ISHIELD option
- * has been enabled at configuration time; otherwise, this flag is
- * simply ignored.
+ * interrupt handlers, without delaying in any way Xenomai's interrupt
+ * handling. The shield is operated on a per-task basis at each
+ * context switch, depending on the setting of this flag. This feature
+ * is only available if the CONFIG_XENO_OPT_ISHIELD option has been
+ * enabled at configuration time; otherwise, this flag is simply
+ * ignored.
  *
  * Environments:
  *
@@ -1118,6 +1118,9 @@ void xnpod_delete_thread (xnthread_t *thread)
 
     xnlock_get_irqsave(&nklock,s);
 
+    if (testbits(thread->status,XNZOMBIE))
+	goto unlock_and_exit;	/* No double-deletion. */
+
     xnltt_log_event(xeno_ev_thrdelete,thread->name);
 
     sched = thread->sched;
@@ -1189,6 +1192,8 @@ void xnpod_delete_thread (xnthread_t *thread)
 
         xnarch_finalize_no_switch(xnthread_archtcb(thread));
         }
+
+ unlock_and_exit:
 
     xnlock_put_irqrestore(&nklock,s);
 }
@@ -2214,13 +2219,10 @@ static inline void xnpod_preempt_current_thread (xnsched_t *sched)
  * needed. xnpod_schedule() actually switches threads if:
  *
  * - the running thread has been blocked or deleted.
- * - or, the running thread has become less priority than the first
+ * - or, the running thread has a lower priority than the first
  *   ready to run thread.
  * - or, the running thread does not lead no more the ready threads
  * (round-robin).
- * - or, a real-time thread became ready to run, ending the
- *   scheduler idle state (i.e. The root thread was
- *   running so far).
  *
  * The nucleus implements a lazy rescheduling scheme so that most
  * of the services affecting the threads state MUST be followed by a
@@ -2228,11 +2230,11 @@ static inline void xnpod_preempt_current_thread (xnsched_t *sched)
  * be applied. In other words, multiple changes on the scheduler state
  * can be done in a row, waking threads up, blocking others, without
  * being immediately translated into the corresponding context
- * switches, like it would be necessary would it appear that a more
+ * switches, like it would be necessary would it appear that a higher
  * priority thread than the current one became runnable for
  * instance. When all changes have been applied, the rescheduling
  * procedure is then called to consider those changes, and possibly
- * replace the current thread by another.
+ * replace the current thread by another one.
  *
  * As a notable exception to the previous principle however, every
  * action which ends up suspending or deleting the current thread

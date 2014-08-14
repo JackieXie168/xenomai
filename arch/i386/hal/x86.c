@@ -4,7 +4,7 @@
  *
  *   Adeos-based Real-Time Abstraction Layer for x86.
  *
- *   Original RTAI/x86 layer implementation: \n
+ *   Inspired from original RTAI/x86 HAL interface: \n
  *   Copyright &copy; 2000 Paolo Mantegazza, \n
  *   Copyright &copy; 2000 Steve Papacharalambous, \n
  *   Copyright &copy; 2000 Stuart Hughes, \n
@@ -505,7 +505,7 @@ int rthal_arch_init (void)
     if (!test_bit(X86_FEATURE_APIC,boot_cpu_data.x86_capability))
     {
         printk("Xenomai: Local APIC absent or disabled!\n"
-               "         Disable APIC support or pass \"lapic\" as bootparam.\n");
+               "         Disable APIC support or pass \"lapic=1\" as bootparam.\n");
         rthal_smi_restore();
         return -ENODEV;
     }
