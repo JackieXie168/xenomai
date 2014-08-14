@@ -312,17 +312,24 @@ void show_stack(struct task_struct *task,
 #define IRQF_SHARED			SA_SHIRQ
 #endif /* < 2.6.18 */
 
+#ifdef CONFIG_LTT
+
 #if LINUX_VERSION_CODE < KERNEL_VERSION(2,6,24)
-/* For pre-2.6.24 kernel with LTTng add-on. */
-#ifdef CONFIG_MARKERS
+#define trace_mark(channel, ev, fmt, args...)	\
+	MARK(channel##_##ev, fmt , ##args)
+#else /* >= 2.6.24 */
 #include <linux/marker.h>
-#define trace_mark(ev, fmt, args...)	MARK(ev, fmt , ##args)
-#else /* !CONFIG_MARKERS */
-#define trace_mark(ev, fmt, args...)	do { } while (0)
-#endif /* !CONFIG_MARKERS */
-#else /* LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,24) */
-#include <linux/marker.h>
-#endif /* LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,24) */
+#if LINUX_VERSION_CODE < KERNEL_VERSION(2,6,27)
+#undef trace_mark
+#define trace_mark(channel, ev, fmt, args...)	\
+	__trace_mark(0, channel##_##ev, NULL, fmt, ## args)
+#endif /* < 2.6.27 */
+#endif /* >= 2.6.24 */
+
+#else /* !CONFIG_LTT */
+#undef trace_mark
+#define trace_mark(channel, ev, fmt, args...)	do { } while (0)
+#endif /* !CONFIG_LTT */
 
 #if LINUX_VERSION_CODE < KERNEL_VERSION(2,6,22)
 #define KMALLOC_MAX_SIZE 131072
@@ -361,5 +368,36 @@ unsigned long find_next_bit(const unsigned long *addr,
 #endif /* !CONFIG_MMU */
 
 #endif /* LINUX_VERSION_CODE < 2.6.27 */
+
+#if LINUX_VERSION_CODE < KERNEL_VERSION(2,6,29)
+
+#include <linux/sched.h>
+
+#ifndef current_cap
+#define current_cap()  ((current)->cap_effective)
+#endif
+
+static inline int wrap_raise_cap(int cap)
+{
+	cap_raise(current_cap(), cap);
+	return 0;
+}
+#else /* LINUX_VERSION_CODE >= 2.6.29 */
+
+#include <linux/cred.h>
+
+static inline int wrap_raise_cap(int cap)
+{
+	struct cred *new;
+
+	new = prepare_creds();
+	if (new == NULL)
+		return -ENOMEM;
+
+	cap_raise(new->cap_effective, cap);
+
+	return commit_creds(new);
+}
+#endif /* LINUX_VERSION_CODE >= 2.6.29 */
 
 #endif /* _XENO_ASM_GENERIC_WRAPPERS_H */

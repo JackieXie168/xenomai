@@ -84,6 +84,12 @@ static inline void xnintr_sync_stat_references(xnintr_t *intr) {}
 
 static void xnintr_irq_handler(unsigned irq, void *cookie);
 
+void xnintr_host_tick(struct xnsched *sched) /* Interrupts off. */
+{
+	__clrbits(sched->status, XNHTICK);
+	xnarch_relay_tick();
+}
+
 /* Low-level clock irq handler. */
 
 void xnintr_clock_handler(void)
@@ -97,8 +103,8 @@ void xnintr_clock_handler(void)
 
 	xnarch_announce_tick();
 
-	trace_mark(xn_nucleus_irq_enter, "irq %u", XNARCH_TIMER_IRQ);
-	trace_mark(xn_nucleus_tbase_tick, "base %s", nktbase.name);
+	trace_mark(xn_nucleus, irq_enter, "irq %u", XNARCH_TIMER_IRQ);
+	trace_mark(xn_nucleus, tbase_tick, "base %s", nktbase.name);
 
 	++sched->inesting;
 
@@ -112,17 +118,18 @@ void xnintr_clock_handler(void)
 
 	if (--sched->inesting == 0 && xnsched_resched_p())
 		xnpod_schedule();
+	/*
+	 * If the clock interrupt preempted a real-time thread, any
+	 * transition to the root thread has already triggered a host
+	 * tick propagation from xnpod_schedule(), so at this point,
+	 * we only need to propagate the host tick in case the
+	 * interrupt preempted the root thread.
+	 */
+	if (testbits(sched->status, XNHTICK) &&
+	    xnthread_test_state(sched->runthread, XNROOT))
+		xnintr_host_tick(sched);
 
-	/* Since the host tick is low priority, we can wait for returning
-	   from the rescheduling procedure before actually calling the
-	   propagation service, if it is pending. */
-
-	if (testbits(sched->status, XNHTICK)) {
-		__clrbits(sched->status, XNHTICK);
-		xnarch_relay_tick();
-	}
-
-	trace_mark(xn_nucleus_irq_exit, "irq %u", XNARCH_TIMER_IRQ);
+	trace_mark(xn_nucleus, irq_exit, "irq %u", XNARCH_TIMER_IRQ);
 	xnstat_exectime_switch(sched, prev);
 }
 
@@ -166,7 +173,7 @@ static void xnintr_shirq_handler(unsigned irq, void *cookie)
 
 	prev  = xnstat_exectime_get_current(sched);
 	start = xnstat_exectime_now();
-	trace_mark(xn_nucleus_irq_enter, "irq %u", irq);
+	trace_mark(xn_nucleus, irq_enter, "irq %u", irq);
 
 	++sched->inesting;
 
@@ -210,7 +217,7 @@ static void xnintr_shirq_handler(unsigned irq, void *cookie)
 	if (--sched->inesting == 0 && xnsched_resched_p())
 		xnpod_schedule();
 
-	trace_mark(xn_nucleus_irq_exit, "irq %u", irq);
+	trace_mark(xn_nucleus, irq_exit, "irq %u", irq);
 	xnstat_exectime_switch(sched, prev);
 }
 
@@ -231,7 +238,7 @@ static void xnintr_edge_shirq_handler(unsigned irq, void *cookie)
 
 	prev  = xnstat_exectime_get_current(sched);
 	start = xnstat_exectime_now();
-	trace_mark(xn_nucleus_irq_enter, "irq %u", irq);
+	trace_mark(xn_nucleus, irq_enter, "irq %u", irq);
 
 	++sched->inesting;
 
@@ -290,7 +297,7 @@ static void xnintr_edge_shirq_handler(unsigned irq, void *cookie)
 	if (--sched->inesting == 0 && xnsched_resched_p())
 		xnpod_schedule();
 
-	trace_mark(xn_nucleus_irq_exit, "irq %u", irq);
+	trace_mark(xn_nucleus, irq_exit, "irq %u", irq);
 	xnstat_exectime_switch(sched, prev);
 }
 
@@ -443,7 +450,7 @@ static void xnintr_irq_handler(unsigned irq, void *cookie)
 
 	prev  = xnstat_exectime_get_current(sched);
 	start = xnstat_exectime_now();
-	trace_mark(xn_nucleus_irq_enter, "irq %u", irq);
+	trace_mark(xn_nucleus, irq_enter, "irq %u", irq);
 
 	++sched->inesting;
 
@@ -490,7 +497,7 @@ static void xnintr_irq_handler(unsigned irq, void *cookie)
 	if (--sched->inesting == 0 && xnsched_resched_p())
 		xnpod_schedule();
 
-	trace_mark(xn_nucleus_irq_exit, "irq %u", irq);
+	trace_mark(xn_nucleus, irq_exit, "irq %u", irq);
 	xnstat_exectime_switch(sched, prev);
 }
 
@@ -692,17 +699,18 @@ int xnintr_attach(xnintr_t *intr, void *cookie)
 	int err;
 	spl_t s;
 
-	trace_mark(xn_nucleus_irq_attach, "irq %u name %s",
+	trace_mark(xn_nucleus, irq_attach, "irq %u name %s",
 		   intr->irq, intr->name);
 
 	intr->cookie = cookie;
 	memset(&intr->stat, 0, sizeof(intr->stat));
 
-	xnlock_get_irqsave(&intrlock, s);
-
 #ifdef CONFIG_SMP
 	xnarch_set_irq_affinity(intr->irq, nkaffinity);
 #endif /* CONFIG_SMP */
+
+	xnlock_get_irqsave(&intrlock, s);
+
 	err = xnintr_irq_attach(intr);
 
 	if (!err)
@@ -749,7 +757,7 @@ int xnintr_detach(xnintr_t *intr)
 	int err;
 	spl_t s;
 
-	trace_mark(xn_nucleus_irq_detach, "irq %u", intr->irq);
+	trace_mark(xn_nucleus, irq_detach, "irq %u", intr->irq);
 
 	xnlock_get_irqsave(&intrlock, s);
 
@@ -790,7 +798,7 @@ int xnintr_detach(xnintr_t *intr)
 
 int xnintr_enable(xnintr_t *intr)
 {
-	trace_mark(xn_nucleus_irq_enable, "irq %u", intr->irq);
+	trace_mark(xn_nucleus, irq_enable, "irq %u", intr->irq);
 
 	return xnarch_enable_irq(intr->irq);
 }
@@ -821,7 +829,7 @@ int xnintr_enable(xnintr_t *intr)
 
 int xnintr_disable(xnintr_t *intr)
 {
-	trace_mark(xn_nucleus_irq_disable, "irq %u", intr->irq);
+	trace_mark(xn_nucleus, irq_disable, "irq %u", intr->irq);
 
 	return xnarch_disable_irq(intr->irq);
 }
@@ -847,7 +855,7 @@ int xnintr_disable(xnintr_t *intr)
 
 xnarch_cpumask_t xnintr_affinity(xnintr_t *intr, xnarch_cpumask_t cpumask)
 {
-	trace_mark(xn_nucleus_irq_affinity, "irq %u %lu",
+	trace_mark(xn_nucleus, irq_affinity, "irq %u %lu",
 		   intr->irq, *(unsigned long *)&cpumask);
 
 	return xnarch_set_irq_affinity(intr->irq, cpumask);

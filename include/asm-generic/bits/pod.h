@@ -62,6 +62,7 @@
 static int xnarch_next_htick_shot(unsigned long delay, struct clock_event_device *cdev)
 {
 	xnsched_t *sched;
+	int ret;
 	spl_t s;
 
 #if !defined(__IPIPE_FEATURE_REQUEST_TICKDEV) && 0 /* Unused. */
@@ -70,10 +71,10 @@ static int xnarch_next_htick_shot(unsigned long delay, struct clock_event_device
 #endif
 	xnlock_get_irqsave(&nklock, s);
 	sched = xnpod_current_sched();
-	xntimer_start(&sched->htimer, delay, XN_INFINITE, XN_RELATIVE);
+	ret = xntimer_start(&sched->htimer, delay, XN_INFINITE, XN_RELATIVE);
 	xnlock_put_irqrestore(&nklock, s);
 
-	return 0;
+	return ret ? -ETIME : 0;
 }
 
 /*!
@@ -269,24 +270,6 @@ unsigned long long xnarch_get_host_time(void)
 }
 
 EXPORT_SYMBOL(xnarch_get_host_time);
-
-#ifndef XNARCH_TSC_TO_NS
-long long xnarch_tsc_to_ns(long long ts)
-{
-    return xnarch_llimd(ts,1000000000,RTHAL_CPU_FREQ);
-}
-#endif /* !XNARCH_TSC_TO_NS */
-
-EXPORT_SYMBOL(xnarch_tsc_to_ns);
-
-#ifndef XNARCH_NS_TO_TSC
-long long xnarch_ns_to_tsc(long long ns)
-{
-    return xnarch_llimd(ns,RTHAL_CPU_FREQ,1000000000);
-}
-#endif /* !XNARCH_NS_TO_TSC */
-
-EXPORT_SYMBOL(xnarch_ns_to_tsc);
 
 unsigned long long xnarch_get_cpu_time(void)
 {

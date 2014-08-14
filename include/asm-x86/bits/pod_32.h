@@ -23,22 +23,6 @@
 #define _XENO_ASM_X86_BITS_POD_32_H
 #define _XENO_ASM_X86_BITS_POD_H
 
-unsigned xnarch_tsc_scale;
-unsigned xnarch_tsc_shift;
-unsigned xnarch_tsc_divide;
-
-long long xnarch_tsc_to_ns(long long ts)
-{
-	return xnarch_llmulshft(ts, xnarch_tsc_scale, xnarch_tsc_shift);
-}
-#define XNARCH_TSC_TO_NS
-
-long long xnarch_ns_to_tsc(long long ns)
-{
-	return xnarch_llimd(ns, xnarch_tsc_divide, xnarch_tsc_scale);
-}
-#define XNARCH_NS_TO_TSC
-
 #include <asm-generic/xenomai/bits/pod.h>
 #include <asm/xenomai/switch.h>
 
@@ -315,24 +299,13 @@ static inline void xnarch_enable_fpu(xnarchtcb_t * tcb)
 		if (tcb->cr0_ts)
 			return;
 
-		if (wrap_test_fpu_used(task)) {
-			/* Fpu context was not even saved, do not restore */
-			clts();
+		if (tcb->ts_usedfpu && !wrap_test_fpu_used(task)) {
+			xnarch_restore_fpu(tcb);
 			return;
 		}
-		
-		xnarch_restore_fpu(tcb);
-		return;
 	}
 
 	clts();
-
-	if (!cpu_has_fxsr && task)
-		/* fnsave, called by switch_to, initialized the FPU state, so that on
-		   cpus prior to PII (i.e. without fxsr), we need to restore the saved
-		   state. */
-		__asm__ __volatile__("frstor %0": /* no output */
-				     :"m"(*tcb->fpup));
 }
 
 #else /* !CONFIG_XENO_HW_FPU */

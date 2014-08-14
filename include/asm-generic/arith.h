@@ -40,6 +40,7 @@
 #endif
 
 #else /* !__KERNEL__ */
+#include <stddef.h>
 #include <endian.h>
 
 #if __BYTE_ORDER == __BIG_ENDIAN
@@ -146,9 +147,9 @@ __rthal_generic_divmod64(unsigned long long a,
 #endif /* !rthal_divmod64 */
 
 #ifndef rthal_imuldiv
-static inline __attribute__((__const__)) int __rthal_generic_imuldiv (int i,
-								  int mult,
-								  int div)
+static inline __attribute__((__const__)) int __rthal_generic_imuldiv(int i,
+								     int mult,
+								     int div)
 {
     /* Returns (int)i = (unsigned long long)i*(unsigned)(mult)/(unsigned)div. */
     const unsigned long long ull = rthal_ullmul(i, mult);
@@ -156,6 +157,18 @@ static inline __attribute__((__const__)) int __rthal_generic_imuldiv (int i,
 }
 #define rthal_imuldiv(i,m,d) __rthal_generic_imuldiv((i),(m),(d))
 #endif /* !rthal_imuldiv */
+
+#ifndef rthal_imuldiv_ceil
+static inline __attribute__((__const__)) int __rthal_generic_imuldiv_ceil(int i,
+									  int mult,
+									  int div)
+{
+	/* Same as __rthal_generic_imuldiv, rounding up. */
+	const unsigned long long ull = rthal_ullmul(i, mult);
+	return rthal_uldivrem(ull + (unsigned)div - 1, div, NULL);
+}
+#define rthal_imuldiv_ceil(i,m,d) __rthal_generic_imuldiv_ceil((i),(m),(d))
+#endif /* !rthal_imuldiv_ceil */
 
 #ifndef rthal_llimd
 /* Division of an unsigned 96 bits ((h << 32) + l) by an unsigned 32 bits. 
@@ -275,6 +288,7 @@ static inline void xnarch_init_llmulshft(const unsigned m_in,
 #define xnarch_mod64(a,b)            ({ unsigned long long _rem; \
 			                rthal_divmod64((a),(b),&_rem); _rem; })
 #define xnarch_imuldiv               rthal_imuldiv
+#define xnarch_imuldiv_ceil          rthal_imuldiv_ceil
 #define xnarch_llimd                 rthal_llimd
 #define xnarch_llmulshft             rthal_llmulshft
 #define xnarch_get_cpu_tsc           rthal_rdtsc
