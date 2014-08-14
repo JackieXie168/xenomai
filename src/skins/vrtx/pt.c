@@ -27,42 +27,22 @@
 
 extern int __vrtx_muxid;
 
+void *xeno_map_heap(struct xnheap_desc *hd);
+
 static int __map_pt_memory(const vrtx_pdesc_t *pdesc)
 {
-	int err = 0, heapfd;
+	struct xnheap_desc hd;
 	caddr_t mapbase;
 
-	/* Open the heap device to share the partition memory with the
-	   in-kernel skin. */
-	heapfd = open(XNHEAP_DEV_NAME, O_RDWR);
-
-	if (heapfd < 0)
-		return -ENOENT;
-
-	/* Bind this file instance to the shared heap. */
-	err = ioctl(heapfd, 0, pdesc->ptcb);
-
-	if (err)
-		goto close_and_exit;
-
-	/* Map the heap memory into our address space. */
-	mapbase = (caddr_t) mmap(NULL,
-				 pdesc->ptsize,
-				 PROT_READ | PROT_WRITE,
-				 MAP_SHARED, heapfd, 0L);
-
+	hd.handle = (unsigned long)pdesc->ptcb;
+	hd.size = pdesc->ptsize;
+	xnheap_area_set(&hd, pdesc->area);
+	mapbase = xeno_map_heap(&hd);
 	if (mapbase == MAP_FAILED)
-		err = -ENOMEM;
-	else
-		err =
-		    XENOMAI_SKINCALL2(__vrtx_muxid, __vrtx_pbind, pdesc->pid,
-				      mapbase);
+		return -errno;
 
-      close_and_exit:
-
-	close(heapfd);
-
-	return err;
+	return XENOMAI_SKINCALL2(__vrtx_muxid, __vrtx_pbind,
+				 pdesc->pid, mapbase);
 }
 
 int sc_pcreate(int pid, char *paddr,

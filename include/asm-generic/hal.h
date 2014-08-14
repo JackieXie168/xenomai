@@ -259,7 +259,7 @@ static int hdlr (unsigned event, struct ipipe_domain *ipd, void *data) \
 static int hdlr (unsigned event, struct ipipe_domain *ipd, void *data) \
 {									\
 	struct task_struct *p = (struct task_struct *)data;		\
-	do_##hdlr(p,p->rt_priority);					\
+	do_##hdlr(p, p->rt_priority);					\
 	return RTHAL_EVENT_PROPAGATE;					\
 }
 
@@ -285,6 +285,14 @@ static int hdlr (unsigned event, struct ipipe_domain *ipd, void *data) \
 	struct mm_struct *mm = (struct mm_struct *)data;	       \
 	do_##hdlr(mm);						       \
 	return RTHAL_EVENT_PROPAGATE;				       \
+}
+
+#define RTHAL_DECLARE_MAYDAY_EVENT(hdlr)			      \
+static int hdlr(unsigned event, struct ipipe_domain *ipd, void *data) \
+{								      \
+	struct pt_regs *regs = data;				      \
+	do_##hdlr(regs);					      \
+	return RTHAL_EVENT_PROPAGATE;				      \
 }
 
 #ifndef TASK_ATOMICSWITCH
@@ -318,14 +326,17 @@ static inline void clear_task_nowakeup(struct task_struct *p)
 #define rthal_disable_ondemand_mappings(tsk)   (0)
 #endif	/* !(VM_PINNED || MMF_VM_PINNED) */
 
-#ifdef CONFIG_KGDB
 #define rthal_set_foreign_stack(ipd)	ipipe_set_foreign_stack(ipd)
 #define rthal_clear_foreign_stack(ipd)	ipipe_clear_foreign_stack(ipd)
-#else /* !CONFIG_KGDB */
-/* No need to track foreign stacks unless KGDB is active. */
-#define rthal_set_foreign_stack(ipd)	do { } while(0)
-#define rthal_clear_foreign_stack(ipd)	do { } while(0)
-#endif /* CONFIG_KGDB */
+
+#ifdef __IPIPE_FEATURE_ENABLE_NOTIFIER
+#define rthal_enable_notifier(p)	ipipe_enable_notifier(p)
+#else
+static inline void rthal_enable_notifier(struct task_struct *p)
+{
+	p->flags |= PF_EVNOTIFY;
+}
+#endif
 
 #define rthal_catch_cleanup(hdlr)         \
     ipipe_catch_event(ipipe_root_domain,IPIPE_EVENT_CLEANUP,hdlr)
@@ -343,6 +354,15 @@ static inline void clear_task_nowakeup(struct task_struct *p)
     ipipe_catch_event(&rthal_domain,IPIPE_EVENT_SYSCALL,hdlr)
 #define rthal_catch_exception(ex,hdlr)	\
     ipipe_catch_event(&rthal_domain,ex|IPIPE_EVENT_SELF,hdlr)
+
+#ifdef IPIPE_EVENT_RETURN
+#define RTHAL_HAVE_RETURN_EVENT
+#define rthal_catch_return(hdlr)         \
+    ipipe_catch_event(&rthal_domain,IPIPE_EVENT_RETURN,hdlr)
+#define rthal_return_intercept(p)	ipipe_return_notify(p)
+#else
+#define rthal_catch_return(hdlr)	do { } while(0)
+#endif
 
 #define rthal_register_domain(_dom,_name,_id,_prio,_entry)	\
 ({								\

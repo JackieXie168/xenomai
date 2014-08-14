@@ -109,6 +109,17 @@ int xnshadow_mark_sig(struct xnthread *thread, unsigned muxid);
 
 void xnshadow_clear_sig(struct xnthread *thread, unsigned muxid);
 
+#ifdef RTHAL_HAVE_RETURN_EVENT
+#define XNARCH_HAVE_MAYDAY  1
+void xnshadow_call_mayday(struct xnthread *thread, int sigtype);
+#else
+static inline void xnshadow_call_mayday(struct xnthread *thread,
+					int sigtype)
+{
+	/* no luck, I-pipe too old. Nobody hears you screaming... */
+}
+#endif
+
 #ifdef __cplusplus
 }
 #endif

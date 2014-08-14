@@ -13,6 +13,9 @@
 #ifndef PCI_DEVICE_ID_INTEL_ICH8_4
 #define PCI_DEVICE_ID_INTEL_ICH8_4 0x2815
 #endif
+#ifndef PCI_DEVICE_ID_INTEL_ICH10_1
+#define PCI_DEVICE_ID_INTEL_ICH10_1 0x3a16
+#endif
 
 /* RTCAN */
 #ifndef PCI_VENDOR_ID_ESDGMBH
@@ -20,6 +23,9 @@
 #endif
 #ifndef PCI_DEVICE_ID_PLX_9030
 #define PCI_DEVICE_ID_PLX_9030 0x9030
+#endif
+#ifndef PCI_DEVICE_ID_PLX_9056
+#define PCI_DEVICE_ID_PLX_9056 0x9056
 #endif
 
 #endif /* _XENO_ASM_GENERIC_PCI_IDS_H */

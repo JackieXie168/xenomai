@@ -190,8 +190,6 @@ extern "C" {
 
 #ifdef __KERNEL__
 
-#define XNHEAP_DEV_MINOR 254
-
 int xnheap_mount(void);
 
 void xnheap_umount(void);
@@ -208,14 +206,17 @@ void xnheap_destroy_mapped(xnheap_t *heap,
 			   void (*release)(struct xnheap *heap),
 			   void __user *mapaddr);
 
+#define xnheap_base_memory(heap) \
+	((caddr_t)(heap)->archdep.heapbase)
+
 #define xnheap_mapped_offset(heap,ptr) \
-(((caddr_t)(ptr)) - ((caddr_t)(heap)->archdep.heapbase))
+	(((caddr_t)(ptr)) - xnheap_base_memory(heap))
 
 #define xnheap_mapped_address(heap,off) \
-(((caddr_t)(heap)->archdep.heapbase) + (off))
+	(xnheap_base_memory(heap) + (off))
 
 #define xnheap_mapped_p(heap) \
-((heap)->archdep.heapbase != NULL)
+	(xnheap_base_memory(heap) != NULL)
 
 #endif /* __KERNEL__ */
 
@@ -278,5 +279,21 @@ int xnheap_check_block(xnheap_t *heap,
 #endif /* __KERNEL__ || __XENO_SIM__ */
 
 #define XNHEAP_DEV_NAME  "/dev/rtheap"
+#define XNHEAP_DEV_MINOR 254
+
+#ifdef CONFIG_MMU
+/* XXX: 2.5.x ABI preserved for MMU-enabled only. */
+#define xnheap_area_decl();
+#define xnheap_area_set(p, val)
+#else
+#define xnheap_area_decl()	unsigned long area
+#define xnheap_area_set(p, val)	(p)->area = (unsigned long)(val)
+#endif
+
+struct xnheap_desc {
+	unsigned long handle;
+	unsigned int size;
+	xnheap_area_decl();
+};
 
 #endif /* !_XENO_NUCLEUS_HEAP_H */

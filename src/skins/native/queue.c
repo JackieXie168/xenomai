@@ -28,39 +28,22 @@
 
 extern int __native_muxid;
 
-static int __map_queue_memory(RT_QUEUE *q, RT_QUEUE_PLACEHOLDER * php)
+void *xeno_map_heap(struct xnheap_desc *hd);
+
+static int __map_queue_memory(RT_QUEUE *q, RT_QUEUE_PLACEHOLDER *php)
 {
-	int err, heapfd;
+	struct xnheap_desc hd;
 
-	/* Open the heap device to share the message pool memory with the
-	   in-kernel skin and bound clients. */
-	heapfd = __real_open(XNHEAP_DEV_NAME, O_RDWR);
+	hd.handle = (unsigned long)php->opaque2;
+	hd.size = php->mapsize;
+	xnheap_area_set(&hd, php->area);
+	php->mapbase = xeno_map_heap(&hd);
+	if (php->mapbase == MAP_FAILED)
+		return -errno;
 
-	if (heapfd < 0)
-		return -ENOENT;
+	*q = *php;
 
-	/* Bind this file instance to the shared heap. */
-	err = __real_ioctl(heapfd, 0, php->opaque2);
-
-	if (err)
-		goto close_and_exit;
-
-	/* Map the heap memory into our address space. */
-	php->mapbase = (caddr_t) __real_mmap(NULL,
-					     php->mapsize,
-					     PROT_READ | PROT_WRITE,
-					     MAP_SHARED, heapfd, 0L);
-	if (php->mapbase != MAP_FAILED)
-		/* Copy back a complete placeholder only if all is ok. */
-		*q = *php;
-	else
-		err = -errno;
-
-      close_and_exit:
-
-	__real_close(heapfd);
-
-	return err;
+	return 0;
 }
 
 int rt_queue_create(RT_QUEUE *q,
@@ -81,6 +64,7 @@ int rt_queue_create(RT_QUEUE *q,
 		/* If the mapping fails, make sure we don't leave a dandling
 		   queue in kernel space -- remove it. */
 		XENOMAI_SKINCALL1(__native_muxid, __native_queue_delete, &ph);
+
 	return err;
 }
 
@@ -140,42 +124,90 @@ int rt_queue_free(RT_QUEUE *q, void *buf)
 
 int rt_queue_send(RT_QUEUE *q, void *buf, size_t size, int mode)
 {
-	return XENOMAI_SKINCALL4(__native_muxid,
+	int err, oldtype;
+
+	pthread_setcanceltype(PTHREAD_CANCEL_ASYNCHRONOUS, &oldtype);
+
+	err = XENOMAI_SKINCALL4(__native_muxid,
 				 __native_queue_send, q, buf, size, mode);
+
+	pthread_setcanceltype(oldtype, NULL);
+
+	return err;
 }
 
 int rt_queue_write(RT_QUEUE *q, const void *buf, size_t size, int mode)
 {
-	return XENOMAI_SKINCALL4(__native_muxid,
+	int err, oldtype;
+
+	pthread_setcanceltype(PTHREAD_CANCEL_ASYNCHRONOUS, &oldtype);
+
+	err = XENOMAI_SKINCALL4(__native_muxid,
 				 __native_queue_write, q, buf, size, mode);
+
+	pthread_setcanceltype(oldtype, NULL);
+
+	return err;
 }
 
 ssize_t rt_queue_receive(RT_QUEUE *q, void **bufp, RTIME timeout)
 {
-	return XENOMAI_SKINCALL4(__native_muxid,
+	int err, oldtype;
+
+	pthread_setcanceltype(PTHREAD_CANCEL_ASYNCHRONOUS, &oldtype);
+
+	err = XENOMAI_SKINCALL4(__native_muxid,
 				 __native_queue_receive, q, bufp,
 				 XN_RELATIVE, &timeout);
+
+	pthread_setcanceltype(oldtype, NULL);
+
+	return err;
 }
 
 ssize_t rt_queue_receive_until(RT_QUEUE *q, void **bufp, RTIME timeout)
 {
-	return XENOMAI_SKINCALL4(__native_muxid,
+	int err, oldtype;
+
+	pthread_setcanceltype(PTHREAD_CANCEL_ASYNCHRONOUS, &oldtype);
+
+	err = XENOMAI_SKINCALL4(__native_muxid,
 				 __native_queue_receive, q, bufp,
 				 XN_REALTIME, &timeout);
+
+	pthread_setcanceltype(oldtype, NULL);
+
+	return err;
 }
 
 ssize_t rt_queue_read(RT_QUEUE *q, void *buf, size_t size, RTIME timeout)
 {
-	return XENOMAI_SKINCALL5(__native_muxid,
+	int err, oldtype;
+
+	pthread_setcanceltype(PTHREAD_CANCEL_ASYNCHRONOUS, &oldtype);
+
+	err = XENOMAI_SKINCALL5(__native_muxid,
 				 __native_queue_read, q, buf, size,
 				 XN_RELATIVE, &timeout);
+
+	pthread_setcanceltype(oldtype, NULL);
+
+	return err;
 }
 
 ssize_t rt_queue_read_until(RT_QUEUE *q, void *buf, size_t size, RTIME timeout)
 {
-	return XENOMAI_SKINCALL5(__native_muxid,
+	int err, oldtype;
+
+	pthread_setcanceltype(PTHREAD_CANCEL_ASYNCHRONOUS, &oldtype);
+
+	err = XENOMAI_SKINCALL5(__native_muxid,
 				 __native_queue_read, q, buf, size,
 				 XN_REALTIME, &timeout);
+
+	pthread_setcanceltype(oldtype, NULL);
+
+	return err;
 }
 
 int rt_queue_inquire(RT_QUEUE *q, RT_QUEUE_INFO *info)
