@@ -20,6 +20,7 @@ fi
 
 AC_CONFIG_HEADERS(src/include/xeno_config.h)
 AC_CONFIG_AUX_DIR(config)
+AC_CONFIG_MACRO_DIR([config])
 AC_CONFIG_SRCDIR(src/skins/native/task.c)
 AC_PREFIX_DEFAULT(/usr/xenomai)
 AC_CANONICAL_BUILD
@@ -66,10 +67,8 @@ else
   build_for=$host_alias
 fi
 
-use__thread=no
 case "$build_for" in
  i*86*-*)
-	use__thread=yes
 	XENO_TARGET_ARCH=x86
 	CONFIG_XENO_FASTSYNCH=y
 	CONFIG_XENO_DEFAULT_PERIOD=100000
@@ -95,7 +94,6 @@ case "$build_for" in
 	# what architecture we are running
 	;;
  x86_64-*|amd64-*)
-	use__thread=yes
 	XENO_TARGET_ARCH=x86
 	CONFIG_XENO_FASTSYNCH=y
 	CONFIG_XENO_DEFAULT_PERIOD=100000
@@ -138,7 +136,7 @@ dnl Debug build (default: off)
 debug_symbols=
 AC_MSG_CHECKING(for debug symbols)
 AC_ARG_ENABLE(debug,
-	AS_HELP_STRING([--enable-debug], [Enable debug symbols in programs]),
+	AS_HELP_STRING([--enable-debug], [Enable debug symbols in programs [default=no]]),
 	[case "$enableval" in
 	y | yes) debug_symbols=y ;;
 	*) unset debug_symbols ;;
@@ -155,7 +153,7 @@ arm)
 esac
 AC_MSG_CHECKING(for atomic operation support)
 AC_ARG_WITH(atomic-ops,
-	AS_HELP_STRING([--with-atomic-ops], [Select implementation of atomic ops]),
+	AS_HELP_STRING([--with-atomic-ops], [Select implementation of atomic ops [default=builtins on ARM, ad-hoc otherwise]]),
 	[case "$withval" in
 	y | yes | built*)
 	    	atomic_ops=builtins
@@ -180,7 +178,7 @@ x86|powerpc|arm)
 esac
 AC_MSG_CHECKING(for SMP support)
 AC_ARG_ENABLE(smp,
-	AS_HELP_STRING([--enable-smp], [Enable SMP support]),
+	AS_HELP_STRING([--enable-smp], [Enable SMP support [default=yes on x86, Power, ARM]]),
 	[case "$enableval" in
 	y | yes) CONFIG_SMP=y ;;
 	*) unset CONFIG_SMP ;;
@@ -195,7 +193,7 @@ CONFIG_X86_TSC=y
 if test $XENO_TARGET_ARCH = x86; then
   AC_MSG_CHECKING(for x86 SEP instructions in syscalls)
   AC_ARG_ENABLE(x86-sep,
-	AS_HELP_STRING([--enable-x86-sep], [Enable x86 SEP instructions for issuing syscalls]),
+	AS_HELP_STRING([--enable-x86-sep], [Enable x86 SEP instructions for issuing syscalls [default=yes]]),
 	[case "$enableval" in
 	y | yes) CONFIG_XENO_X86_SEP=y ;;
 	*) unset CONFIG_XENO_X86_SEP ;;
@@ -204,7 +202,7 @@ if test $XENO_TARGET_ARCH = x86; then
 
   AC_MSG_CHECKING(for x86 TSC support)
   AC_ARG_ENABLE(x86-tsc,
-	AS_HELP_STRING([--enable-x86-tsc], [Enable x86 TSC for timings]),
+	AS_HELP_STRING([--enable-x86-tsc], [Enable x86 TSC for timings [default=yes]]),
 	[case "$enableval" in
 	y | yes) CONFIG_X86_TSC=y ;;
 	*) unset CONFIG_X86_TSC ;;
@@ -228,7 +226,7 @@ Xenomai: incompatible feature set
 (userland requires "kuser_tsc ...", kernel provides "...", missing="kuser_tsc").
 In that case, this option allows to select the machine for which a
 user-space tsc emulation should be generated. Valid machines are at91,
-kuser, imx, ixp4xx, omap, orion, pxa, s3c24x, sa1100.]),
+kuser, imx, ixp4xx, omap, orion, pxa, s3c24x, sa1100. [default=kuser]]),
 	[case "$enableval" in
 	at91*)	    CONFIG_XENO_ARM_TSC_TYPE=__XN_TSC_TYPE_FREERUNNING_FAST_WRAP;;
 
@@ -238,7 +236,7 @@ kuser, imx, ixp4xx, omap, orion, pxa, s3c24x, sa1100.]),
 
 	imx*|mx*)   CONFIG_XENO_ARM_TSC_TYPE=__XN_TSC_TYPE_FREERUNNING;;
 
-	kuser)	    CONFIG_XENO_ARM_TSC_TYPE=__XN_TSC_TYPE_KUSER;;
+	generic|kuser)	    CONFIG_XENO_ARM_TSC_TYPE=__XN_TSC_TYPE_KUSER;;
 
 	omap*)	    CONFIG_XENO_ARM_TSC_TYPE=__XN_TSC_TYPE_FREERUNNING;;
 
@@ -261,7 +259,7 @@ kuser, imx, ixp4xx, omap, orion, pxa, s3c24x, sa1100.]),
   AC_ARG_ENABLE(arm-quirks,
 	AS_HELP_STRING([--enable-arm-quirks], [Enable quirks for
 	specific systems. Currently supported quirks are for sa1100 and
-	xscale3.]),
+	xscale3. [default=no]]),
 	[case "$enableval" in
 	sa1100)	 CONFIG_XENO_ARM_SA1100=y;;
 	xscale3) CONFIG_XENO_CPU_XSC3=y;;
@@ -288,7 +286,7 @@ else
     XENO_MAYBE_DOCDIR=doc
     AC_MSG_CHECKING(whether installing documentation)
     AC_ARG_ENABLE(doc-install,
-       AS_HELP_STRING([--disable-doc-install], [Do not install documentation]),
+       AS_HELP_STRING([--disable-doc-install], [Do not install documentation [default=no]]),
        [case "$enableval" in
        y | yes);;
        *) unset XENO_MAYBE_DOCDIR;;
@@ -299,7 +297,7 @@ AC_SUBST(XENO_MAYBE_DOCDIR)
 
 AC_MSG_CHECKING(for Doxygen documentation)
 AC_ARG_ENABLE(dox-doc,
-	AS_HELP_STRING([--enable-dox-doc], [Build Doxygen documentation]),
+	AS_HELP_STRING([--enable-dox-doc], [Build Doxygen documentation [default=no]]),
 	[case "$enableval" in
 	y | yes) CONFIG_XENO_DOC_DOX=y ;;
 	*) unset CONFIG_XENO_DOC_DOX ;;
@@ -341,7 +339,7 @@ DBX_DOC_INIT(doc/docbook, doc/generated, 4.2)
 
 AC_MSG_CHECKING(whether using LaTeX non-stop mode)
 AC_ARG_ENABLE(verbose-latex,
-	AS_HELP_STRING([--enable-verbose-latex], [Uses LaTeX non-stop mode]),
+	AS_HELP_STRING([--enable-verbose-latex], [Uses LaTeX non-stop mode [default=no]]),
 	[case "$enableval" in
 	y | yes) CONFIG_XENO_DOC_LATEX_NONSTOP=y ;;
 	*) unset CONFIG_XENO_DOC_LATEX_NONSTOP ;;
@@ -358,7 +356,7 @@ fi
 
 AC_MSG_CHECKING(for asciidoc documentation)
 AC_ARG_ENABLE(asciidoc,
-	AS_HELP_STRING([--enable-asciidoc], [Build Asciidoc documentation]),
+	AS_HELP_STRING([--enable-asciidoc], [Build Asciidoc documentation [default=no]]),
 	[case "$enableval" in
 	y | yes) CONFIG_XENO_ASCIIDOC=y ;;
 	*) unset CONFIG_XENO_ASCIIDOC ;;
@@ -395,7 +393,7 @@ AC_CHECK_HEADERS(mqueue.h)
 dnl Check for presence of some routines we need
 save_LIBS="$LIBS"
 LIBS="$LIBS -lrt -lpthread"
-AC_CHECK_FUNCS([shm_open shm_unlink mmap64 ftruncate64 pthread_mutexattr_setprotocol pthread_condattr_setclock pthread_spin_lock fork])
+AC_CHECK_FUNCS([shm_open shm_unlink open64 mmap64 ftruncate64 pthread_mutexattr_setprotocol pthread_condattr_setclock pthread_spin_lock fork])
 LIBS="$save_LIBS"
 
 dnl
@@ -405,6 +403,9 @@ dnl
 AC_DEFINE_UNQUOTED(CONFIG_XENO_VERSION_MAJOR,$CONFIG_XENO_VERSION_MAJOR,[config])
 AC_DEFINE_UNQUOTED(CONFIG_XENO_VERSION_MINOR,$CONFIG_XENO_VERSION_MINOR,[config])
 AC_DEFINE_UNQUOTED(CONFIG_XENO_REVISION_LEVEL,$CONFIG_XENO_REVISION_LEVEL,[config])
+AC_DEFINE_UNQUOTED(CONFIG_XENO_HAVE_MQUEUE_H, $HAVE_MQUEUE_H,[config])
+AC_DEFINE_UNQUOTED(CONFIG_XENO_HAVE_PTHREAD_MUTEXATTR_SETPROTOCOL, $HAVE_PTHREAD_MUTEXATTR_SETPROTOCOL,[config])
+AC_DEFINE_UNQUOTED(CONFIG_XENO_HAVE_PTHREAD_CONDATTR_SETCLOCK, $HAVE_PTHREAD_CONDATTR_SETCLOCK,[config])
 
 dnl
 dnl Features we enabled and likely want to find at kernel level.
@@ -576,74 +577,17 @@ LD_FILE_OPTION=$ac_cv_ld_file_option
 AC_SUBST(LD_FILE_OPTION)
 AM_CONDITIONAL(CONFIG_XENO_FAST_WRAP,[test "$LD_FILE_OPTION" = "yes"])
 
-AC_MSG_CHECKING(whether the POSIX skin library automatically calls mlockall)
-AC_ARG_ENABLE(posix-auto-mlockall,
-	AS_HELP_STRING([--enable-posix-auto-mlockall], [Enable Xenomai POSIX
-skin library to automatically call mlockall at startup. This option is mainly
-useful for running third-parties programs such as the Open Posix Testsuite
-unmodified with Xenomai POSIX skin]),
-	[case "$enableval" in
-	y | yes) CONFIG_XENO_POSIX_AUTO_MLOCKALL=y ;;
-	*) unset CONFIG_XENO_POSIX_AUTO_MLOCKALL ;;
-	esac])
-AC_MSG_RESULT(${CONFIG_XENO_POSIX_AUTO_MLOCKALL:-no})
-if test x$CONFIG_XENO_POSIX_AUTO_MLOCKALL = xy; then
-	AC_DEFINE(CONFIG_XENO_POSIX_AUTO_MLOCKALL,1,[config])
-fi
-
-AC_MSG_CHECKING(whether the pSOS skin library automatically calls mlockall)
-AC_ARG_ENABLE(psos-auto-mlockall,
-	AS_HELP_STRING([--enable-psos-auto-mlockall], [Enable the
-Xenomai pSOS skin library to automatically call mlockall at
-process startup. Unless this option is switched on, the application
-will have to lock its memory explicitly while initializing.]),
-	[case "$enableval" in
-	y | yes) CONFIG_XENO_PSOS_AUTO_MLOCKALL=y ;;
-	*) unset CONFIG_XENO_PSOS_AUTO_MLOCKALL ;;
-	esac])
-AC_MSG_RESULT(${CONFIG_XENO_PSOS_AUTO_MLOCKALL:-no})
-if test x$CONFIG_XENO_POSIX_PSOS_MLOCKALL = xy; then
-	AC_DEFINE(CONFIG_XENO_PSOS_AUTO_MLOCKALL,1,[config])
-fi
-
-AC_MSG_CHECKING(whether the uITRON skin library automatically calls mlockall)
-AC_ARG_ENABLE(uitron-auto-mlockall,
-	AS_HELP_STRING([--enable-uitron-auto-mlockall], [Enable the
-Xenomai uITRON skin library to automatically call mlockall at
-process startup. Unless this option is switched on, the application
-will have to lock its memory explicitly while initializing.]),
-	[case "$enableval" in
-	y | yes) CONFIG_XENO_UITRON_AUTO_MLOCKALL=y ;;
-	*) unset CONFIG_XENO_UITRON_AUTO_MLOCKALL ;;
-	esac])
-AC_MSG_RESULT(${CONFIG_XENO_UITRON_AUTO_MLOCKALL:-no})
-if test x$CONFIG_XENO_POSIX_UITRON_MLOCKALL = xy; then
-	AC_DEFINE(CONFIG_XENO_UITRON_AUTO_MLOCKALL,1,[config])
-fi
-
-AC_MSG_CHECKING(whether to enable dlopen support for skin libraries)
-AC_ARG_ENABLE(dlopen-skins,
-	AC_HELP_STRING([--enable-dlopen-skins], [Disable TLS features and
-automatic main thread mapping by the POSIX skin to allows dlopen'ing Xenomai
-libs.]),
-	[case "$enableval" in
-	y | yes) CONFIG_XENO_LIBS_DLOPEN=y ;;
-	*) unset CONFIG_XENO_LIBS_DLOPEN ;;
-	esac])
-AC_MSG_RESULT(${CONFIG_XENO_LIBS_DLOPEN:-no})
-if test x$CONFIG_XENO_LIBS_DLOPEN = xy; then
-	AC_DEFINE(CONFIG_XENO_LIBS_DLOPEN,1,[config])
-fi
-
 XENO_DLOPEN_CONSTRAINT=
+use__thread=no
 
 AC_ARG_WITH([__thread],
-	    AC_HELP_STRING([--without-__thread],
-			   [do not use TLS features]),
+	    AC_HELP_STRING([--with-__thread],
+			   [use optimized TLS features (x86 only),
+disabling the ability to use dlopen on Xenomai skin libraries]),
 	    [use__thread=$withval])
 
 dnl Check whether the compiler supports the __thread keyword.
-if test "x$use__thread" != xno -a "x$CONFIG_XENO_LIBS_DLOPEN" != xy; then
+if test "x$use__thread" = xyes; then
 	AC_CACHE_CHECK([for __thread], libc_cv_gcc___thread,
 	[cat > conftest.c <<\EOF
 __thread int a __attribute__ ((tls_model ("initial-exec"))) = 42;
@@ -672,6 +616,25 @@ AC_ARG_WITH(testdir,
 	XENO_TEST_DIR="$withval"
     ], [XENO_TEST_DIR=$bindir])
 AC_MSG_RESULT($XENO_TEST_DIR)
+
+unset want_fortify
+AC_MSG_CHECKING(for fortify support)
+AC_ARG_ENABLE([fortify], 
+	      AC_HELP_STRING([--enable-fortify],
+			     [Enable support for applications compiled
+			     with _FORTIFY_SOURCE]),
+	      [case "$enableval" in
+              y | yes) want_fortify=yes;;
+	      *) want_fortify=no;;
+	      esac])
+AC_MSG_RESULT(${want_fortify:-autodetect})
+if test x"$want_fortify" != xno; then
+   AC_CHECK_FUNC(__vfprintf_chk,
+	      [AC_DEFINE(CONFIG_XENO_FORTIFY,1,[configure])],
+	      [if test x"$want_fortify" = "xyes"; then
+	      AC_MSG_ERROR([Fortify support enabled but not available])
+	       fi])
+fi
 
 dnl
 dnl Build the Makefiles

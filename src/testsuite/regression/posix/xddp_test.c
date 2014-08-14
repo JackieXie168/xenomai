@@ -5,29 +5,31 @@
  *
  * This test causes a crash with Xenomai 2.6.1 and earlier versions.
  */
-#include <sys/mman.h>
 #include <stdio.h>
 #include <stdlib.h>
-#include <unistd.h>
-#include <signal.h>
 #include <string.h>
-#include <malloc.h>
-#include <pthread.h>
 #include <fcntl.h>
 #include <errno.h>
-#include <rtdk.h>
+
+#include <unistd.h>
+#include <signal.h>
+#include <sys/mman.h>
+#include <pthread.h>
+#include <semaphore.h>
+
 #include <rtdm/rtipc.h>
 #include "check.h"
 
 static pthread_t rt, nrt;
-
-#define XDDP_PORT 0	/* [0..CONFIG-XENO_OPT_PIPE_NRDEV - 1] */
+static sem_t opened;
+static int xddp_port = -1;	/* First pass uses auto-selection */
 
 static void *realtime_thread(void *arg)
 {
 	unsigned long count = (unsigned long)arg;
 	struct sockaddr_ipc saddr;
 	struct timespec ts;
+	socklen_t addrlen;
 	size_t poolsz;
 	int ret, s;
 
@@ -55,7 +57,7 @@ static void *realtime_thread(void *arg)
 	 */
 	memset(&saddr, 0, sizeof(saddr));
 	saddr.sipc_family = AF_RTIPC;
-	saddr.sipc_port = XDDP_PORT;
+	saddr.sipc_port = xddp_port;
 	ret = bind(s, (struct sockaddr *)&saddr, sizeof(saddr));
 	if (count == 1) {
 		if (ret < 0 && errno == EADDRINUSE) {
@@ -67,15 +69,22 @@ static void *realtime_thread(void *arg)
 			exit(EXIT_FAILURE);
 		}
 		fprintf(stderr, "FAILURE: bind returned %d\n", ret);
+	} else {
+		addrlen = sizeof(saddr);
+		check_unix(getsockname(s, (struct sockaddr *)&saddr, &addrlen));
+		xddp_port = saddr.sipc_port;
 	}
 	if (ret < 0) {
 		fprintf(stderr, "FAILURE bind: %m\n");
 		exit(EXIT_FAILURE);
 	}
 
+	check_unix(sem_post(&opened));
 	ts.tv_sec = 0;
 	ts.tv_nsec = 500000000; /* 500 ms */
 	check_unix(clock_nanosleep(CLOCK_REALTIME, 0, &ts, NULL));
+	check_unix(sem_wait(&opened));
+	check_unix(sem_destroy(&opened));
 	check_unix(close(s));
 
 	return NULL;
@@ -86,10 +95,11 @@ static void *regular_thread(void *arg)
 	char buf[128], *devname;
 	int fd;
 
-	check_unix(asprintf(&devname, "/dev/rtp%d", XDDP_PORT));
+	check_unix(asprintf(&devname, "/dev/rtp%d", xddp_port));
 
 	fd = check_unix(open(devname, O_RDWR));
 	free(devname);
+	check_unix(sem_post(&opened));
 
 	for (;;) {
 		/* Get the next message from realtime_thread. */
@@ -128,6 +138,7 @@ int main(int argc, char **argv)
 	check_unix(signal(SIGHUP, cleanup_upon_sig) == SIG_ERR ? -1 : 0);
 	check_pthread(pthread_sigmask(SIG_BLOCK, &mask, &oldmask));
 
+	check_unix(sem_init(&opened, 0, 0));
 	check_pthread(pthread_attr_init(&rtattr));
 	check_pthread(pthread_attr_setdetachstate(&rtattr,
 						  PTHREAD_CREATE_JOINABLE));
@@ -138,6 +149,7 @@ int main(int argc, char **argv)
 
 	check_pthread(pthread_create(&rt, &rtattr, &realtime_thread, NULL));
 	check_pthread(pthread_attr_destroy(&rtattr));
+	check_unix(sem_wait(&opened));
 
 	check_pthread(pthread_attr_init(&regattr));
 	check_pthread(pthread_attr_setdetachstate(&regattr,

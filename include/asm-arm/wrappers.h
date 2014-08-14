@@ -30,7 +30,11 @@
 
 #define wrap_phys_mem_prot(filp,pfn,size,prot)	(prot)
 
+#if LINUX_VERSION_CODE < KERNEL_VERSION(3,8,0)
 #define wrap_strncpy_from_user(dstP, srcP, n)	__strncpy_from_user(dstP, srcP, n)
+#else
+#define wrap_strncpy_from_user(dstP, srcP, n)	strncpy_from_user(dstP, srcP, n)
+#endif
 
 #define rthal_irq_desc_status(irq)	(rthal_irq_descp(irq)->status)
 
@@ -111,6 +115,9 @@ static inline void fp_init(union fp_state *state)
 #define CONFIG_XENO_HW_UNLOCKED_SWITCH		1
 #endif
 
-#endif /* _XENO_ASM_ARM_WRAPPERS_H */
+#if defined(CONFIG_SMP) && !defined(CONFIG_XENO_HW_UNLOCKED_SWITCH) && \
+	LINUX_VERSION_CODE < KERNEL_VERSION(3,8,0)
+#error "Xenomai: ARM SMP systems require unlocked context switch prior to Linux 3.8"
+#endif
 
-// vim: ts=4 et sw=4 sts=4
+#endif /* _XENO_ASM_ARM_WRAPPERS_H */

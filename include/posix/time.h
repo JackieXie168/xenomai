@@ -38,6 +38,8 @@
 
 #else /* !(__KERNEL__ || __XENO_SIM__) */
 
+#pragma GCC system_header
+
 #include_next <time.h>
 /* In case time.h is included for a side effect of an __need* macro, include it
    a second time to get all definitions. */

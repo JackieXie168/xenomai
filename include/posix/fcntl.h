@@ -39,6 +39,8 @@ int open(const char *path, int oflag, ...);
 
 #else /* !(__KERNEL__ || __XENO_SIM__) */
 
+#pragma GCC system_header
+
 #include <time.h>
 #include_next <fcntl.h>
 
@@ -47,6 +49,8 @@ extern "C" {
 #endif
 
 int __real_open(const char *path, int oflag, ...);
+
+int __real_open64(const char *path, int oflag, ...);
 
 #ifdef __cplusplus
 }

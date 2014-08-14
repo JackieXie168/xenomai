@@ -61,7 +61,8 @@
 #define __LINUX_ARM_ARCH__ 5
 #endif /* armv5 */
 
-#if defined(__ARM_ARCH_6__) || defined(__ARM_ARCH_6K__)
+#if defined(__ARM_ARCH_6__) || defined(__ARM_ARCH_6K__) \
+	|| defined(__ARM_ARCH_6Z__) || defined(__ARM_ARCH_6ZK__)
 #define __LINUX_ARM_ARCH__ 6
 #endif /* armv6 */
 
@@ -71,10 +72,6 @@
 
 #ifndef __LINUX_ARM_ARCH__
 #error "Could not find current ARM architecture"
-#endif
-
-#if __LINUX_ARM_ARCH__ < 6 && defined(CONFIG_SMP)
-#error "SMP not supported below armv6, compile with -march=armv6 or above"
 #endif
 
 #define CONFIG_XENO_FASTSYNCH 1
@@ -150,5 +147,3 @@ static inline const char *get_feature_label (unsigned feature)
 #define XNARCH_HAVE_NODIV_LLIMD  1
 
 #endif /* !_XENO_ASM_ARM_FEATURES_H */
-
-// vim: ts=4 et sw=4 sts=4

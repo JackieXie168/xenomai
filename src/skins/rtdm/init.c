@@ -21,12 +21,11 @@
 #include <stdlib.h>
 #include <string.h>
 #include <rtdm/syscall.h>
-#include <asm/xenomai/bits/bind.h>
+#include <asm-generic/xenomai/bind.h>
 
 int __rtdm_muxid = -1;
 
-static __attribute__ ((constructor))
-void __init_rtdm_interface(void)
+static __constructor__ void __init_rtdm_interface(void)
 {
 	/* The following call may fail; binding errors will be
 	   eventually caught later when the user tries to open a

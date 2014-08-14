@@ -41,7 +41,6 @@ struct xnvfile_lock_ops;
 struct xnvfile {
 	struct proc_dir_entry *pde;
 	struct file *file;
-	struct xnvfile_directory *parent;
 	struct xnvfile_lock_ops *lockops;
 	int refcnt;
 	void *private;
@@ -574,25 +573,9 @@ static inline void xnvfile_touch(struct xnvfile_snapshot *vfile)
 	xnvfile_touch_tag(vfile->tag);
 }
 
-static inline int xnvfile_reg_p(struct xnvfile *entry)
-{
-	return S_ISREG(entry->pde->mode);
-}
-
-static inline int xnvfile_dir_p(struct xnvfile *entry)
-{
-	return S_ISDIR(entry->pde->mode);
-}
-
-static inline int xnvfile_link_p(struct xnvfile *entry)
-{
-	return S_ISLNK(entry->pde->mode);
-}
-
 #define xnvfile_noentry			\
 	{				\
 		.pde = NULL,		\
-		.parent = NULL,		\
 		.private = NULL,	\
 		.file = NULL,		\
 		.refcnt = 0,		\
@@ -602,7 +585,6 @@ static inline int xnvfile_link_p(struct xnvfile *entry)
 #define xnvfile_nolink	{ .entry = xnvfile_noentry }
 #define xnvfile_nofile	{ .entry = xnvfile_noentry }
 
-#define xnvfile_parent(e)		((e)->entry.parent)
 #define xnvfile_priv(e)			((e)->entry.private)
 #define xnvfile_nref(e)			((e)->entry.refcnt)
 #define xnvfile_file(e)			((e)->entry.file)

@@ -27,6 +27,11 @@
 #error "please don't include asm/calibration.h directly"
 #endif
 
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(3,8,0)
+extern unsigned omap_rev(void);
+#define cpu_is_omap44xx() ((omap_rev() & 0xff) == 0x44)
+#endif
+
 static inline unsigned long xnarch_get_sched_latency (void)
 {
 #if CONFIG_XENO_OPT_TIMING_SCHEDLAT != 0
@@ -51,5 +56,3 @@ static inline unsigned long xnarch_get_sched_latency (void)
 }
 
 #endif /* !_XENO_ASM_ARM_CALIBRATION_H */
-
-// vim: ts=4 et sw=4 sts=4

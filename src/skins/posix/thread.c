@@ -26,8 +26,8 @@
 #include <sys/types.h>
 #include <semaphore.h>
 #include <posix/syscall.h>
-#include <asm-generic/bits/current.h>
-#include <asm-generic/bits/sigshadow.h>
+#include <asm-generic/current.h>
+#include <asm-generic/sigshadow.h>
 #include <asm-generic/stack.h>
 
 extern int __pse51_muxid;
@@ -208,6 +208,7 @@ static void *__pthread_trampoline(void *arg)
 		if (policy != SCHED_OTHER)
 			XENOMAI_SYSCALL1(__xn_sys_migrate, XENOMAI_XENO_DOMAIN);
 		status = start(cookie);
+		pthread_set_mode_np(PTHREAD_WARNSW, 0);
 	} else
 		status = (void *)-err;
 
@@ -336,7 +337,7 @@ int __wrap_pthread_kill(pthread_t thread, int sig)
 	return err;
 }
 
-static __attribute__((constructor)) void pse51_thread_init(void)
+static __constructor__ void pse51_thread_init(void)
 {
 	pthread_attr_init(&default_attr);
 #ifdef _CS_GNU_LIBPTHREAD_VERSION

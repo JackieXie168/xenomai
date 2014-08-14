@@ -103,7 +103,7 @@ patch_link() {
 	    find . $recursive_opt \( $directorytype_opt \
                 $link_makefiles_opt -name $config_file -o -name '*.[chS]' \) |
             while read f; do
-                if test ! -e $xenomai_root/$target_dir/$f; then rm -Rf $f; fi
+                if test -L $f -a ! -e $xenomai_root/$target_dir/$f; then rm -Rf $f; fi
             done
         fi
 
@@ -261,6 +261,9 @@ fi
 # Create an empty output patch file, and initialize the temporary tree.
 if test "x$output_patch" != "x"; then
 
+    if test -z "$TMPDIR"; then
+	TMPDIR=/tmp
+    fi
     temp_tree=$TMPDIR/prepare-kernel-$$
     if ! mkdir $temp_tree; then
 	echo Temporary directory $temp_tree already exists, aborting.

@@ -118,6 +118,23 @@ int __real_open(const char *path, int oflag, ...)
 		return open(path, oflag);
 }
 
+#ifdef HAVE_OPEN64
+__attribute__ ((weak))
+int __real_open64(const char *path, int oflag, ...)
+{
+	va_list ap;
+	mode_t mode;
+
+	if (oflag & O_CREAT) {
+		va_start(ap, oflag);
+		mode = va_arg(ap, mode_t);
+		va_end(ap);
+		return open64(path, oflag, mode);
+	} else
+		return open64(path, oflag);
+}
+#endif
+
 __attribute__ ((weak))
 int __real_socket(int protocol_family, int socket_type, int protocol)
 {
@@ -395,3 +412,19 @@ void __real_vsyslog(int priority, const char *fmt, va_list ap)
 {
 	vsyslog(priority, fmt, ap);
 }
+
+#ifdef CONFIG_XENO_FORTIFY
+__attribute__ ((weak))
+int __real___vfprintf_chk(FILE *stream, int level, const char *fmt, va_list ap)
+{
+	return __vfprintf_chk(stream, level, fmt, ap);
+}
+
+__attribute__ ((weak))
+void __real___vsyslog_chk(int priority, int level, const char *fmt, va_list ap)
+{
+	extern void __vsyslog_chk(int, int, const char *, va_list);
+
+	__vsyslog_chk(priority, level, fmt, ap);
+}
+#endif

@@ -29,6 +29,7 @@
 #include <linux/version.h>
 #include <linux/module.h>
 #include <linux/slab.h>
+#include <linux/sched.h>
 #if defined(CONFIG_XENO_OPT_HOSTRT) || defined(__IPIPE_FEATURE_REQUEST_TICKDEV)
 #include <linux/ipipe_tickdev.h>
 #endif /* CONFIG_XENO_OPT_HOSTRT || __IPIPE_FEATURE_REQUEST_TICKDEV */
@@ -46,7 +47,6 @@
 
 #include <linux/wrapper.h>
 #include <linux/wait.h>
-#include <linux/sched.h>
 #include <linux/bitops.h>
 #include <linux/delay.h>
 #include <linux/slab.h>
@@ -394,7 +394,7 @@ static inline void *kzalloc(size_t size, int flags)
 #define wrap_remap_io_page_range(vma,from,to,size,prot)  ({		\
     (vma)->vm_page_prot = pgprot_noncached((vma)->vm_page_prot);	\
     /* Sets VM_RESERVED | VM_IO | VM_PFNMAP on the vma. */		\
-    remap_pfn_range(vma,from,(to) >> PAGE_SHIFT,size,prot);		\
+    remap_pfn_range(vma,from,(to) >> PAGE_SHIFT,size,pgprot_noncached(prot));		\
     })
 #define wrap_remap_kmem_page_range(vma,from,to,size,prot)  ({		\
     /* Sets VM_RESERVED | VM_IO | VM_PFNMAP on the vma. */		\
@@ -588,8 +588,6 @@ static inline struct task_struct *wrap_find_task_by_pid(pid_t nr)
 
 #if LINUX_VERSION_CODE < KERNEL_VERSION(2,6,29)
 
-#include <linux/sched.h>
-
 #ifndef current_cap
 #define current_cap()  ((current)->cap_effective)
 #endif
@@ -709,7 +707,6 @@ static inline void wrap_proc_dir_entry_owner(struct proc_dir_entry *entry)
 
 #if LINUX_VERSION_CODE < KERNEL_VERSION(3,4,0)
 
-#include <linux/sched.h>
 #include <linux/mm.h>
 #include <linux/smp.h>
 
@@ -741,6 +738,14 @@ unsigned long vm_mmap(struct file *file, unsigned long addr,
 
 #endif /* LINUX_VERSION_CODE < 3.4.0 */
 
+#if LINUX_VERSION_CODE < KERNEL_VERSION(3,5,0)
+#define KGIDT_INIT(pid) (pid)
+#endif /* LINUX < 3.8.0 */
+
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(3,9,0)
+#include <linux/sched/rt.h>
+#endif /* LINUX >= 3.9.0 */
+
 #include <linux/seq_file.h>
 #ifndef SEQ_START_TOKEN
 #define SEQ_START_TOKEN ((void *)1)
@@ -754,5 +759,44 @@ unsigned long vm_mmap(struct file *file, unsigned long addr,
 #elif IPIPE_CORE_APIREV == 1
 #define wrap_select_timers(mask) ipipe_timers_request()
 #endif
+
+#if LINUX_VERSION_CODE < KERNEL_VERSION(3,10,0)
+#include <linux/proc_fs.h>
+
+#define PDE_DATA(inode)	PDE(inode)->data
+
+static inline void proc_remove(struct proc_dir_entry *pde)
+{
+	remove_proc_entry(pde->name, pde->parent);
+}
+
+#if LINUX_VERSION_CODE < KERNEL_VERSION(2,6,26)
+static inline struct proc_dir_entry *
+proc_create_data(const char *name, mode_t mode, struct proc_dir_entry *parent,
+		 const struct file_operations *proc_fops, void *data)
+{
+	struct proc_dir_entry *pde = create_proc_entry(name, mode, parent);
+
+	if (pde) {
+		pde->proc_fops = (struct file_operations *)proc_fops;
+		pde->data = data;
+	}
+	return pde;
+}
+#endif /* < 2.6.26 */
+
+#if LINUX_VERSION_CODE < KERNEL_VERSION(2,6,25)
+static inline struct proc_dir_entry *
+proc_create(const char *name, mode_t mode, struct proc_dir_entry *parent,
+	    const struct file_operations *proc_fops)
+{
+	struct proc_dir_entry *pde = create_proc_entry(name, mode, parent);
+
+	if (pde)
+		pde->proc_fops = (struct file_operations *)proc_fops;
+	return pde;
+}
+#endif /* < 2.6.25 */
+#endif /* < 3.10 */
 
 #endif /* _XENO_ASM_GENERIC_WRAPPERS_H */

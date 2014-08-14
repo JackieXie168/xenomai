@@ -26,11 +26,12 @@
 #include <posix/posix.h>
 #include <posix/syscall.h>
 #include <rtdm/syscall.h>
-#include <asm-generic/bits/sigshadow.h>
+#include <asm-generic/sigshadow.h>
 #include <posix/mutex.h>
 #include <rtdk.h>
 
-#include <asm/xenomai/bits/bind.h>
+#include <asm-generic/xenomai/bind.h>
+#include <asm-generic/xenomai/current.h>
 
 int __pse51_muxid = -1;
 int __pse51_rtdm_muxid = -1;
@@ -40,14 +41,12 @@ static int fork_handler_registered;
 int __wrap_pthread_setschedparam(pthread_t, int, const struct sched_param *);
 void pse51_clock_init(int);
 
-static __attribute__ ((constructor))
-void __init_posix_interface(void)
+static __constructor__ void __init_posix_interface(void)
 {
-#ifndef CONFIG_XENO_LIBS_DLOPEN
 	struct sched_param parm;
 	int policy;
-#endif /* !CONFIG_XENO_LIBS_DLOPEN */
 	int muxid, err;
+	const char *noshadow;
 
 	rt_print_auto_init(1);
 
@@ -68,39 +67,24 @@ void __init_posix_interface(void)
 								 __rtdm_fdcount);
 	}
 
-	/* If not dlopening, we are going to shadow the main thread, so mlock
-	   the whole memory for the time of the syscall, in order to avoid the
-	   SIGXCPU signal. */
-#if defined(CONFIG_XENO_POSIX_AUTO_MLOCKALL) || !defined(CONFIG_XENO_LIBS_DLOPEN)
-	if (mlockall(MCL_CURRENT | MCL_FUTURE)) {
-		perror("Xenomai Posix skin init: mlockall");
-		exit(EXIT_FAILURE);
-	}
-#endif /* auto mlockall || !dlopen */
+	noshadow = getenv("XENO_NOSHADOW");
+	if ((!noshadow || !*noshadow) && xeno_get_current() == XN_NO_HANDLE) {
+		err = __real_pthread_getschedparam(pthread_self(), &policy,
+						   &parm);
+		if (err) {
+			fprintf(stderr, "Xenomai Posix skin init: "
+				"pthread_getschedparam: %s\n", strerror(err));
+			exit(EXIT_FAILURE);
+		}
 
-	/* Don't use auto-shadowing if we are likely invoked from dlopen. */
-#ifndef CONFIG_XENO_LIBS_DLOPEN
-	err = __real_pthread_getschedparam(pthread_self(), &policy, &parm);
-	if (err) {
-		fprintf(stderr, "Xenomai Posix skin init: "
-			"pthread_getschedparam: %s\n", strerror(err));
-		exit(EXIT_FAILURE);
+		err = __wrap_pthread_setschedparam(pthread_self(), policy,
+						   &parm);
+		if (err) {
+			fprintf(stderr, "Xenomai Posix skin init: "
+				"pthread_setschedparam: %s\n", strerror(err));
+			exit(EXIT_FAILURE);
+		}
 	}
-
-	err = __wrap_pthread_setschedparam(pthread_self(), policy, &parm);
-	if (err) {
-		fprintf(stderr, "Xenomai Posix skin init: "
-			"pthread_setschedparam: %s\n", strerror(err));
-		exit(EXIT_FAILURE);
-	}
-
-#ifndef CONFIG_XENO_POSIX_AUTO_MLOCKALL
-	if (munlockall()) {
-		perror("Xenomai Posix skin init: munlockall");
-		exit(EXIT_FAILURE);
-	}
-#endif /* !CONFIG_XENO_POSIX_AUTO_MLOCKALL */
-#endif /* !CONFIG_XENO_LIBS_DLOPEN */
 
 	if (fork_handler_registered)
 		return;

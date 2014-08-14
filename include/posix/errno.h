@@ -48,6 +48,8 @@ int *xnthread_get_errno_location(xnthread_t *thread);
 
 #else /* !(__KERNEL__ || __XENO_SIM__) */
 
+#pragma GCC system_header
+
 #include_next <errno.h>
 
 #endif /* !(__KERNEL__ || __XENO_SIM__) */

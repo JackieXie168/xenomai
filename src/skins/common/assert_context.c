@@ -22,8 +22,8 @@
 #include "internal.h"
 
 #include <nucleus/thread.h>
-#include <asm-generic/syscall.h>
-#include <asm-generic/bits/current.h>
+#include <asm/xenomai/syscall.h>
+#include <asm-generic/current.h>
 
 static void assert_nrt_inner(void)
 {

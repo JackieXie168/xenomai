@@ -10,7 +10,7 @@
 #include <unistd.h>
 #include <limits.h>
 
-#include <asm-generic/xenomai/bits/bind.h>
+#include <asm-generic/xenomai/bind.h>
 #include <asm/xenomai/syscall.h>
 
 struct __xn_full_tscinfo __xn_tscinfo = {
@@ -47,8 +47,8 @@ static inline void xeno_arm_features_check(struct xnfeatinfo *finfo)
 #if CONFIG_XENO_ARM_TSC_TYPE == __XN_TSC_TYPE_KUSER
 	default:
 		__xn_tscinfo.kuser_tsc_get =
-			(rdtsc_t *)(0xffff1004 -
-				    ((*(unsigned *)(0xffff0ffc) + 3) << 5));
+			(__xn_rdtsc_t *)(0xffff1004 -
+					 ((*(unsigned *)(0xffff0ffc) + 3) << 5));
 		goto domap;
 
 #elif CONFIG_XENO_ARM_TSC_TYPE == __XN_TSC_TYPE_FREERUNNING		\

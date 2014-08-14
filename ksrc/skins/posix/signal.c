@@ -64,19 +64,14 @@ typedef void siginfo_handler_t(int, siginfo_t *, void *);
 #define SIGRTMAX 64
 static struct sigaction actions[SIGRTMAX];
 static pse51_siginfo_t pse51_infos_pool[PSE51_SIGQUEUE_MAX];
-DEFINE_XNLOCK(pse51_infos_lock);
 static xnpqueue_t pse51_infos_free_list;
 
 static pse51_siginfo_t *pse51_new_siginfo(int sig, int code, union sigval value)
 {
 	xnpholder_t *holder;
 	pse51_siginfo_t *si;
-	spl_t s;
 
-	xnlock_get_irqsave(&pse51_infos_lock, s);
 	holder = getpq(&pse51_infos_free_list);
-	xnlock_put_irqrestore(&pse51_infos_lock, s);
-
 	if (!holder)
 		return NULL;
 
@@ -90,14 +85,10 @@ static pse51_siginfo_t *pse51_new_siginfo(int sig, int code, union sigval value)
 
 static void pse51_delete_siginfo(pse51_siginfo_t * si)
 {
-	spl_t s;
-
 	initph(&si->link);
 	si->info.si_signo = 0;	/* Used for debugging. */
 
-	xnlock_get_irqsave(&pse51_infos_lock, s);
 	insertpqlr(&pse51_infos_free_list, &si->link, 0);
-	xnlock_put_irqrestore(&pse51_infos_lock, s);
 }
 
 static inline void emptyset(pse51_sigset_t *set)
@@ -327,16 +318,19 @@ int pse51_sigqueue_inner(pthread_t thread, pse51_siginfo_t * si)
 #ifdef CONFIG_XENO_OPT_PERVASIVE
 	if (xnthread_test_state(&thread->threadbase, XNSHADOW)) {
 		pse51_schedule_lostage(PSE51_LO_SIGNAL_REQ, thread, 0);
+		thread->threadbase.signals = 0;
 		if (xnthread_test_state(&thread->threadbase,
 					XNDELAY|XNPEND|XNSUSP|XNRELAX)) {
 			/* Thread is suspended in a syscall, or already relaxed,
-			   we do not need to run the signal dispatcher, the
+			   we do not need to call xnshadow_call_mayday, the
 			   signal APC will cause the sigwake_event to be
 			   generated, which will kick the thread. */
-			thread->threadbase.signals = 0;
 			return 0;
-		} else
-			return thread == pse51_current_thread();
+		} 
+
+		xnthread_set_info(&thread->threadbase, XNAMOK);
+		xnshadow_call_mayday(&thread->threadbase);
+		return thread == pse51_current_thread();
 	}
 #endif /* CONFIG_XENO_OPT_PERVASIVE */
 
@@ -624,31 +618,34 @@ unlock_and_exit:
 int pthread_sigqueue_np(pthread_t thread, int sig, union sigval value)
 {
 	pse51_siginfo_t *si = NULL;	/* Avoid spurious warning. */
+	int err = 0;
 	spl_t s;
 
 	if ((unsigned)sig > SIGRTMAX)
 		return EINVAL;
 
-	if (sig) {
-		si = pse51_new_siginfo(sig, SI_QUEUE, value);
-
-		if (!si)
-			return EAGAIN;
-	}
-
 	xnlock_get_irqsave(&nklock, s);
 
 	if (!pse51_obj_active(thread, PSE51_THREAD_MAGIC, struct pse51_thread)) {
-		xnlock_put_irqrestore(&nklock, s);
-		return ESRCH;
+		err = ESRCH;
+		goto unlock_and_exit;
 	}
 
-	if (sig && pse51_sigqueue_inner(thread, si))
-		xnpod_schedule();
+	if (sig) {
+		si = pse51_new_siginfo(sig, SI_QUEUE, value);
+		if (!si) {
+			err = EAGAIN;
+			goto unlock_and_exit;
+		}
 
+		if (pse51_sigqueue_inner(thread, si))
+			xnpod_schedule();
+	}
+
+  unlock_and_exit:
 	xnlock_put_irqrestore(&nklock, s);
 
-	return 0;
+	return err;
 }
 
 /**
@@ -1092,24 +1089,12 @@ static void pse51_dispatch_signals(xnsigmask_t sigs)
 }
 
 #ifdef CONFIG_XENO_OPT_PERVASIVE
-static void pse51_dispatch_shadow_signals(xnsigmask_t sigs)
-{
-	spl_t dummy;
-	/* Migrate to secondary mode in order to get the signals delivered by
-	   Linux. */
-	xnshadow_relax(1, SIGDEBUG_MIGRATE_SIGNAL);
-	xnlock_get_irqsave(&nklock, dummy);
-	(void)dummy;
-}
-
 void pse51_signal_handle_request(pthread_t thread)
 {
 	pse51_siginfo_t *si;
 	spl_t s;
 
 	xnlock_get_irqsave(&nklock, s);
-
-	thread->threadbase.signals = 0;
 
 	while ((si = pse51_getsigq(&thread->pending,
 				   &thread->pending.mask, NULL))) {
@@ -1127,13 +1112,10 @@ void pse51_signal_handle_request(pthread_t thread)
 		   reschedule. */
 		xnlock_put_irqrestore(&nklock, s);
 
-		send_sig_info(info.si_signo,
-			      &info,
+		send_sig_info(info.si_signo, &info,
 			      xnthread_user_task(&thread->threadbase));
 
 		xnlock_get_irqsave(&nklock, s);
-
-		thread->threadbase.signals = 0;
 	}
 
 	xnlock_put_irqrestore(&nklock, s);
@@ -1154,9 +1136,7 @@ void pse51_signal_init_thread(pthread_t newthread, const pthread_t parent)
 		emptyset(&newthread->sigmask);
 
 #ifdef CONFIG_XENO_OPT_PERVASIVE
-	if (testbits(newthread->threadbase.state, XNSHADOW))
-		newthread->threadbase.asr = &pse51_dispatch_shadow_signals;
-	else
+	if (testbits(newthread->threadbase.state, XNSHADOW) == 0)
 #endif /* CONFIG_XENO_OPT_PERVASIVE */
 		newthread->threadbase.asr = &pse51_dispatch_signals;
 

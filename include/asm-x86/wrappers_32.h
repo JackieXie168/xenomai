@@ -29,6 +29,11 @@
 #include <linux/interrupt.h>
 #include <asm/processor.h>
 
+#if LINUX_VERSION_CODE < KERNEL_VERSION(2,6,11)
+#define tsk_used_math(task)			((task)->used_math)
+#define set_stopped_child_used_math(task)	((task)->used_math = 1)
+#endif
+
 #if LINUX_VERSION_CODE < KERNEL_VERSION(2,5,0)
 
 #define CONFIG_MMU 1
@@ -92,6 +97,12 @@ typedef phys_addr_t resource_size_t;
 		:"=&r" (flag), "=r" (sum) \
 		:"1" (addr),"g" ((int)(size)),"g" (task_thread_info(task)->addr_limit.seg)); \
 	flag == 0; })
+
+#if LINUX_VERSION_CODE < KERNEL_VERSION(3,8,0)
+#ifndef CONFIG_X86_WP_WORKS_OK
+#error "Xenomai has to rely on the WP bit, CONFIG_M486 or better required"
+#endif /* CONFIG_X86_WP_WORKS_OK */
+#endif /* Linux < 3.8.0 */
 
 #if LINUX_VERSION_CODE < KERNEL_VERSION(3,4,0)
 #ifdef TS_USEDFPU

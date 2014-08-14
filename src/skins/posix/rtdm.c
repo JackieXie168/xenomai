@@ -39,10 +39,10 @@ static inline int set_errno(int ret)
 	return -1;
 }
 
-int __wrap_open(const char *path, int oflag, ...)
+static int sys_rtdm_open(const char *path, int oflag)
 {
-	int ret, oldtype;
 	const char *rtdm_path = path;
+	int ret, oldtype;
 
 	pthread_setcanceltype(PTHREAD_CANCEL_ASYNCHRONOUS, &oldtype);
 
@@ -56,6 +56,15 @@ int __wrap_open(const char *path, int oflag, ...)
 
 	if (ret >= 0)
 		ret += __pse51_rtdm_fd_start;
+
+	return ret;
+}
+
+int __wrap_open(const char *path, int oflag, ...)
+{
+	int ret = sys_rtdm_open(path, oflag);
+	if (ret >= 0)
+		return ret;
 	else if (ret == -ENODEV || ret == -ENOSYS) {
 		va_list ap;
 
@@ -78,6 +87,35 @@ int __wrap_open(const char *path, int oflag, ...)
 	return ret;
 }
 
+int __wrap_open64(const char *path, int oflag, ...)
+{
+	int ret = sys_rtdm_open(path, oflag);
+	if (ret >= 0)
+		return ret;
+#ifdef HAVE_OPEN64
+	else if (ret == -ENODEV || ret == -ENOSYS) {
+		va_list ap;
+
+		va_start(ap, oflag);
+
+		ret = __real_open64(path, oflag, va_arg(ap, mode_t));
+
+		va_end(ap);
+
+		if (ret >= __pse51_rtdm_fd_start) {
+			__real_close(ret);
+			errno = EMFILE;
+			ret = -1;
+		}
+#endif
+	} else {
+		errno = -ret;
+		ret = -1;
+	}
+
+	return ret;	
+}
+
 int __wrap_socket(int protocol_family, int socket_type, int protocol)
 {
 	int ret;
@@ -87,7 +125,8 @@ int __wrap_socket(int protocol_family, int socket_type, int protocol)
 				protocol_family, socket_type, protocol);
 	if (ret >= 0)
 		ret += __pse51_rtdm_fd_start;
-	else if (ret == -EAFNOSUPPORT || ret == -ENOSYS) {
+	else if (ret == -EAFNOSUPPORT || ret == -EPROTONOSUPPORT || 
+		 ret == -ENOSYS) {
 		ret = __real_socket(protocol_family, socket_type, protocol);
 
 		if (ret >= __pse51_rtdm_fd_start) {

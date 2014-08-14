@@ -374,6 +374,8 @@ int rt_mutex_acquire_inner(RT_MUTEX *mutex, RTIME timeout,
 #ifdef CONFIG_XENO_FASTSYNCH
 		if (xnsynch_fast_acquire(mutex->synch_base.fastlock,
 					 xnthread_handle(thread)) == 0) {
+			if (xnthread_test_state(thread, XNOTHER))
+				xnthread_inc_rescnt(thread);
 			mutex->lockcnt = 1;
 			return 0;
 		} else
@@ -384,9 +386,11 @@ int rt_mutex_acquire_inner(RT_MUTEX *mutex, RTIME timeout,
 		spl_t s;
 
 		xnlock_get_irqsave(&nklock, s);
-		if (xnsynch_owner(&mutex->synch_base) == NULL)
+		if (xnsynch_owner(&mutex->synch_base) == NULL) {
+			if (xnthread_test_state(thread, XNOTHER))
+				xnthread_inc_rescnt(thread);
 			mutex->lockcnt = 1;
-		else
+		} else
 			err = -EWOULDBLOCK;
 		xnlock_put_irqrestore(&nklock, s);
 		return err;

@@ -1,17 +1,25 @@
 #ifndef __KERNEL__
 
+#pragma GCC system_header
+
 #include_next <stdio.h>
 
-#ifndef STDIO_H
-#define STDIO_H
+#ifndef _XENO_POSIX_STDIO_H
+#define _XENO_POSIX_STDIO_H
 
+#include <stddef.h>
 #include <stdarg.h>
+#include <xeno_config.h>
 
 #ifdef __cplusplus
 extern "C" {
 #endif /* __cplusplus */
 
 int __real_vfprintf(FILE *stream, const char *fmt, va_list args);
+
+#ifdef CONFIG_XENO_FORTIFY
+int __real___vfprintf_chk(FILE *stream, int level, const char *fmt, va_list ap);
+#endif
 
 int __real_vprintf(const char *fmt, va_list args);
 
@@ -33,6 +41,6 @@ size_t __real_fwrite(const void *ptr, size_t sz, size_t nmemb, FILE *stream);
 }
 #endif /* __cplusplus */
 
-#endif /* STDIO_H */
+#endif /* _XENO_POSIX_STDIO_H */
 
 #endif /* !__KERNEL__ */

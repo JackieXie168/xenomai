@@ -94,11 +94,16 @@ void xnintr_host_tick(struct xnsched *sched) /* Interrupts off. */
 void xnintr_clock_handler(void)
 {
 	struct xnsched *sched = xnpod_current_sched();
+	unsigned int cpu = xnsched_cpu(sched);
 	xnstat_exectime_t *prev;
 
-	prev = xnstat_exectime_switch(sched,
-		&nkclock.stat[xnsched_cpu(sched)].account);
-	xnstat_counter_inc(&nkclock.stat[xnsched_cpu(sched)].hits);
+	if (!cpu_isset(cpu, xnarch_supported_cpus)) {
+		xnarch_relay_tick();
+		return;
+	}
+
+	prev = xnstat_exectime_switch(sched, &nkclock.stat[cpu].account);
+	xnstat_counter_inc(&nkclock.stat[cpu].hits);
 
 	trace_mark(xn_nucleus, irq_enter, "irq %u", XNARCH_TIMER_IRQ);
 	trace_mark(xn_nucleus, tbase_tick, "base %s", nktbase.name);
@@ -893,6 +898,20 @@ void xnintr_affinity(xnintr_t *intr, xnarch_cpumask_t cpumask)
 }
 EXPORT_SYMBOL_GPL(xnintr_affinity);
 
+#ifdef CONFIG_XENO_OPT_VFILE
+
+#include <nucleus/vfile.h>
+
+static int xnintr_is_timer_irq(int irq)
+{
+	int cpu;
+
+	for_each_online_cpu(cpu)
+		if (irq == XNARCH_PERCPU_TIMER_IRQ(cpu))
+			return 1;
+	return 0;
+}
+
 #ifdef CONFIG_XENO_OPT_STATS
 int xnintr_query_init(xnintr_iterator_t *iterator)
 {
@@ -934,7 +953,7 @@ int xnintr_query_next(int irq, xnintr_iterator_t *iterator, char *name_buf)
 	}
 
 	if (!iterator->prev) {
-		if (irq == XNARCH_TIMER_IRQ)
+		if (xnintr_is_timer_irq(irq))
 			intr = &nkclock;
 		else
 			intr = xnintr_shirq_first(irq);
@@ -975,22 +994,22 @@ int xnintr_query_next(int irq, xnintr_iterator_t *iterator, char *name_buf)
 }
 #endif /* CONFIG_XENO_OPT_STATS */
 
-#ifdef CONFIG_XENO_OPT_VFILE
-
-#include <nucleus/vfile.h>
-
 static inline int format_irq_proc(unsigned int irq,
 				  struct xnvfile_regular_iterator *it)
 {
 	struct xnintr *intr;
 	spl_t s;
 
-	if (irq == XNARCH_TIMER_IRQ) {
+	if (xnintr_is_timer_irq(irq)) {
 		xnvfile_puts(it, "         [timer]");
 		return 0;
 	}
 
 #ifdef CONFIG_SMP
+	if (irq == RTHAL_TIMER_IPI) {
+		xnvfile_puts(it, "         [timer-ipi]");
+		return 0;
+	}
 	if (irq == RTHAL_RESCHEDULE_IPI) {
 		xnvfile_puts(it, "         [reschedule]");
 		return 0;
@@ -1073,7 +1092,7 @@ static int affinity_vfile_show(struct xnvfile_regular_iterator *it,
 
 	for (cpu = 0; cpu < BITS_PER_LONG; cpu++)
 		if (xnarch_cpu_isset(cpu, nkaffinity))
-			val |= (1 << cpu);
+			val |= (1ul << cpu);
 
 	xnvfile_printf(it, "%08lx\n", val);
 

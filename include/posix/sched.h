@@ -55,6 +55,8 @@ int sched_rr_get_interval(int pid, struct timespec *interval);
 
 #else /* !(__KERNEL__ || __XENO_SIM__) */
 
+#pragma GCC system_header
+
 #include_next <sched.h>
 
 int __real_sched_yield(void);
@@ -104,7 +106,7 @@ struct sched_tp_window {
 
 struct __sched_config_tp {
 	int nr_windows;
-	struct sched_tp_window windows[0];
+	struct sched_tp_window windows[];
 };
 
 union sched_config {

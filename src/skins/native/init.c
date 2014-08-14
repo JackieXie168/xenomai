@@ -24,7 +24,7 @@
 #include <pthread.h>
 #include <native/syscall.h>
 #include <native/task.h>
-#include <asm/xenomai/bits/bind.h>
+#include <asm-generic/xenomai/bind.h>
 
 int __native_muxid = -1;
 static int fork_handler_registered;
@@ -38,8 +38,7 @@ static void __flush_tsd(void *tsd)
 	free(tsd);
 }
 
-static __attribute__ ((constructor))
-void __init_native_tskey(void)
+static __constructor__ void __init_native_tskey(void)
 {
 	/* Allocate a TSD key for indexing self task pointers. */
 
@@ -50,8 +49,7 @@ void __init_native_tskey(void)
 }
 #endif /* !HAVE___THREAD */
 
-static __attribute__ ((constructor))
-void __init_xeno_interface(void)
+static __constructor__ void __init_xeno_interface(void)
 {
 	int err;
 

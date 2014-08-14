@@ -99,7 +99,8 @@ static void xnsched_watchdog_handler(struct xntimer *timer)
 		xnprintf("watchdog triggered -- signaling runaway thread "
 			 "'%s'\n", xnthread_name(thread));
 		xnthread_set_info(thread, XNAMOK);
-		xnshadow_call_mayday(thread, SIGDEBUG_WATCHDOG);
+		xnshadow_send_sig(thread, SIGDEBUG, SIGDEBUG_WATCHDOG, 1);
+		xnshadow_call_mayday(thread);
 	} else
 #endif /* CONFIG_XENO_OPT_PERVASIVE */
 	{
@@ -909,10 +910,11 @@ scan_irqs:
 	if (priv->irq >= XNARCH_NR_IRQS)
 		return 0;	/* All done. */
 
-	ret = xnintr_query_next(priv->irq++, &priv->intr_it, p->name);
+	ret = xnintr_query_next(priv->irq, &priv->intr_it, p->name);
 	if (ret) {
 		if (ret == -EAGAIN)
 			xnvfile_touch(it->vfile); /* force rewind. */
+		priv->irq++;
 		return VFILE_SEQ_SKIP;
 	}
 

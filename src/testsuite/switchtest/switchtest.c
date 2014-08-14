@@ -912,6 +912,11 @@ static int open_rttest(char *buf, size_t size, unsigned count)
 		if (status == 0)
 			break;
 
+		if (errno != ENOSYS && errno != ENOTTY) {
+			fprintf(stderr, "switchtest: open: %m\n");
+			return -1;
+		}
+
 	  next_dev:
 		if (fd != -1)
 			close(fd);
@@ -1146,6 +1151,8 @@ int main(int argc, const char *argv[])
 			strerror(errno));
 		exit(EXIT_FAILURE);
 	}
+
+	fp_features_init();
 
 	/* Parse command line options. */
 	opterr = 0;

@@ -428,8 +428,11 @@ int pthread_mutex_trylock(pthread_mutex_t *mx)
 	}
 #endif /* !CONFIG_XENO_FASTSYNCH */
 
-	if (likely(!err))
+	if (likely(!err)) {
+		if (xnthread_test_state(cur, XNOTHER) && !err)
+			xnthread_inc_rescnt(cur);
 		shadow->lockcnt = 1;
+	}
 	else if (err == EBUSY) {
 		pse51_mutex_t *mutex = shadow->mutex;
 

@@ -1,7 +1,8 @@
+#include <stdlib.h>
 #include <stdio.h>
 #include <syslog.h>
 #include <rtdk.h>
-#include <asm-generic/bits/current.h>
+#include <asm-generic/current.h>
 
 int __wrap_vfprintf(FILE *stream, const char *fmt, va_list args)
 {
@@ -116,5 +117,83 @@ void __wrap_syslog(int priority, const char *fmt, ...)
 
 	va_start(args, fmt);
 	__wrap_vsyslog(priority, fmt, args);
+	va_end(args);
+}
+
+/* 
+ * Checked versions for -D_FORTIFY_SOURCE
+ */
+int __wrap___vfprintf_chk(FILE *f, int flag, const char *fmt, va_list ap)
+{
+#ifdef CONFIG_XENO_FORTIFY
+	if (unlikely(xeno_get_current() != XN_NO_HANDLE &&
+		     !(xeno_get_current_mode() & XNRELAX)))
+		return __rt_vfprintf_chk(f, flag, fmt, ap);
+	else {
+		rt_print_flush_buffers();
+		return __real___vfprintf_chk(f, flag, fmt, ap);
+	}
+#else
+	__wrap_fprintf(stderr, 
+		       "Xenomai has to be compiled with --enable-fortify "
+		      "to support applications\ncompiled with "
+		      "-D_FORTIFY_SOURCE\n");
+	exit(EXIT_FAILURE);
+#endif
+}
+int __wrap___vprintf_chk(int flag, const char *fmt, va_list ap)
+{
+	return __wrap___vfprintf_chk(stdout, flag, fmt, ap);
+}
+
+int __wrap___fprintf_chk(FILE *f, int flag, const char *fmt, ...)
+{
+	va_list args;
+	int ret;
+
+	va_start(args, fmt);
+	ret = __wrap___vfprintf_chk(f, flag, fmt, args);
+	va_end(args);
+
+	return ret;
+}
+
+int __wrap___printf_chk(int flag, const char *fmt, ...)
+{
+	va_list args;
+	int ret;
+
+	va_start(args, fmt);
+	ret = __wrap___vprintf_chk(flag, fmt, args);
+	va_end(args);
+
+	return ret;
+}
+
+void __wrap___vsyslog_chk(int pri, int flag, const char *fmt, va_list ap)
+{
+#ifdef CONFIG_XENO_FORTIFY
+	if (unlikely(xeno_get_current() != XN_NO_HANDLE &&
+		     !(xeno_get_current_mode() & XNRELAX)))
+		return __rt_vsyslog_chk(pri, flag, fmt, ap);
+	else {
+		rt_print_flush_buffers();
+		__real___vsyslog_chk(pri, flag, fmt, ap);
+	}
+#else
+	__wrap_fprintf(stderr, 
+		       "Xenomai needs to be compiled with --enable-fortify "
+		      "to support applications\ncompiled with "
+		      "-D_FORTIFY_SOURCE\n");
+	exit(EXIT_FAILURE);
+#endif
+}
+
+void __wrap___syslog_chk(int pri, int flag, const char *fmt, ...)
+{
+	va_list args;
+
+	va_start(args, fmt);
+	__wrap___vsyslog_chk(pri, flag, fmt, args);
 	va_end(args);
 }

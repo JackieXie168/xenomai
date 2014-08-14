@@ -94,7 +94,7 @@ static struct __lostagerq {
 		int type;
 		struct task_struct *task;
 		int arg;
-#define LO_MAX_REQUESTS 64	/* Must be a ^2 */
+#define LO_MAX_REQUESTS 128	/* Must be a ^2 */
 	} req[LO_MAX_REQUESTS];
 
 } lostagerq[XNARCH_NR_CPUS];
@@ -820,7 +820,7 @@ static void lostage_handler(void *cookie)
 
 static void schedule_linux_call(int type, struct task_struct *p, int arg)
 {
-	int cpu = rthal_processor_id(), reqnum;
+	int cpu, reqnum;
 	struct __lostagerq *rq;
 	spl_t s;
 
@@ -832,6 +832,7 @@ static void schedule_linux_call(int type, struct task_struct *p, int arg)
 
 	splhigh(s);
 
+	cpu = rthal_processor_id();
 	rq = &lostagerq[cpu];
 	reqnum = rq->in;
 	rq->in = (reqnum + 1) & (LO_MAX_REQUESTS - 1);
@@ -1429,8 +1430,10 @@ void xnshadow_unmap(xnthread_t *thread)
 	rpi_pop(thread);
 
 	sys_ppd = xnsys_ppd_get(0);
-	xnheap_free(&sys_ppd->sem_heap, thread->u_mode);
-	thread->u_mode = NULL;
+	if (thread->u_mode) {
+		xnheap_free(&sys_ppd->sem_heap, thread->u_mode);
+		thread->u_mode = NULL;
+	}
 
 	xnarch_atomic_dec(&sys_ppd->refcnt);
 
@@ -1640,11 +1643,10 @@ static unsigned long map_mayday_page(struct task_struct *p)
 	return IS_ERR_VALUE(u_addr) ? 0UL : u_addr;
 }
 
-void xnshadow_call_mayday(struct xnthread *thread, int sigtype)
+void xnshadow_call_mayday(struct xnthread *thread)
 {
 	struct task_struct *p = xnthread_archtcb(thread)->user_task;
 	xnthread_set_info(thread, XNKICKED);
-	xnshadow_send_sig(thread, SIGDEBUG, sigtype, 1);
 	xnarch_call_mayday(p);
 }
 EXPORT_SYMBOL_GPL(xnshadow_call_mayday);
@@ -1777,7 +1779,7 @@ static int xnshadow_sys_bind(struct pt_regs *regs)
 		return -ENOEXEC;
 
 	if (!capable(CAP_SYS_NICE) &&
-	    (xn_gid_arg == -1 || !in_group_p(xn_gid_arg)))
+	    (xn_gid_arg == -1 || !in_group_p(KGIDT_INIT(xn_gid_arg))))
 		return -EPERM;
 
 	/* Raise capabilities for the caller in case they are lacking yet. */
@@ -2253,6 +2255,9 @@ int do_hisyscall_event(unsigned event, rthal_pipeline_stage_t *stage,
 	if (!__xn_reg_mux_p(regs))
 		goto linux_syscall;
 
+	muxid = __xn_mux_id(regs);
+	muxop = __xn_mux_op(regs);
+
 	/*
 	 * Executing Xenomai services requires CAP_SYS_NICE, except for
 	 * __xn_sys_bind which does its own checks.
@@ -2260,9 +2265,6 @@ int do_hisyscall_event(unsigned event, rthal_pipeline_stage_t *stage,
 	if (unlikely(!cap_raised(current_cap(), CAP_SYS_NICE)) &&
 	    __xn_reg_mux(regs) != __xn_mux_code(0, __xn_sys_bind))
 		goto no_permission;
-
-	muxid = __xn_mux_id(regs);
-	muxop = __xn_mux_op(regs);
 
 	trace_mark(xn_nucleus, syscall_histage_entry,
 		   "thread %p thread_name %s muxid %d muxop %d",
@@ -2281,8 +2283,8 @@ int do_hisyscall_event(unsigned event, rthal_pipeline_stage_t *stage,
 	no_permission:
 		if (XENO_DEBUG(NUCLEUS))
 			printk(KERN_WARNING
-			       "Xenomai: non-shadow %s[%d] was denied a real-time call\n",
-			       current->comm, current->pid);
+			       "Xenomai: non-shadow %s[%d] was denied a real-time call (%s/%d)\n",
+			       current->comm, current->pid, muxtable[muxid].props->name, muxop);
 		__xn_error_return(regs, -EPERM);
 		goto ret_handled;
 	}
@@ -2378,7 +2380,7 @@ int do_hisyscall_event(unsigned event, rthal_pipeline_stage_t *stage,
       ret_handled:
 
 	/* Update the userland-visible state. */
-	if (thread)
+	if (thread && thread->u_mode)
 		*thread->u_mode = thread->state;
 
 	trace_mark(xn_nucleus, syscall_histage_exit,
@@ -2548,7 +2550,7 @@ int do_losyscall_event(unsigned event, rthal_pipeline_stage_t *stage,
       ret_handled:
 
 	/* Update the userland-visible state. */
-	if (thread)
+	if (thread && thread->u_mode)
 		*thread->u_mode = thread->state;
 
 	trace_mark(xn_nucleus, syscall_lostage_exit,

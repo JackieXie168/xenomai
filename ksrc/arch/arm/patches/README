@@ -53,11 +53,43 @@ o Texas Instrument OMAP3 and OMAP4
    or in the Denx git tree [2];
 2- apply mxc/adeos-ipipe-3.0.36-mxc-1.18-11-pre.patch;
 3- apply adeos-ipipe-3.0.36-arm-1.18-11.patch
-3- apply mxc/adeos-ipipe-3.0.36-mxc-1.18-11-post.patch;
-4- you can resume to generic installation instructions.
+4- apply mxc/adeos-ipipe-3.0.36-mxc-1.18-11-post.patch;
+5- you can resume to generic installation instructions.
 
+
+---- Beaglebone
+
+1- Checkout the "am33x-v3.8" branch in the Robert Nelson repository [3], 
+the patch has been tested with commit 3fc8a73d782231ab2750ff29793a760e8fa076bb
+2- apply beaglebone/ipipe-core-3.8.13-beaglebone-pre.patch
+3- apply ipipe-core-3.8.13-arm-1.patch
+4- apply beaglebone/ipipe-core-3.8.13-beaglebone-post.patch
+5- you can resume to generic installation instructions.
+
+
+---- Raspberry Pi
+
+From [5]:
+1- Checkout the "rpi-3.8.y" branch in the repository [4], commit d996a1b
+2- Apply raspberry/ipipe-core-3.8.13-raspberry-pre-2.patch
+3- Apply ipipe-core-3.8.13-arm patch
+2- apply raspberry/ipipe-core-3.8.13-raspberry-post-2.patch
+3- you can resume to generic installation instructions.
+
+---- Zynq
+
+1- Checkout the xilinx-v14.5 tag (6a0bedad60e2bca8d9b50bf81b9895e29e31a6d7)
+   from [6]
+2- apply ipipe-core-3.8-zynq-pre.patch
+3- apply ipipe-core-3.8.13-arm-1.patch
+4- apply ipipe-core-3.8-zynq-post.patch
+5- you can resume to generic installation instructions.
 
 -- External links
 
 [1] http://opensource.freescale.com/pub/scm/imx/linux-2.6-imx.git
 [2] git://git.denx.de/linux-denx.git
+[3] https://github.com/RobertCNelson/linux-dev
+[4] git://github.com/raspberrypi/linux.git
+[5] http://www.xenomai.org/pipermail/xenomai/2013-September/029172.html
+[6] git://github.com/Xilinx/linux-xlnx.git
