@@ -947,13 +947,11 @@ int xnheap_check_block(xnheap_t *heap, void *block)
 #include <linux/vmalloc.h>
 #include <linux/mm.h>
 
-static DECLARE_DEVCLASS(xnheap_class);
-
 static DEFINE_XNQUEUE(kheapq);	/* Shared heap queue. */
 
 static void xnheap_vmclose(struct vm_area_struct *vma)
 {
-	xnheap_t *heap = (xnheap_t *)vma->vm_private_data;
+	xnheap_t *heap = vma->vm_private_data;
 	atomic_dec(&heap->archdep.numaps);
 }
 
@@ -967,28 +965,14 @@ static int xnheap_open(struct inode *inode, struct file *file)
 	return 0;
 }
 
-static int xnheap_release(struct inode *inode, struct file *file)
-{
-	xnheap_t *heap = (xnheap_t *)file->private_data;
-
-	/* Careful: the ioctl() binding might have not been issued. */
-
-	if (heap != NULL)
-		atomic_dec(&heap->archdep.numaps);
-
-	return 0;
-}
-
 static inline xnheap_t *__validate_heap_addr(void *addr)
 {
 	xnholder_t *holder;
 
-	/* Not time critical and seldomly called, so O(N) is ok here. */
-
 	for (holder = getheadq(&kheapq); holder;
 	     holder = nextq(&kheapq, holder))
-		if (link2heap(holder) == (xnheap_t *)addr)
-			return (xnheap_t *)addr;
+		if (link2heap(holder) == addr)
+			return addr;
 
 	return NULL;
 }
@@ -1009,7 +993,6 @@ static int xnheap_ioctl(struct inode *inode,
 		goto unlock_and_exit;
 	}
 
-	atomic_inc(&heap->archdep.numaps);	/* Paired with xnheap_release() */
 	file->private_data = heap;
 
       unlock_and_exit:
@@ -1018,44 +1001,6 @@ static int xnheap_ioctl(struct inode *inode,
 
 	return err;
 }
-
-#ifdef CONFIG_MMU
-
-unsigned long __va_to_kva(unsigned long va)
-{
-	pgd_t *pgd;
-	pmd_t *pmd;
-	pte_t *ptep, pte;
-	unsigned long kva = 0;
-
-	pgd = pgd_offset_k(va);	/* Page directory in kernel map. */
-
-	if (!pgd_none(*pgd) && !pgd_bad(*pgd)) {
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(2, 6, 11)
-		/* Page middle directory -- account for PAE. */
-		pmd = pmd_offset(pud_offset(pgd, va), va);
-#else
-		/* Page middle directory. */
-		pmd = pmd_offset(pgd, va);
-#endif
-
-		if (!pmd_none(*pmd)) {
-			ptep = pte_offset_kernel(pmd, va);	/* Page table entry. */
-			pte = *ptep;
-
-			if (pte_present(pte)) {	/* Valid? */
-				kva = (unsigned long)page_address(pte_page(pte));	/* Page address. */
-				kva |= (va & (PAGE_SIZE - 1));	/* Add offset within page. */
-			}
-		}
-	}
-
-	return kva;
-}
-
-EXPORT_SYMBOL(__va_to_kva);
-
-#endif /* CONFIG_MMU */
 
 static int xnheap_mmap(struct file *file, struct vm_area_struct *vma)
 {
@@ -1106,7 +1051,7 @@ static int xnheap_mmap(struct file *file, struct vm_area_struct *vma)
 			vaddr += PAGE_SIZE;
 			size -= PAGE_SIZE;
 		}
-	} else if (xnarch_remap_io_page_range(vma,
+	} else if (xnarch_remap_io_page_range(file,vma,
 					      vma->vm_start,
 					      virt_to_phys((void *)vaddr),
 					      size, PAGE_SHARED))
@@ -1120,7 +1065,6 @@ static int xnheap_mmap(struct file *file, struct vm_area_struct *vma)
 static struct file_operations xnheap_fops = {
 	.owner = THIS_MODULE,
 	.open = &xnheap_open,
-	.release = &xnheap_release,
 	.ioctl = &xnheap_ioctl,
 	.mmap = &xnheap_mmap
 };
@@ -1131,38 +1075,12 @@ static struct miscdevice xnheap_dev = {
 
 int xnheap_mount(void)
 {
-	DECLARE_DEVHANDLE(cldev);
-
-	xnheap_class = class_create(THIS_MODULE, "rtheap");
-
-	if (IS_ERR(xnheap_class)) {
-		xnlogerr("error creating rtheap class, err=%ld.\n",
-			 PTR_ERR(xnheap_class));
-		return -EBUSY;
-	}
-
-	cldev = wrap_device_create(xnheap_class, NULL,
-				   MKDEV(MISC_MAJOR, XNHEAP_DEV_MINOR),
-				   NULL, "rtheap");
-	if (IS_ERR(cldev)) {
-		xnlogerr
-		    ("can't add device class, major=%d, minor=%d, err=%ld\n",
-		     MISC_MAJOR, XNHEAP_DEV_MINOR, PTR_ERR(cldev));
-		class_destroy(xnheap_class);
-		return -EBUSY;
-	}
-
-	if (misc_register(&xnheap_dev) < 0)
-		return -EBUSY;
-
-	return 0;
+	return misc_register(&xnheap_dev);
 }
 
 void xnheap_umount(void)
 {
 	misc_deregister(&xnheap_dev);
-	wrap_device_destroy(xnheap_class, MKDEV(MISC_MAJOR, XNHEAP_DEV_MINOR));
-	class_destroy(xnheap_class);
 }
 
 static inline void *__alloc_and_reserve_heap(size_t size, int kmflags)
@@ -1185,7 +1103,7 @@ static inline void *__alloc_and_reserve_heap(size_t size, int kmflags)
 		vabase = (unsigned long)ptr;
 
 		for (vaddr = vabase; vaddr < vabase + size; vaddr += PAGE_SIZE)
-			SetPageReserved(virt_to_page(__va_to_kva(vaddr)));
+			SetPageReserved(vmalloc_to_page((void *)vaddr));
 	} else {
 		/*
 		 * Otherwise, we have been asked for some kmalloc()
@@ -1221,7 +1139,7 @@ static inline void __unreserve_and_free_heap(void *ptr, size_t size,
 
 	if (!kmflags  || kmflags == XNHEAP_GFP_NONCACHED) {
 		for (vaddr = vabase; vaddr < vabase + size; vaddr += PAGE_SIZE)
-			ClearPageReserved(virt_to_page(__va_to_kva(vaddr)));
+			ClearPageReserved(vmalloc_to_page((void *)vaddr));
 
 		vfree(ptr);
 	} else {
@@ -1249,12 +1167,10 @@ int xnheap_init_mapped(xnheap_t *heap, u_long heapsize, int memflags)
 		return -EINVAL;
 
 	heapbase = __alloc_and_reserve_heap(heapsize, memflags);
-
 	if (!heapbase)
 		return -ENOMEM;
 
 	err = xnheap_init(heap, heapbase, heapsize, PAGE_SIZE);
-
 	if (err) {
 		__unreserve_and_free_heap(heapbase, heapsize, memflags);
 		return err;
@@ -1270,13 +1186,17 @@ int xnheap_init_mapped(xnheap_t *heap, u_long heapsize, int memflags)
 	return 0;
 }
 
-int xnheap_destroy_mapped(xnheap_t *heap)
+int xnheap_destroy_mapped(xnheap_t *heap, void __user *mapaddr)
 {
+	int err = 0, ccheck;
+	unsigned long len;
 	spl_t s;
+
+	ccheck = mapaddr ? 1 : 0;
 
 	xnlock_get_irqsave(&nklock, s);
 
-	if (atomic_read(&heap->archdep.numaps) > 0) {
+	if (atomic_read(&heap->archdep.numaps) > ccheck) {
 		xnlock_put_irqrestore(&nklock, s);
 		return -EBUSY;
 	}
@@ -1286,9 +1206,17 @@ int xnheap_destroy_mapped(xnheap_t *heap)
 
 	xnlock_put_irqrestore(&nklock, s);
 
-	__unreserve_and_free_heap(heap->archdep.heapbase,
-				  xnheap_extentsize(heap), heap->archdep.kmflags);
-	return 0;
+	len = xnheap_extentsize(heap);
+
+	if (mapaddr) {
+		down_write(&current->mm->mmap_sem);
+		err = do_munmap(current->mm, (unsigned long)mapaddr, len);
+		up_write(&current->mm->mmap_sem);
+	}
+	if (err == 0)
+		__unreserve_and_free_heap(heap->archdep.heapbase,
+					  len, heap->archdep.kmflags);
+	return err;
 }
 
 EXPORT_SYMBOL(xnheap_init_mapped);

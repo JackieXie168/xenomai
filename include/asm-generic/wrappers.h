@@ -58,12 +58,9 @@
 
 /* VM */
 
-/* We don't support MMU-less architectures over 2.4 */
-unsigned long __va_to_kva(unsigned long va);
-
 #define wrap_remap_vm_page(vma,from,to) ({ \
     vma->vm_flags |= VM_RESERVED; \
-    remap_page_range(from,virt_to_phys((void *)__va_to_kva(to)),PAGE_SIZE,vma->vm_page_prot); \
+    remap_page_range(from,page_to_phys(vmalloc_to_page((void *)to)),PAGE_SIZE,vma->vm_page_prot); \
 })
 #define wrap_remap_io_page_range(vma,from,to,size,prot) ({ \
     vma->vm_flags |= VM_RESERVED; \
@@ -202,10 +199,7 @@ void show_stack(struct task_struct *task,
 
 /* VM */
 
-#ifdef CONFIG_MMU
-unsigned long __va_to_kva(unsigned long va);
-#else /* !CONFIG_MMU */
-#define __va_to_kva(va) (va)
+#ifndef CONFIG_MMU
 #define pgprot_noncached(p) (p)
 #endif /* CONFIG_MMU */
 
@@ -230,7 +224,7 @@ unsigned long __va_to_kva(unsigned long va);
  * memory. Anyway, this legacy would only hit setups using pre-2.6.11
  * kernel revisions. */
 #define wrap_remap_vm_page(vma,from,to) \
-    remap_pfn_range(vma,from,virt_to_phys((void *)__va_to_kva(to)) >> PAGE_SHIFT,PAGE_SHIFT,vma->vm_page_prot)
+    remap_pfn_range(vma,from,page_to_pfn(vmalloc_to_page((void *)to)),PAGE_SHIFT,vma->vm_page_prot)
 #define wrap_remap_io_page_range(vma,from,to,size,prot)  ({		\
     (vma)->vm_page_prot = pgprot_noncached((vma)->vm_page_prot);	\
     /* Sets VM_RESERVED | VM_IO | VM_PFNMAP on the vma. */		\
@@ -243,7 +237,7 @@ unsigned long __va_to_kva(unsigned long va);
 #else /* LINUX_VERSION_CODE < KERNEL_VERSION(2,6,10) */
 #define wrap_remap_vm_page(vma,from,to) ({ \
     vma->vm_flags |= VM_RESERVED; \
-    remap_page_range(from,virt_to_phys((void *)__va_to_kva(to)),PAGE_SIZE,vma->vm_page_prot); \
+    remap_page_range(from,page_to_phys(vmalloc_to_page((void *)to)),PAGE_SIZE,vma->vm_page_prot); \
 })
 #define wrap_remap_io_page_range(vma,from,to,size,prot) ({	\
       vma->vm_flags |= VM_RESERVED;				\
@@ -267,10 +261,14 @@ unsigned long __va_to_kva(unsigned long va);
 /* Device registration */
 #if  LINUX_VERSION_CODE > KERNEL_VERSION(2,6,25)
 #define DECLARE_DEVCLASS(clname) struct class *clname
+#if  LINUX_VERSION_CODE < KERNEL_VERSION(2,6,27)
 #define wrap_device_create(c,p,dt,dv,fmt,args...)	device_create(c,p,dt,fmt , ##args)
+#else  /* >= 2.6.27 */
+#define wrap_device_create(c,p,dt,dv,fmt,args...)	device_create(c,p,dt,dv,fmt , ##args)
+#endif  /* >= 2.6.27 */
 #define wrap_device_destroy	device_destroy
 #define DECLARE_DEVHANDLE(devh) struct device *devh
-#else /* >= 2.6.26 */
+#else /* <= 2.6.25 */
 #define DECLARE_DEVHANDLE(devh) struct class_device *devh
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,13)
 #define DECLARE_DEVCLASS(clname) struct class *clname
@@ -348,5 +346,18 @@ static inline unsigned long hweight_long(unsigned long w)
 unsigned long find_next_bit(const unsigned long *addr,
                             unsigned long size, unsigned long offset);
 #endif /* linux version < 2.6.0 */
+
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,27)
+
+#include <linux/semaphore.h>
+#include <linux/pid.h>
+
+#define find_task_by_pid(nr)		\
+  find_task_by_pid_type_ns(PIDTYPE_PID, nr, &init_pid_ns)
+#define kill_proc(pid, sig, priv)	\
+  kill_proc_info(sig, (priv) ? SEND_SIG_PRIV : SEND_SIG_NOINFO, pid)
+#else /* LINUX_VERSION_CODE < 2.6.27 */
+#include <asm/semaphore.h>
+#endif /* LINUX_VERSION_CODE < 2.6.27 */
 
 #endif /* _XENO_ASM_GENERIC_WRAPPERS_H */

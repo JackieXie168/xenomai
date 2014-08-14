@@ -25,8 +25,11 @@
 #include <string.h>
 #include <time.h>
 #include <unistd.h>
+#include <sys/syscall.h>
 #include <sys/mman.h>
 #include <sys/time.h>
+
+#include <xeno_config.h>
 
 #ifndef HAVE_RECENT_SETAFFINITY
 #ifdef HAVE_OLD_SETAFFINITY
@@ -80,7 +83,9 @@ static inline unsigned long long read_reference_clock(void)
 {
     struct timeval tv;
 
-    gettimeofday(&tv, NULL);
+    /* Make sure we do not pick the vsyscall variant. It won't
+       switch us into secondary mode and can easily deadlock. */
+    syscall(SYS_gettimeofday, &tv, NULL);
     return tv.tv_usec * 1000ULL + tv.tv_sec * 1000000000ULL;
 }
 
@@ -136,8 +141,8 @@ void check_time_warps(struct per_cpu_data *per_cpu_data)
         if (incr < 0) {
             acquire_lock(&lock);
             per_cpu_data->warps++;
-            if (incr > per_cpu_data->max_warp)
-                per_cpu_data->max_warp = incr;
+            if (-incr > per_cpu_data->max_warp)
+                per_cpu_data->max_warp = -incr;
             release_lock(&lock);
         }
     }

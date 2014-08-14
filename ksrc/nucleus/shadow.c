@@ -39,7 +39,6 @@
 #include <linux/wait.h>
 #include <linux/init.h>
 #include <linux/kthread.h>
-#include <asm/semaphore.h>
 #include <asm/signal.h>
 #include <nucleus/pod.h>
 #include <nucleus/heap.h>
@@ -1015,7 +1014,8 @@ static int gatekeeper_thread(void *data)
 		   by a signal before we have been able to process the
 		   pending request, just ignore the latter. */
 
-		if (xnthread_user_task(thread)->state == TASK_INTERRUPTIBLE) {
+		if ((xnthread_user_task(thread)->state & ~TASK_ATOMICSWITCH)
+		    == TASK_INTERRUPTIBLE) {
 			rpi_pop(thread);
 			xnlock_get_irqsave(&nklock, s);
 #ifdef CONFIG_SMP

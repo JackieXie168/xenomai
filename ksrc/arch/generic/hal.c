@@ -129,9 +129,8 @@ void rthal_critical_exit(unsigned long flags)
  * routine, aimed at replacing the one provided by Adeos. Only very
  * specific situations actually require to override the default Adeos
  * setting for this parameter, like having to acknowledge non-standard
- * PIC hardware. @a ackfn should return a non-zero value to indicate
- * that the interrupt has been properly acknowledged. If @a ackfn is
- * NULL, the default Adeos routine will be used instead.
+ * PIC hardware. If @a ackfn is NULL, the default Adeos routine will
+ * be used instead.
  *
  * @param cookie A user-defined opaque cookie the HAL will pass to the
  * interrupt handler as its sole argument.
@@ -1089,3 +1088,7 @@ EXPORT_SYMBOL(rthal_proc_root);
 EXPORT_SYMBOL(rthal_init);
 EXPORT_SYMBOL(rthal_exit);
 EXPORT_SYMBOL(__rthal_generic_full_divmod64);
+
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,27)
+EXPORT_SYMBOL_GPL(kill_proc_info);
+#endif

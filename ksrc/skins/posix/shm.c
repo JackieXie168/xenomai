@@ -39,10 +39,6 @@
 #include <posix/thread.h>
 #include <posix/shm.h>
 
-#ifdef __KERNEL__
-#include <asm/semaphore.h>
-#endif /* __KERNEL__ */
-
 typedef struct pse51_shm {
 	pse51_node_t nodebase;
 
@@ -112,7 +108,7 @@ static void pse51_shm_destroy(pse51_shm_t * shm, int force)
 		xnheap_free(&shm->heapbase, shm->addr);
 
 #ifdef CONFIG_XENO_OPT_PERVASIVE
-		xnheap_destroy_mapped(&shm->heapbase);
+		xnheap_destroy_mapped(&shm->heapbase, NULL);
 #else /* !CONFIG_XENO_OPT_PERVASIVE. */
 		xnheap_destroy(&shm->heapbase, &pse51_free_heap_extent, NULL);
 #endif /* !CONFIG_XENO_OPT_PERVASIVE. */
@@ -531,7 +527,7 @@ int ftruncate(int fd, off_t len)
 
 			xnheap_free(&shm->heapbase, shm->addr);
 #ifdef CONFIG_XENO_OPT_PERVASIVE
-			xnheap_destroy_mapped(&shm->heapbase);
+			xnheap_destroy_mapped(&shm->heapbase, NULL);
 #else /* !CONFIG_XENO_OPT_PERVASIVE. */
 			xnheap_destroy(&shm->heapbase, &pse51_free_heap_extent,
 				       NULL);

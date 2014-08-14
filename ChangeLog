@@ -1,3 +1,200 @@
+2008-11-09  Philippe Gerum  <rpm@xenomai.org>
+	
+	* RELEASE: Xenomai 2.4.6 (Bamboo)
+
+2008-11-09  Philippe Gerum  <rpm@xenomai.org>
+
+	* ksrc/arch/x86/patches: Upgrade to 2.6.26.7-x86-2.0-16,
+	2.6.27-x86-2.1-01.
+
+2008-11-08  Philippe Gerum  <rpm@xenomai.org>
+
+	* ksrc/arch/x86/patches: Upgrade to 2.6.27-x86-2.1-00.
+
+2008-11-03  Philippe Gerum  <rpm@xenomai.org>
+
+	* ksrc, include: Adapt to 2.6.27.
+
+	* ksrc/nucleus/heap.c (xnheap_mount): Remove useless (and actually
+	erroneous) class registration.
+
+2008-10-30  Wolfgang Grandegger  <wg@grandegger.com>
+
+	* ksrc/drivers/can/rtcan_raw_filter.c(rtcan_raw_mount_filter):
+	Applying the filter mask required for fast filter checks got lost
+	somehow with commit 2202.
+
+2008-10-29  Philippe Gerum  <rpm@xenomai.org>
+
+	* ksrc/nucleus/intr.c, ksrc/arch/generic/hal.c,
+	include/nucleus/types.h: Change rthal_irq_ackfn_t definition.
+
+2008-10-28  Gilles Chanteperdrix  <gilles.chanteperdrix@xenomai.org>
+
+	* ksrc/nucleus/thread.c (xnthread_init): Change initialization
+	order to avoid leaving a thread whose stack allocation failed in a
+	timebase list.
+
+2008-10-27  Gilles Chanteperdrix  <gilles.chanteperdrix@xenomai.org>
+
+	* include/asm-arm/syscall.h (__xn_rdtsc): Fix ARM tsc emulation
+	when based on 32 bits counters.
+
+2008-10-21  Philippe Gerum  <rpm@xenomai.org>
+
+	* include/asm-*/wrappers.h, include/asm-generic/system.h:
+	Introduce wrap_phys_mem_prot() to retrieve per-arch VMA protection
+	bits to access physical memory.
+
+2008-10-20  Philippe Gerum  <rpm@eclipse.xenomai.org>
+
+	* ksrc/arch/x86/patches: Update to 2.6.26-x86-2.0-15.
+
+2008-10-20  Jan Kiszka  <jan.kiszka@web.de>
+
+	* src/testsuite/clocktest/clocktest.c: Enforce syscall-variant
+	of gettimeofday to avoid deadlocks in primary mode. Fix sign
+	overrun in wrap delta output.
+
+2008-10-19  Philippe Gerum  <rpm@xenomai.org>
+
+	* ksrc/arch/powerpc/patches: Update to 2.6.26-powerpc-2.2-07.
+
+	* ksrc/arch/arm/patches: Update to 2.6.26-arm-1.11-02.
+
+	* ksrc/arch/x86/patches: Update to 2.6.26-x86-2.0-14.
+
+2008-10-18  Jan Kiszka  <jan.kiszka@siemens.com>
+
+	* ksrc/nucleus/pipe.c (xnpipe_open): Fix context unwinding upon
+	signal receipt.
+
+2008-10-17  Philippe Gerum  <rpm@xenomai.org>
+
+	* src/skins/vxworks/taskLib.c, ksrc/skins/vxworks/syscall.c: Add
+	taskSetMode() extension.
+
+2008-10-14  Philippe Gerum  <rpm@xenomai.org>
+
+	* src/skins/vrtx/{init.c, task.c}: Set up TCB pointer for each
+	thread as expected.
+
+2008-10-12  Gilles Chanteperdrix  <gilles.chanteperdrix@xenomai.org>
+
+	* src/skins/posix/shm.c (__wrap_mmap64, __wrap_ftruncate64):
+	Implement mmap and ftruncate with 64 bits offsets.
+
+	* ksrc/nucleus/heap.c (__alloc_and_reserve_heap): Get highmem
+	working.
+
+2008-10-03  Philippe Gerum  <rpm@xenomai.org>
+
+	* ksrc/arch/arm/patches: Update to 2.6.26-arm-1.11-01.
+
+	* ksrc/arch/x86/patches: Update to 2.6.26-x86-2.0-13.
+
+	* ksrc/arch/powerpc/patches: Update to 2.6.26-powerpc-2.2-06.
+
+2008-10-01  Philippe Gerum  <rpm@xenomai.org>
+
+	* ksrc/arch/arm/patches: Update to 2.6.26-arm-1.10-02.
+
+	* ksrc/arch/blackfin/patches: Update to 2008R1-bf5xx-1.7-04.patch
+
+	* ksrc/arch/x86/patches: Update to 2.6.26-x86-2.0-12.
+
+2008-09-30  Philippe Gerum  <rpm@xenomai.org>
+
+	* ksrc/arch/powerpc/patches: Update to 2.6.26-powerpc-2.2-05.
+
+2008-09-29  Jan Kiszka  <jan.kiszka@siemens.com>
+
+	* src/testsuite/clocktest/clocktest.c: Unbreak CPU distribution
+	of test threads.
+
+2008-09-28  Gilles Chanteperdrix  <gilles.chanteperdrix@xenomai.org>
+
+	* include/asm-generic/bits/bind.h (xeno_sigill_handler): Print an
+	error message in case of SIGILL instead of the cryptic "Illegal
+	instruction" message.
+
+2008-09-21  Jan Kiszka  <jan.kiszka@web.de>
+
+	* ksrc/nucleus/pod.c (xnpod_shutdown): Drop nklock around
+	xnheap_destroy invocations.
+
+2008-09-08  Philippe Gerum  <rpm@xenomai.org>
+
+	* ksrc/nucleus/heap.c (xnheap_destroy_mapped): Handle last
+	unmapping in heap deletion routine.
+
+	* ksrc/native/{queue.c, heap.c}: Fix spurious -EBUSY upon
+	deletion calls.
+
+2008-09-03  Jan Kiszka  <jan.kiszka@web.de>
+
+	* include/rtdm/rtdm.h: Align in-kernel socklen_t with spec, it
+	contains only 32 valid bits.
+
+	* ksrc/drivers/can/rtcan_socket.c (rtcan_socket_cleanup): Make
+	rtcan_socket_list deregistration robust against reentrance.
+
+2008-08-30  Gilles Chanteperdrix  <gilles.chanteperdrix@xenomai.org>
+
+	* ksrc/nucleus/shadow.c (gatekeeper_thread): Mask out
+	TASK_ATOMICSWITCH test when testing hardening thread state, to
+	take into account newer I-pipe patches with imporved ATOMICSWITCH
+	support.
+
+	* ksrc/nucleus/Kconfig: Select improved ATOMICSWITCH support if
+	the I-pipe patch has it.
+
+	* include/asm-arm/hal.h: Only use VFP if I-pipe patch has ironed
+	VFP support.
+
+	* include/asm-arm/syscall.h (__xn_rdtsc): Add an implementation of
+	the tsc emulation for fast wrapping hardware timers.
+
+	* configure.in: Select this tsc implementation for AT91.
+
+2008-08-29  Jan Kiszka  <jan.kiszka@web.de>
+
+	* src/rtdk/rt_print.c (rt_print_cleanup): Fix and improve cleanup,
+	cancel printer thread.
+
+2008-08-27  Philippe Gerum  <rpm@xenomai.org>
+
+	* ksrc/skins/vxworks/syscalls.c: Fix taskNametoId() wrapper, so
+	that it returns the registry handle to userland, not the internal
+	TCB address. Ensure taskInfoGet() returns the userland handle in
+	TASK_DESC::td_tid.
+
+2008-08-24  Gilles Chanteperdrix  <gilles.chanteperdrix@xenomai.org>
+
+	* include/asm-arm/hal.h, configure.in: Add support for ARM MXC
+	processors family.
+
+	* include/asm-arm/bits/pod.h (xnarch_save/restore_fpu): Implement
+	ARM VFP switching routines.
+
+	* src/testsuite/switchtest/switchtest.c (check_fpu): Handle
+	gracefully SIGILL by stopping using the FPU when switchtest is
+	launched with no argument.
+
+2008-08-22  Gilles Chanteperdrix  <gilles.chanteperdrix@xenomai.org>
+
+	* configure.in: Add docdir if missing, in order to remain
+	compatible with automake 1.9.
+
+2008-08-22  Philippe Gerum  <rpm@xenomai.org>
+
+	* ksrc/nucleus/pipe.c: Fix handling of concurrent read/write sleep
+	states on the same minor.
+	
+	* ksrc/nucleus/pipe.c (xnpipe_write): Fix inverted O_SYNC
+	test. Block caller upon memory starvation; still honors
+	O_NONBLOCK.
+
 2008-08-19  Philippe Gerum  <rpm@xenomai.org>
 	
 	* RELEASE: Xenomai 2.4.5 (Overdriver)

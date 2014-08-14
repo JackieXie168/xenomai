@@ -27,6 +27,8 @@
 #include <asm-generic/xenomai/wrappers.h> /* Read the generic portion. */
 #include <linux/interrupt.h>
 
+#define wrap_phys_mem_prot(filp,pfn,size,prot)	(prot)
+
 #define wrap_range_ok(task,addr,size) ({ \
 	unsigned long flag, sum; \
 	__asm__("adds %1, %2, %3; sbcccs %1, %1, %0; movcc %0, #0" \
@@ -95,6 +97,10 @@ static inline void fp_init(union fp_state *state)
 #define __ipipe_mach_release_timer()  \
 	__ipipe_mach_set_dec(__ipipe_mach_ticks_per_jiffy)
 #endif /* IPIPE < 1.5-03 */
+
+#if LINUX_VERSION_CODE < KERNEL_VERSION(2, 6, 23)
+#define FPEXC_EN FPEXC_ENABLE
+#endif
 
 #endif /* _XENO_ASM_ARM_WRAPPERS_H */
 

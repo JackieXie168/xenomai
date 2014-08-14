@@ -332,7 +332,8 @@ static inline int xnintr_irq_attach(xnintr_t *intr)
 		}
 		shirq->unhandled = 0;
 
-		err = xnarch_hook_irq(intr->irq, handler, intr->iack, intr);
+		err = xnarch_hook_irq(intr->irq, handler,
+				      (rthal_irq_ackfn_t)intr->iack, intr);
 		if (err)
 			return err;
 	}
@@ -409,7 +410,8 @@ static inline xnintr_t *xnintr_shirq_next(xnintr_t *prev)
 
 static inline int xnintr_irq_attach(xnintr_t *intr)
 {
-	return xnarch_hook_irq(intr->irq, &xnintr_irq_handler, intr->iack, intr);
+	return xnarch_hook_irq(intr->irq, &xnintr_irq_handler,
+			       (rthal_irq_ackfn_t)intr->iack, intr);
 }
 
 static inline int xnintr_irq_detach(xnintr_t *intr)
