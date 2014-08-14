@@ -198,10 +198,10 @@ int pse51_timer_delete_inner(timer_t timerid, pse51_kqueues_t *q)
 
 	timer = &timer_pool[(unsigned long)timerid];
 
-	removeq(&q->timerq, &timer->link);
-
 	if (!xntimer_active_p(&timer->timerbase))
 		goto unlock_and_einval;
+
+	removeq(&q->timerq, &timer->link);
 
 	if (timer->queued) {
 		/* timer signal is queued, unqueue it. */
@@ -370,6 +370,7 @@ int timer_settime(timer_t timerid,
 				   timer, we pass 1. */
 				start = 1;
 
+		xntimer_set_sched(&timer->timerbase, xnpod_current_sched());
 		xntimer_start(&timer->timerbase,
 			      start, ts2ticks_ceil(&value->it_interval));
 		timer->owner = cur;

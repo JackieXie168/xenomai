@@ -1,3 +1,82 @@
+2006-09-03  Philippe Gerum  <rpm@xenomai.org>
+
+ 	* RELEASE: Xenomai 2.2.2 (Ride)
+
+2006-09-03  Philippe Gerum  <rpm@xenomai.org>
+
+	* ksrc/nucleus/synch.c (xnsynch_renice_sleeper): Do not assume
+	that the synch. object is always owned (i.e. xnsynch::owner may be
+	NULL for resources pended on by priority but which do not enforce
+	PIP).
+
+2006-08-28  Philippe Gerum  <rpm@xenomai.org>
+
+	* src/skins/posix/posix.wrappers, configure.in,
+	scripts/xeno-config.in: Backport from trunk/ optimization for
+	reading wrapping directives from a file.
+
+2006-08-27  Philippe Gerum  <rpm@xenomai.org>
+
+	* src/skins: Remove -module from LDFLAGS for all libraries.
+
+	* ksrc/nucleus/timer.c (xntimer_get_interval): Add timing
+	mode-dependent accessor for the interval value.
+
+	* include/nucleus/thread.h (xnthread_get_period): Return periodic
+	interval or round-robin quantum depending on the undergoing
+	periodic activity.
+
+	* ksrc/nucleus/module.c (sched_seq_open): Display thread period.
+
+2006-08-26  Philippe Gerum  <rpm@xenomai.org>
+
+	* ksrc/nucleus/module.c (sched_seq_show): Make timeout field
+	wider.
+
+	* ksrc/nucleus/synch.c (xnsynch_renice_sleeper): Make sure to
+	boost an unclaimed resource owner as needed, in order to walk the
+	PI chain properly.
+
+2006-08-25  Gilles Chanteperdrix  <gilles.chanteperdrix@laposte.net>
+
+	* ksrc/nucleus/pod.c (xnpod_welcome_thread): Only release the
+	nklock and interrupts when the initialization work is finished.
+
+2006-08-23  Philippe Gerum  <rpm@xenomai.org>
+
+	* include/asm-i386/features.h (xeno_x86_features_check): Try
+	explaining the requirements for SEP a bit better.
+
+	* ksrc/nucleus/shadow.c (do_sigwake_event, xnshadow_relax): Use
+	TASK_NOWAKEUP when available, to prevent Linux from waking up the
+	signaled task until it has been relaxed.
+
+2006-08-21  Gilles Chanteperdrix  <gilles.chanteperdrix@laposte.net>
+
+	* ksrc/arch/powerpc/Kconfig: Make CONFIG_XENO_HW_FPU depend on
+	CONFIG_PPC_FPU.
+
+2006-08-21  Dmitry Adamushko  <dmitry.adamushko@gmail.com>
+
+	* ksrc/nucleus/pipe.c (xnpipe_recv): Re-evaluate the timeout value
+	as we iterate over the message acquisition.
+
+2006-08-20  Gilles Chanteperdrix  <gilles.chanteperdrix@laposte.net>
+
+	* ksrc/skins/posix/timer.c (pse51_timer_delete_inner): Check if
+	the timer is active before removing it from queue.
+
+	* ksrc/skins/posix/sched.c (pthread_setschedparam): No longer map
+	SCHED_OTHER to SCHED_RR.
+
+	* ksrc/skins/posix/syscall.c (__pthread_setschedparam): always
+	pass through pthread_setschedparam in order to check parameters.
+	(__pthread_setschedparam): Use EPERM instead of EAGAIN to signal
+	to user-space that __real_pthread_setschedparam should be used.
+
+	* ksrc/skins/posix/timer.c (timer_settime): Bind the timer to the
+	timer owner (i.e. the caller) CPU.
+
 2006-08-18  Philippe Gerum  <rpm@xenomai.org>
 	
  	* RELEASE: Xenomai 2.2.1 (Tumble)
