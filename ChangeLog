@@ -1,3 +1,109 @@
+2008-03-24  Philippe Gerum  <rpm@xenomai.org>
+
+	* RELEASE: Xenomai 2.4.3 (Back to Shalla-Bal)
+
+2008-03-24  Philippe Gerum  <rpm@xenomai.org>
+
+	* ksrc/arch/powerpc/patches: Update to 2.6.20-powerpc-1.7-13,
+	2.6.24-powerpc-2.1-01.
+
+2008-03-11  Gilles Chanteperdrix  <gilles.chanteperdrix@gmail.com>
+
+	* ksrc/arch/arm/patches: Update to 2.6.24-arm-1.9-01.
+
+2008-03-22  Philippe Gerum  <rpm@xenomai.org>
+
+	* ksrc/skins/vxworks/taskLib.c (taskSpawn): Fix error path.
+
+2008-03-22  Philippe Gerum  <rpm@xenomai.org>
+
+	* ksrc/nucleus, ksrc/arch, include/asm-*: Introduce private stack
+	pool for kernel threads, so that we can control the type of memory
+	used there, depending on per-arch requirements.
+
+	* ksrc/nucleus/pod.c, include/asm-powerpc/system.h: Remove support
+	for scattered heap memory (now useless with private stack pool).
+
+2008-03-16  Jan Kiszka  <jan.kiszka@web.de>
+
+	* ksrc/skins/rtdm/drvlib.c (rtdm_mmap_buffer): Differentiate between
+	mapping of kmalloc'ed vs. I/O memory.
+
+2008-03-16  Philippe Gerum  <rpm@xenomai.org>
+ 
+ 	* include/asm-generic/wrappers.h (wrap_remap_io_page_range): Set
+ 	pgprot_noncached() into the vma flags for MMIO mapping requests.
+ 
+2008-03-12  Anders Blomdell <anders.blomdell@control.lth.se>
+
+	* ksrc/skins/native/cond.c (rt_cond_wait): Fix race due to an
+	unwanted rescheduling between the mutex is released and the sleep
+	state is entered. Also properly release nested locks before
+	attempting to sleep.
+
+2008-03-11  Philippe Gerum  <rpm@xenomai.org>
+
+	* ksrc/arch/powerpc/switch_32.S: Assume that CPU_FTR_SPE may not
+	exist in outdated kernels.
+
+	* ksrc/skins/vxworks: Add auto-cleanup support for message queues
+	and semaphores.
+
+2008-03-09  Gilles Chanteperdrix  <gilles.chanteperdrix@gmail.com>
+
+	* ksrc/skins/posix, src/skins/posix: Support for the select
+	service.
+
+	* ksrc/skins/rtdm: Support for multiplexing RTDM file descriptors
+	events, i.e. for using RTDM file descriptors with the posix select
+	service.
+
+	* ksrc/nucleus/select.c, include/nucleus/select.h: Core support
+	for events multiplexing services (like posix select).
+
+2008-03-08  Gilles Chanteperdrix  <gilles.chanteperdrix@gmail.com>
+
+	* src/skins/native/task.c: Call pthread_exit() to properly cleanup
+	thread's resources on self-deletion.
+
+
+	* ksrc/drivers/testing/klat.c, src/testsuite/klatency: Provide
+	more accurate latency measurement tool dedicated to kernel-based
+	activities.
+	
+2008-03-08  Philippe Gerum  <rpm@xenomai.org>
+
+	* ksrc/arch/x86/patches: Update to 2.6.24-2.0-04.
+
+	* src/skins/posix/mq.c (__wrap_mq_notify): Fix error path.
+
+2008-03-06  Philippe Gerum  <rpm@xenomai.org>
+
+	* ksrc/skins/native/syscall.c: Mark __rt_task_delete as a lostage
+	call, since it may release host memory.
+
+2008-03-05  Philippe Gerum  <rpm@xenomai.org>
+
+	* ksrc/nucleus/pod.c (xnpod_delete_thread): Only send SIGKILL to
+	userland threads deleted from a kernel-based Xenomai context,
+	assuming the interface library will have called pthread_cancel()
+	for the target thread in all other cases.
+
+2008-03-01  Jan Kiszka  <jan.kiszka@siemens.com>
+
+	* include/asm-generic/system.h (xnlock_put): Add proper barrier.
+
+	* ksrc/nucleus/shadow.c, include/nucleus/pod.h: Let rpi_push,
+	xnpod_renice_root, and xnpod_root_priority work on specified CPU
+	instead of the current one. Issue rpi_push for the new thread's
+	target CPU in xnshadow_start, which may be different from the
+	current one.
+
+2008-02-15  Gilles Chanteperdrix  <gilles.chanteperdrix@gmail.com>
+
+	* src/skins/posix/thread.c (__wrap_pthread_create): Follow more
+	closely Linux behaviour with regard to scheduling and priorities.
+
 2008-02-11  Philippe Gerum  <rpm@xenomai.org>
 
 	* RELEASE: Xenomai 2.4.2 (One Big Rush)
@@ -53,7 +159,7 @@
 	races when storing time warps.
 
 2008-01-22  Jan Kiszka  <jan.kiszka@web.de>
-	
+
 	* scripts/prepare-kernel.sh: Improve default patch selection.
 
 2008-01-17  Philippe Gerum  <rpm@xenomai.org>
@@ -875,7 +981,7 @@
 	invocations silently by switching to NRT mode (we can now rely on
 	close_nrt being always available).
 
-2007-07-19  Sebastian Smolorz  <ssm@emlix.com>
+2007-07-19  Sebastian Smolorz  <sesmo@gmx.net>
 
 	* include/asm-arm/syscall.h: Add user-space access to
 	tsc emulation for decrementing counters.
@@ -2327,7 +2433,7 @@
 	* include/asm-blackfin/syscall.h: Add weak placeholders for
 	shm_open and shm_unlink.
 
-2006-12-21  Sebastian Smolorz <ssm@emlix.com>, Gilles Chanteperdrix  <gilles.chanteperdrix@laposte.net>
+2006-12-21  Sebastian Smolorz <sesmo@gmx.net>, Gilles Chanteperdrix  <gilles.chanteperdrix@laposte.net>
 
 	* ksrc/arch/arm/patches: Upgrade to 2.6.{14,15}-1.5-03, adding
 	support for the Samsung S3C24xx platform and the tracer.

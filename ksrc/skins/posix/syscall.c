@@ -34,6 +34,10 @@
 #include <posix/sem.h>
 #include <posix/shm.h>
 #include <posix/timer.h>
+#if defined(CONFIG_XENO_SKIN_RTDM) || defined (CONFIG_XENO_SKIN_RTDM_MODULE)
+#include <rtdm/rtdm_driver.h>
+#define RTDM_FD_MAX CONFIG_XENO_OPT_RTDM_FILDES
+#endif /* RTDM */
 
 int pse51_muxid;
 
@@ -1820,13 +1824,12 @@ static int __mq_setattr(struct task_struct *curr, struct pt_regs *regs)
 /* mq_send(q, buffer, len, prio) */
 static int __mq_send(struct task_struct *curr, struct pt_regs *regs)
 {
-	pse51_direct_msg_t msg;
 	pse51_assoc_t *assoc;
+	pse51_msg_t *msg;
 	pse51_ufd_t *ufd;
+	pse51_mq_t *mq;
 	unsigned prio;
 	size_t len;
-	spl_t s;
-	int err;
 
 	len = (size_t) __xn_reg_arg3(regs);
 	prio = __xn_reg_arg4(regs);
@@ -1844,36 +1847,31 @@ static int __mq_send(struct task_struct *curr, struct pt_regs *regs)
 	    (curr, VERIFY_READ, __xn_reg_arg2(regs), len))
 		return -EFAULT;
 
-	xnlock_get_irqsave(&nklock, s);
-	err = pse51_mq_timedsend_inner(&msg, ufd->kfd, len, NULL);
-	if (err) {
-		xnlock_put_irqrestore(&nklock, s);
+	msg = pse51_mq_timedsend_inner(&mq, ufd->kfd, len, NULL);
+	if (IS_ERR(msg))
+		return PTR_ERR(msg);
 
-		return -err;
+	if(__xn_copy_from_user(curr, msg->data,
+			       (void __user *)__xn_reg_arg2(regs), len)) {
+		pse51_mq_finish_send(ufd->kfd, mq, msg);
+		return -EFAULT;
 	}
+	msg->len = len;
+	pse51_msg_set_prio(msg, prio);
 
-	__xn_copy_from_user(curr, msg.buf,
-			    (void __user *)__xn_reg_arg2(regs), len);
-	*(msg.lenp) = len;
-	*(msg.priop) = prio;
-	
-	pse51_mq_finish_send(ufd->kfd, &msg);
-	xnlock_put_irqrestore(&nklock, s);
-		
-	return 0;
+	return pse51_mq_finish_send(ufd->kfd, mq, msg);
 }
 
 /* mq_timedsend(q, buffer, len, prio, timeout) */
 static int __mq_timedsend(struct task_struct *curr, struct pt_regs *regs)
 {
 	struct timespec timeout, *timeoutp;
-	pse51_direct_msg_t msg;
 	pse51_assoc_t *assoc;
+	pse51_msg_t *msg;
 	pse51_ufd_t *ufd;
+	pse51_mq_t *mq;
 	unsigned prio;
 	size_t len;
-	spl_t s;
-	int err;
 
 	len = (size_t) __xn_reg_arg3(regs);
 	prio = __xn_reg_arg4(regs);
@@ -1905,33 +1903,30 @@ static int __mq_timedsend(struct task_struct *curr, struct pt_regs *regs)
 	} else
 		timeoutp = NULL;
 
-	xnlock_get_irqsave(&nklock, s);
-	err = pse51_mq_timedsend_inner(&msg, ufd->kfd, len, timeoutp);
-	if (err) {
-		xnlock_put_irqrestore(&nklock, s);
+	msg = pse51_mq_timedsend_inner(&mq, ufd->kfd, len, timeoutp);
+	if (IS_ERR(msg))
+		return PTR_ERR(msg);
 
-		return -err;
+	if(__xn_copy_from_user(curr, msg->data,
+			       (void __user *)__xn_reg_arg2(regs), len)) {
+		pse51_mq_finish_send(ufd->kfd, mq, msg);
+		return -EFAULT;
 	}
+	msg->len = len;
+	pse51_msg_set_prio(msg, prio);
 
-	__xn_copy_from_user(curr, msg.buf,
-			    (void __user *) __xn_reg_arg2(regs), len);
-	*(msg.lenp) = len;
-	*(msg.priop) = prio;
-	
-	pse51_mq_finish_send(ufd->kfd, &msg);
-	xnlock_put_irqrestore(&nklock, s);
-	return 0;
+	return pse51_mq_finish_send(ufd->kfd, mq, msg);
 }
 
 /* mq_receive(qd, buffer, &len, &prio)*/
 static int __mq_receive(struct task_struct *curr, struct pt_regs *regs)
 {
-	pse51_direct_msg_t msg;
 	pse51_assoc_t *assoc;
 	pse51_ufd_t *ufd;
+	pse51_msg_t *msg;
+	pse51_mq_t *mq;
 	unsigned prio;
 	ssize_t len;
-	spl_t s;
 	int err;
 
 	assoc = pse51_assoc_lookup(&pse51_queues()->uqds,
@@ -1957,23 +1952,21 @@ static int __mq_receive(struct task_struct *curr, struct pt_regs *regs)
 	    (curr, VERIFY_WRITE, __xn_reg_arg2(regs), len))
 		return -EFAULT;
 
-	xnlock_get_irqsave(&nklock, s);
-	err = pse51_mq_timedrcv_inner(&msg, ufd->kfd, len, NULL);
-	if (err) {
-		xnlock_put_irqrestore(&nklock, s);
+	msg = pse51_mq_timedrcv_inner(&mq, ufd->kfd, len, NULL);
+	if (IS_ERR(msg))
+		return PTR_ERR(msg);
 
-		return -err;
+	if (__xn_copy_to_user(curr, (void __user *)__xn_reg_arg2(regs),
+			      msg->data, msg->len)) {
+		pse51_mq_finish_rcv(ufd->kfd, mq, msg);
+		return -EFAULT;
 	}
+	len = msg->len;
+	prio = pse51_msg_get_prio(msg);
 
-	if (!(msg.flags & PSE51_MSG_DIRECT)) {
-		__xn_copy_to_user(curr, (void __user *)__xn_reg_arg2(regs),
-				  msg.buf, *(msg.lenp));
-		len = *(msg.lenp);
-		prio = *(msg.priop);
-	} else
-		BUG();
-	pse51_mq_finish_rcv(ufd->kfd, &msg);
-	xnlock_put_irqrestore(&nklock, s);
+	err = pse51_mq_finish_rcv(ufd->kfd, mq, msg);
+	if (err)
+		return err;
 
 	__xn_copy_to_user(curr,
 			  (void __user *)__xn_reg_arg3(regs),
@@ -1991,12 +1984,12 @@ static int __mq_receive(struct task_struct *curr, struct pt_regs *regs)
 static int __mq_timedreceive(struct task_struct *curr, struct pt_regs *regs)
 {
 	struct timespec timeout, *timeoutp;
-	pse51_direct_msg_t msg;
 	pse51_assoc_t *assoc;
 	pse51_ufd_t *ufd;
+	pse51_msg_t *msg;
+	pse51_mq_t *mq;
 	unsigned prio;
 	ssize_t len;
-	spl_t s;
 	int err;
 
 	assoc = pse51_assoc_lookup(&pse51_queues()->uqds,
@@ -2036,27 +2029,27 @@ static int __mq_timedreceive(struct task_struct *curr, struct pt_regs *regs)
 	} else
 		timeoutp = NULL;
 
-	xnlock_get_irqsave(&nklock, s);
-	err = pse51_mq_timedrcv_inner(&msg, ufd->kfd, len, timeoutp);
-	if (err) {
-		xnlock_put_irqrestore(&nklock, s);
+	msg = pse51_mq_timedrcv_inner(&mq, ufd->kfd, len, timeoutp);
+	if (IS_ERR(msg))
+		return PTR_ERR(msg);
 
-		return -err;
+	if (__xn_copy_to_user(curr, (void __user *)__xn_reg_arg2(regs),
+			      msg->data, msg->len)) {
+		pse51_mq_finish_rcv(ufd->kfd, mq, msg);
+		return -EFAULT;
 	}
+	len = msg->len;
+	prio = pse51_msg_get_prio(msg);
 
-	if (!(msg.flags & PSE51_MSG_DIRECT)) {
-		__xn_copy_to_user(curr, (void __user *)__xn_reg_arg2(regs),
-				  msg.buf, *(msg.lenp));
-		len = *(msg.lenp);
-		prio = *(msg.priop);
-	} else
-		BUG();
-	pse51_mq_finish_rcv(ufd->kfd, &msg);
-	xnlock_put_irqrestore(&nklock, s);
+	err = pse51_mq_finish_rcv(ufd->kfd, mq, msg);
+	if (err)
+		return err;
 
-	__xn_copy_to_user(curr,
-			  (void __user *)__xn_reg_arg3(regs),
-			  &len, sizeof(len));
+	if (!__xn_access_ok
+	    (curr, VERIFY_WRITE, __xn_reg_arg3(regs), sizeof(len)) ||
+	    __xn_copy_to_user(curr, (void __user *)__xn_reg_arg3(regs),
+			      &len, sizeof(len)))
+		return -EFAULT;
 
 	if (__xn_reg_arg4(regs))
 		__xn_copy_to_user(curr,
@@ -2335,6 +2328,194 @@ static int __timer_getoverrun(struct task_struct *curr, struct pt_regs *regs)
 
 	return rc >= 0 ? rc : -thread_get_errno();
 }
+
+#ifdef CONFIG_XENO_OPT_POSIX_SELECT
+static int fd_valid_p(int fd)
+{
+	pse51_assoc_t *assoc;
+#if defined(CONFIG_XENO_SKIN_RTDM) || defined (CONFIG_XENO_SKIN_RTDM_MODULE)
+	const int rtdm_fd_start = FD_SETSIZE - RTDM_FD_MAX;
+	
+	if (fd >= rtdm_fd_start) {
+		struct rtdm_dev_context *ctx;
+		ctx = rtdm_context_get(fd - rtdm_fd_start);
+		if (ctx) {
+			rtdm_context_unlock(ctx);
+			return 1;
+		}
+		return 0;
+	}
+#endif /* RTDM */
+
+	assoc = pse51_assoc_lookup(&pse51_queues()->uqds, fd);
+	return assoc != NULL;
+}
+
+static int first_fd_valid_p(fd_set *fds[XNSELECT_MAX_TYPES], int nfds)
+{
+	int i, fd;
+
+	for (i = 0; i < XNSELECT_MAX_TYPES; i++)
+		if (fds[i]
+		    && (fd = find_first_bit(fds[i]->fds_bits, nfds)) < nfds)
+			return fd_valid_p(fd);
+
+	/* All empty is correct, used as a "sleep" mechanism by strange
+	   applications. */
+	return 1;
+}
+
+static int select_bind_one(struct xnselector *selector, unsigned type, int fd)
+{
+	pse51_assoc_t *assoc;
+#if defined(CONFIG_XENO_SKIN_RTDM) || defined (CONFIG_XENO_SKIN_RTDM_MODULE)
+	const int rtdm_fd_start = FD_SETSIZE - RTDM_FD_MAX;
+	
+	if (fd >= rtdm_fd_start)
+		return __rt_dev_select_bind(current,
+					    fd - rtdm_fd_start,
+					    selector, type, fd);
+#endif /* CONFIG_XENO_SKIN_RTDM */
+
+	assoc = pse51_assoc_lookup(&pse51_queues()->uqds, fd);
+	if (!assoc)
+		return -EBADF;
+
+	return pse51_mq_select_bind(assoc2ufd(assoc)->kfd, selector, type, fd);
+}
+
+static int select_bind_all(struct xnselector *selector,
+			   fd_set *fds[XNSELECT_MAX_TYPES], int nfds)
+{
+	unsigned fd, type;
+	int err;
+
+	for (type = 0; type < XNSELECT_MAX_TYPES; type++) {
+		fd_set *set = fds[type];
+		if (set)
+			for (fd = find_first_bit(set->fds_bits, nfds);
+			     fd < nfds;
+			     fd = find_next_bit(set->fds_bits, nfds, fd + 1)) {
+				err = select_bind_one(selector, type, fd);
+				if (err)
+					return err;
+			}
+	}
+
+	return 0;
+}
+
+/* int select(int, fd_set *, fd_set *, fd_set *, struct timeval *) */
+static int __select(struct task_struct *curr, struct pt_regs *regs)
+{
+	fd_set __user *ufd_sets[XNSELECT_MAX_TYPES] = {
+		[XNSELECT_READ] = (fd_set __user *) __xn_reg_arg2(regs),
+		[XNSELECT_WRITE] = (fd_set __user *) __xn_reg_arg3(regs),
+		[XNSELECT_EXCEPT] = (fd_set __user *) __xn_reg_arg4(regs)
+	};
+	fd_set *in_fds[XNSELECT_MAX_TYPES] = {NULL, NULL, NULL};
+	fd_set *out_fds[XNSELECT_MAX_TYPES] = {NULL, NULL, NULL};
+	fd_set in_fds_storage[XNSELECT_MAX_TYPES],
+		out_fds_storage[XNSELECT_MAX_TYPES];
+	xnticks_t timeout = XN_INFINITE;
+	xntmode_t mode = XN_RELATIVE;
+	struct xnselector *selector;
+	struct timeval tv;
+	pthread_t thread;
+	int i, err, nfds;
+
+	thread = pse51_current_thread();
+	if (!thread)
+		return -EPERM;
+
+	if (__xn_reg_arg5(regs)) {
+		if (__xn_access_ok(curr, VERIFY_WRITE,
+				   __xn_reg_arg5(regs), sizeof(tv)))
+			return -EFAULT;
+
+		if (__xn_copy_from_user(curr, &tv,
+					(void __user *)__xn_reg_arg5(regs),
+					sizeof(tv)))
+			return -EFAULT;
+
+		if (tv.tv_usec > 1000000)
+			return -EINVAL;
+
+		timeout = clock_get_ticks(CLOCK_MONOTONIC) + tv2ticks_ceil(&tv);
+		mode = XN_ABSOLUTE;
+	}
+
+	nfds = __xn_reg_arg1(regs);
+
+	for (i = 0; i < XNSELECT_MAX_TYPES; i++)
+		if (ufd_sets[i]) {
+			in_fds[i] = &in_fds_storage[i];
+			out_fds[i] = & out_fds_storage[i];
+			if (__xn_access_ok(curr, VERIFY_WRITE,
+					   ufd_sets[i], sizeof(fd_set)))
+				return -EFAULT;
+
+			if (__xn_copy_from_user(curr, in_fds[i],
+						(void __user *) ufd_sets[i],
+						__FDELT(nfds + __NFDBITS - 1)
+						* sizeof(long)))
+				return -EFAULT;
+		}
+
+	selector = thread->selector;
+	if (!selector) {
+		/* This function may be called from pure Linux fd_sets, we want
+		   to avoid the xnselector allocation in this case, so, we do a
+		   simple test: test if the first file descriptor we find in the
+		   fd_set is an RTDM descriptor or a message queue descriptor. */
+		if (!first_fd_valid_p(in_fds, nfds))
+			return -EBADF;
+
+		if (!(selector = xnmalloc(sizeof(*thread->selector))))
+			return -ENOMEM;
+		xnselector_init(selector);
+		thread->selector = selector;
+
+		/* Bind directly the file descriptors, we do not need to go
+		   through xnselect returning -ECHRNG */
+		if ((err = select_bind_all(selector, in_fds, nfds)))
+			return err;
+	}
+
+	do {
+		err = xnselect(selector, out_fds, in_fds, nfds, timeout, mode);
+
+		if (err == -ECHRNG) {
+			int err = select_bind_all(selector, out_fds, nfds);
+			if (err)
+				return err;
+		}
+	} while (err == -ECHRNG);
+
+	if (__xn_reg_arg5(regs) && (err > 0 || err == -EINTR)) {
+		xnsticks_t diff = timeout - clock_get_ticks(CLOCK_MONOTONIC);
+		if (diff > 0)
+			ticks2tv(&tv, diff);
+		else
+			tv.tv_sec = tv.tv_usec = 0;
+
+		if (__xn_copy_to_user(curr, (void __user *)__xn_reg_arg5(regs),
+				      &tv, sizeof(tv)))
+			return -EFAULT;
+	}
+
+	if (err > 0)
+		for (i = 0; i < XNSELECT_MAX_TYPES; i++)
+			if (ufd_sets[i]
+			    && __xn_copy_to_user(curr,
+						 (void __user *) ufd_sets[i],
+						 out_fds[i], sizeof(fd_set)))
+				return -EFAULT;
+	return err;
+}
+#else /* !CONFIG_XENO_OPT_POSIX_SELECT */
+#define __select __pse51_call_not_available
+#endif /* !CONFIG_XENO_OPT_POSIX_SELECT */
 
 #ifdef CONFIG_XENO_OPT_POSIX_SHM
 
@@ -2750,6 +2931,7 @@ static xnsysent_t __systab[] = {
 	    {&__pthread_condattr_getpshared, __xn_exec_any},
 	[__pse51_condattr_setpshared] =
 	    {&__pthread_condattr_setpshared, __xn_exec_any},
+	[__pse51_select] = {&__select, __xn_exec_primary},
 };
 
 static void __shadow_delete_hook(xnthread_t *thread)

@@ -22,6 +22,7 @@
 #include <nucleus/xenomai.h>
 #include <nucleus/core.h>
 #include <nucleus/ppd.h>
+#include <nucleus/select.h>
 #include <posix/posix.h>
 #include <posix/registry.h>
 
@@ -55,10 +56,10 @@
 
 #define ONE_BILLION             1000000000
 
-#define pse51_obj_active(h,m,t) \
+#define pse51_obj_active(h,m,t)			\
 	((h) && ((t *)(h))->magic == (m))
 
-#define pse51_obj_deleted(h,m,t) \
+#define pse51_obj_deleted(h,m,t)		\
 	((h) && ((t *)(h))->magic == ~(m))
 
 #define pse51_mark_deleted(t) ((t)->magic = ~(t)->magic)
@@ -82,7 +83,7 @@ typedef struct {
 
 	xnshadow_ppd_t ppd;
 
-#define ppd2queues(addr)							\
+#define ppd2queues(addr)						\
 	((pse51_queues_t *) ((char *) (addr) - offsetof(pse51_queues_t, ppd)))
 
 } pse51_queues_t;
@@ -129,36 +130,55 @@ static inline pse51_kqueues_t *pse51_kqueues(int pshared)
 
 static inline void ticks2ts(struct timespec *ts, xnticks_t ticks)
 {
-    ts->tv_sec = xnarch_uldivrem(xntbase_ticks2ns(pse51_tbase, ticks),
-                                 ONE_BILLION,
-                                 &ts->tv_nsec);
+	ts->tv_sec = xnarch_uldivrem(xntbase_ticks2ns(pse51_tbase, ticks),
+				     ONE_BILLION, &ts->tv_nsec);
 }
 
 static inline xnticks_t ts2ticks_floor(const struct timespec *ts)
 {
-    xntime_t nsecs = ts->tv_nsec;
-    if(ts->tv_sec)
-        nsecs += (xntime_t) ts->tv_sec * ONE_BILLION;
-    return xntbase_ns2ticks(pse51_tbase, nsecs);
+	xntime_t nsecs = ts->tv_nsec;
+	if(ts->tv_sec)
+		nsecs += (xntime_t) ts->tv_sec * ONE_BILLION;
+	return xntbase_ns2ticks(pse51_tbase, nsecs);
 }
 
 static inline xnticks_t ts2ticks_ceil(const struct timespec *ts)
 {
-    xntime_t nsecs = ts->tv_nsec;
-    unsigned long rem;
-    xnticks_t ticks;
-    if(ts->tv_sec)
-        nsecs += (xntime_t) ts->tv_sec * ONE_BILLION;
-    ticks = xnarch_ulldiv(nsecs, xntbase_get_tickval(pse51_tbase), &rem);
-    return rem ? ticks+1 : ticks;
+	xntime_t nsecs = ts->tv_nsec;
+	unsigned long rem;
+	xnticks_t ticks;
+	if(ts->tv_sec)
+		nsecs += (xntime_t) ts->tv_sec * ONE_BILLION;
+	ticks = xnarch_ulldiv(nsecs, xntbase_get_tickval(pse51_tbase), &rem);
+	return rem ? ticks+1 : ticks;
+}
+
+static inline xnticks_t tv2ticks_ceil(const struct timeval *tv)
+{
+	xntime_t nsecs = tv->tv_usec * 1000;
+	unsigned long rem;
+	xnticks_t ticks;
+	if(tv->tv_sec)
+		nsecs += (xntime_t) tv->tv_sec * ONE_BILLION;
+	ticks = xnarch_ulldiv(nsecs, xntbase_get_tickval(pse51_tbase), &rem);
+	return rem ? ticks+1 : ticks;
+}
+
+static inline void ticks2tv(struct timeval *tv, xnticks_t ticks)
+{
+	unsigned long nsecs;
+	tv->tv_sec = xnarch_uldivrem(xntbase_ticks2ns(pse51_tbase, ticks),
+				     ONE_BILLION,
+				     &nsecs);
+	tv->tv_usec = nsecs / 1000;
 }
 
 static inline xnticks_t clock_get_ticks(clockid_t clock_id)
 {
-    if(clock_id == CLOCK_REALTIME)
-        return xntbase_get_time(pse51_tbase);
-    else
-        return xntbase_ns2ticks(pse51_tbase, xnpod_get_cpu_time());
+	if(clock_id == CLOCK_REALTIME)
+		return xntbase_get_time(pse51_tbase);
+	else
+		return xntbase_get_jiffies(pse51_tbase);
 }
 
 static inline int clock_flag(int flag, clockid_t clock_id)
@@ -178,5 +198,8 @@ static inline int clock_flag(int flag, clockid_t clock_id)
 	}
 	return -EINVAL;
 }
+
+int pse51_mq_select_bind(mqd_t fd, struct xnselector *selector,
+			 unsigned type, unsigned index);
 
 #endif /* !_POSIX_INTERNAL_H */

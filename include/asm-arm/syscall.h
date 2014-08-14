@@ -4,7 +4,7 @@
  * ARM port
  *   Copyright (C) 2005 Stelian Pop
  *
- * Copyright (C) 2007 Sebastian Smolorz <ssm@emlix.com>
+ * Copyright (C) 2007 Sebastian Smolorz <sesmo@gmx.net>
  *	Support for TSC emulation in user space for decrementing counters
  *
  * Xenomai is free software; you can redistribute it and/or modify
@@ -235,6 +235,7 @@ __attribute__((weak)) struct __xn_tscinfo __xn_tscinfo = {
 	type: -1
 };
 
+#ifdef CONFIG_XENO_ARM_HW_DIRECT_TSC
 static inline unsigned long long __xn_rdtsc(void)
 {
 #if CONFIG_XENO_ARM_HW_DIRECT_TSC == __XN_TSC_TYPE_FREERUNNING
@@ -275,6 +276,7 @@ static inline unsigned long long __xn_rdtsc(void)
 
 #endif /* CONFIG_XENO_HW_DIRECT_TSC == __XN_TSC_TYPE_DECREMENTER */
 }
+#endif /* CONFIG_XENO_ARM_HW_DIRECT_TSC */
 
 static inline void xeno_arm_features_check(void)
 {

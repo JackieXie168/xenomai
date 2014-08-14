@@ -67,6 +67,10 @@ unsigned long __va_to_kva(unsigned long va);
     vma->vm_flags |= VM_RESERVED; \
     remap_page_range(from,to,size,prot); \
 })
+#define wrap_remap_kmem_page_range(vma,from,to,size,prot) ({ \
+    vma->vm_flags |= VM_RESERVED; \
+    remap_page_range(from,to,size,prot); \
+})
 #define wrap_switch_mm(prev,next,task)	\
     switch_mm(prev,next,task,(task)->processor)
 #define wrap_enter_lazy_tlb(mm,task)	\
@@ -194,6 +198,7 @@ void show_stack(struct task_struct *task,
 unsigned long __va_to_kva(unsigned long va);
 #else /* !CONFIG_MMU */
 #define __va_to_kva(va) (va)
+#define pgprot_noncached(p) (p)
 #endif /* CONFIG_MMU */
 
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,15) && defined(CONFIG_MMU)
@@ -201,9 +206,15 @@ unsigned long __va_to_kva(unsigned long va);
     vma->vm_flags |= VM_RESERVED; \
     vm_insert_page(vma,from,vmalloc_to_page((void *)to)); \
 })
-#define wrap_remap_io_page_range(vma,from,to,size,prot)  \
-    /* Sets VM_RESERVED | VM_IO | VM_PFNMAP on the vma. */ \
-    remap_pfn_range(vma,from,(to) >> PAGE_SHIFT,size,prot)
+#define wrap_remap_io_page_range(vma,from,to,size,prot)  ({		\
+    (vma)->vm_page_prot = pgprot_noncached((vma)->vm_page_prot);	\
+    /* Sets VM_RESERVED | VM_IO | VM_PFNMAP on the vma. */		\
+    remap_pfn_range(vma,from,(to) >> PAGE_SHIFT,size,prot);		\
+    })
+#define wrap_remap_kmem_page_range(vma,from,to,size,prot)  ({		\
+    /* Sets VM_RESERVED | VM_IO | VM_PFNMAP on the vma. */		\
+    remap_pfn_range(vma,from,(to) >> PAGE_SHIFT,size,prot);		\
+    })
 #elif LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,10)
 /* Actually, this is a best-effort since we don't have
  * vm_insert_page(), and has the unwanted side-effet of setting the
@@ -212,18 +223,28 @@ unsigned long __va_to_kva(unsigned long va);
  * kernel revisions. */
 #define wrap_remap_vm_page(vma,from,to) \
     remap_pfn_range(vma,from,virt_to_phys((void *)__va_to_kva(to)) >> PAGE_SHIFT,PAGE_SHIFT,PAGE_SHARED)
-#define wrap_remap_io_page_range(vma,from,to,size,prot)  \
-    /* Sets VM_RESERVED | VM_IO | VM_PFNMAP on the vma. */ \
-    remap_pfn_range(vma,from,(to) >> PAGE_SHIFT,size,prot)
+#define wrap_remap_io_page_range(vma,from,to,size,prot)  ({		\
+    (vma)->vm_page_prot = pgprot_noncached((vma)->vm_page_prot);	\
+    /* Sets VM_RESERVED | VM_IO | VM_PFNMAP on the vma. */		\
+    remap_pfn_range(vma,from,(to) >> PAGE_SHIFT,size,prot);		\
+    })
+#define wrap_remap_kmem_page_range(vma,from,to,size,prot)  ({		\
+    /* Sets VM_RESERVED | VM_IO | VM_PFNMAP on the vma. */		\
+    remap_pfn_range(vma,from,(to) >> PAGE_SHIFT,size,prot);		\
+    })
 #else /* LINUX_VERSION_CODE < KERNEL_VERSION(2,6,10) */
 #define wrap_remap_vm_page(vma,from,to) ({ \
     vma->vm_flags |= VM_RESERVED; \
     remap_page_range(from,virt_to_phys((void *)__va_to_kva(to)),PAGE_SIZE,PAGE_SHARED); \
 })
-#define wrap_remap_io_page_range(vma,from,to,size,prot) do { \
-    vma->vm_flags |= VM_RESERVED; \
-    remap_page_range(vma,from,to,size,prot); \
-} while (0)
+#define wrap_remap_io_page_range(vma,from,to,size,prot) ({	\
+      vma->vm_flags |= VM_RESERVED;				\
+      remap_page_range(vma,from,to,size,prot);			\
+    })
+#define wrap_remap_kmem_page_range(vma,from,to,size,prot) ({	\
+      vma->vm_flags |= VM_RESERVED;				\
+      remap_page_range(vma,from,to,size,prot);			\
+    })
 #endif /* LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,15) */
 
 #define wrap_switch_mm(prev,next,task)	\
@@ -280,5 +301,20 @@ unsigned long __va_to_kva(unsigned long va);
 #else /* !CONFIG_MARKERS */
 #define trace_mark(ev, fmt, args...)	do { } while (0)
 #endif /* CONFIG_MARKERS */
+
+#if LINUX_VERSION_CODE < KERNEL_VERSION(2,6,0)
+static inline unsigned long hweight_long(unsigned long w)
+{
+#if BITS_PER_LONG == 64
+	return hweight64(w);
+#else /* 32 bits */
+	return hweight32(w);
+#endif /* 32 bits */
+}
+
+#define find_first_bit(addr, size) find_next_bit((addr), (size), 0)
+unsigned long find_next_bit(const unsigned long *addr,
+                            unsigned long size, unsigned long offset);
+#endif /* linux version < 2.6.0 */
 
 #endif /* _XENO_ASM_GENERIC_WRAPPERS_H */

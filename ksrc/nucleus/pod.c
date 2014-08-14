@@ -208,6 +208,14 @@ static void xnpod_flush_heap(xnheap_t *heap,
 	xnarch_free_host_mem(extaddr, extsize);
 }
 
+#if CONFIG_XENO_OPT_SYS_STACKPOOLSZ > 0
+static void xnpod_flush_stackpool(xnheap_t *heap,
+				  void *extaddr, u_long extsize, void *cookie)
+{
+	xnarch_free_stack_mem(extaddr, extsize);
+}
+#endif
+
 /*! 
  * \fn int xnpod_init(void)
  * \brief Initialize the core pod.
@@ -296,57 +304,39 @@ int xnpod_init(void)
 
 	xnlock_put_irqrestore(&nklock, s);
 
-#ifdef XNARCH_SCATTER_HEAPSZ
-	{
-		int blkcnt, nblk = 0;
-
-		blkcnt = (xnmod_sysheap_size + XNARCH_SCATTER_HEAPSZ - 1) /
-		    XNARCH_SCATTER_HEAPSZ;
-
-		do {
-			heapaddr = xnarch_alloc_host_mem(XNARCH_SCATTER_HEAPSZ);
-
-			if (!heapaddr) {
-				err = -ENOMEM;
-				goto fail;
-			}
-
-			if (nblk == 0) {
-				u_long init_size = xnmod_sysheap_size;
-
-				if (init_size > XNARCH_SCATTER_HEAPSZ)
-					init_size = XNARCH_SCATTER_HEAPSZ;
-
-				err =
-				    xnheap_init(&kheap, heapaddr, init_size,
-						XNPOD_PAGESIZE);
-			} else
-				/* The heap manager wants additional extents to have the
-				   same size than the initial one. */
-				err =
-				    xnheap_extend(&kheap, heapaddr,
-						  XNARCH_SCATTER_HEAPSZ);
-
-			if (err) {
-				if (nblk > 0)
-					xnheap_destroy(&kheap,
-						       &xnpod_flush_heap, NULL);
-
-				goto fail;
-			}
-		}
-		while (++nblk < blkcnt);
-	}
-#else /* !XNARCH_SCATTER_HEAPSZ */
 	heapaddr = xnarch_alloc_host_mem(xnmod_sysheap_size);
 
-	if (!heapaddr ||
+	if (heapaddr == NULL ||
 	    xnheap_init(&kheap, heapaddr, xnmod_sysheap_size,
 			XNPOD_PAGESIZE) != 0) {
 		err = -ENOMEM;
 		goto fail;
 	}
-#endif /* XNARCH_SCATTER_HEAPSZ */
+
+#if CONFIG_XENO_OPT_SYS_STACKPOOLSZ > 0
+	/*
+	 * We have to differentiate the system heap memory from the
+	 * pool the kernel thread stacks will be obtained from,
+	 * because on some architectures, vmalloc memory may not be
+	 * accessed while running in physical addressing mode
+	 * (e.g. exception trampoline code on powerpc with standard
+	 * MMU support - CONFIG_PPC_STD_MMU). Meanwhile, since we want
+	 * to allow the system heap to be larger than 128Kb in
+	 * contiguous memory, we can't restrict to using kmalloc()
+	 * memory for it either.  Therefore, we manage a private stack
+	 * pool for kernel-based threads which will be populated with
+	 * the kind of memory the underlying arch requires, still
+	 * allowing the system heap to rely on a vmalloc'ed segment.
+	 */
+	heapaddr = xnarch_alloc_stack_mem(CONFIG_XENO_OPT_SYS_STACKPOOLSZ * 1024);
+
+	if (heapaddr == NULL ||
+	    xnheap_init(&kstacks, heapaddr, CONFIG_XENO_OPT_SYS_STACKPOOLSZ * 1024,
+			XNPOD_PAGESIZE) != 0) {
+		err = -ENOMEM;
+		goto fail;
+	}
+#endif /* CONFIG_XENO_OPT_SYS_STACKPOOLSZ > 0 */
 
 	for (cpu = 0; cpu < nr_cpus; cpu++) {
 		sched = xnpod_sched_slot(cpu);
@@ -518,6 +508,10 @@ void xnpod_shutdown(int xtype)
 	xnlock_get_irqsave(&nklock, s);
 
 	xnheap_destroy(&kheap, &xnpod_flush_heap, NULL);
+
+#if CONFIG_XENO_OPT_SYS_STACKPOOLSZ > 0
+	xnheap_destroy(&kstacks, &xnpod_flush_stackpool, NULL);
+#endif
 
       unlock_and_exit:
 
@@ -1152,9 +1146,11 @@ void xnpod_delete_thread(xnthread_t *thread)
 	 * 2) Make sure shadow threads are removed from the system on
 	 * behalf of their own context, by sending them a lethal
 	 * signal when it is not the case instead of wiping out their
-	 * TCB. In such a case, the deletion is asynchronous, and
-	 * killed thread will later enter xnpod_delete_thread() from
-	 * the exit notification handler (I-pipe).
+	 * TCB. We only do that whenever the caller is a kernel-based
+	 * Xenomai context. In such a case, the deletion is
+	 * asynchronous, and killed thread will later enter
+	 * xnpod_delete_thread() from the exit notification handler
+	 * (I-pipe).
 	 *
 	 * Sidenote: xnpod_delete_thread() might be called for
 	 * cleaning up a just created shadow task which has not been
@@ -1178,7 +1174,14 @@ void xnpod_delete_thread(xnthread_t *thread)
 	if (xnthread_user_task(thread) != NULL &&
 	    !xnthread_test_state(thread, XNDORMANT) &&
 	    !xnpod_current_p(thread)) {
-		xnshadow_send_sig(thread, SIGKILL, 1);
+		if (!xnpod_userspace_p())
+			xnshadow_send_sig(thread, SIGKILL, 1);
+		/*
+		 * Otherwise, assume the interface library has issued
+		 * pthread_cancel on the target thread, which should
+		 * cause the current service to be called for
+		 * self-deletion of that thread.
+		 */
 		goto unlock_and_exit;
 	}
 #endif /* CONFIG_XENO_OPT_PERVASIVE */
