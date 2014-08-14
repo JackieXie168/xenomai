@@ -79,8 +79,6 @@ struct wind_sem {
      */
     unsigned count;
     
-    xnthread_t *owner;
-
     xnholder_t rlink;		/* !< Link in resource queue. */
 #define rlink2sem(ln)	container_of(ln, wind_sem_t, rlink)
     xnqueue_t *rqueue;		/* !< Backpointer to resource queue. */
@@ -176,17 +174,6 @@ static inline void wind_wd_flush_rq(xnqueue_t *rq)
 
 #define wind_current_task() (thread2wind_task(xnpod_current_thread()))
 
-/* The following macros return normalized or native VxWorks priority
-   values. The core pod uses an ascending [0-257] priority scale
-   (include/nucleus/core.h), whilst the VxWorks personality exhibits a
-   decreasing scale [255-0]; normalization is done in the [1-256]
-   range so that priority 0 is kept for non-realtime shadows. */
-
-#define wind_normalized_prio(prio)  \
-  ({ int __p = (prio) ? XNCORE_MAX_PRIO - (prio) - 1 : 0; __p; })
-#define wind_denormalized_prio(prio) \
-  ({ int __p = (prio) ? 256 - (prio) : 0; __p; })
-
 int *wind_errno_location(void);
 
 static inline void wind_errnoset (int err)
@@ -242,29 +229,38 @@ static inline int wind_errnoget (void)
 
 
 /* Must be called with nklock locked, interrupts off. */
-static inline void taskSafeInner (wind_task_t *cur)
+static inline void taskSafeInner (xnthread_t *cur)
 {
-    cur->safecnt++;
+	if (xnthread_get_magic(cur) == VXWORKS_SKIN_MAGIC) {
+		wind_task_t *task = thread2wind_task(cur);
+		task->safecnt++;
+	}
 }
 
 /* Must be called with nklock locked, interrupts off.
    Returns :
-   - ERROR if the current context is invalid
-   - OK if the safe count was zero or decremented but no rescheduling is needed.
+   - 0 if the safe count was zero or decremented but no rescheduling is needed.
    - 1 if the safe count was decremented and rescheduling is needed.
 */
-static inline int taskUnsafeInner (wind_task_t *cur)
+static inline int taskUnsafeInner (xnthread_t *cur)
 {
-    if(!xnpod_primary_p())
-        return ERROR;
-    
-    if (cur->safecnt == 0)
-	return OK;
+	wind_task_t *task;
 
-    if(--cur->safecnt == 0)
-        return xnsynch_flush(&cur->safesync,0) == XNSYNCH_RESCHED;
+	if (xnthread_get_magic(cur) != VXWORKS_SKIN_MAGIC)
+		/*
+		 * We utterly lie here, but cross-API calls to obtain
+		 * VxWorks task safetiness are more than borderline
+		 * anyway. We basically allow this to make
+		 * semGive/semTake available to non-VxWorks tasks.
+		 */
+		return 0;
 
-    return OK;
+	task = thread2wind_task(cur);
+
+	if (task->safecnt > 0 && --task->safecnt == 0)
+		return xnsynch_flush(&task->safesync,0) == XNSYNCH_RESCHED;
+
+	return 0;
 }
 
 extern xntbase_t *wind_tbase;

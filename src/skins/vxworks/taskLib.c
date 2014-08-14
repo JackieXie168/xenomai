@@ -27,6 +27,7 @@
 #include <errno.h>
 #include <limits.h>
 #include <vxworks/vxworks.h>
+#include "wrappers.h"
 
 extern pthread_key_t __vxworks_tskey;
 
@@ -64,21 +65,41 @@ static void wind_task_sigharden(int sig)
 	XENOMAI_SYSCALL1(__xn_sys_migrate, XENOMAI_XENO_DOMAIN);
 }
 
+static int wind_task_set_posix_priority(int prio, struct sched_param *param)
+{
+	int maxpprio, pprio;
+
+	maxpprio = sched_get_priority_max(SCHED_FIFO);
+
+	/* We need to normalize this value first. */
+	pprio = wind_normalized_prio(prio);
+	if (pprio > maxpprio)
+		pprio = maxpprio;
+
+	memset(param, 0, sizeof(*param));
+	param->sched_priority = pprio;
+
+	return pprio ? SCHED_FIFO : SCHED_OTHER;
+}
+
 static void *wind_task_trampoline(void *cookie)
 {
 	struct wind_task_iargs *iargs =
 	    (struct wind_task_iargs *)cookie, _iargs;
 	struct wind_arg_bulk bulk;
 	struct sched_param param;
+	int policy;
 	long err;
 
 	/* Backup the arg struct, it might vanish after completion. */
 	memcpy(&_iargs, iargs, sizeof(_iargs));
 
-	/* Apply sched params here as some libpthread implementions fail
-	   doing this via pthread_create. */
-	param.sched_priority = sched_get_priority_max(SCHED_FIFO);
-	pthread_setschedparam(pthread_self(), SCHED_FIFO, &param);
+	/*
+	 * Apply sched params here as some libpthread implementations
+	 * fail doing this properly via pthread_create.
+	 */
+	policy = wind_task_set_posix_priority(iargs->prio, &param);
+	__real_pthread_setschedparam(pthread_self(), policy, &param);
 
 	/* wind_task_delete requires asynchronous cancellation */
 	pthread_setcanceltype(PTHREAD_CANCEL_ASYNCHRONOUS, NULL);
@@ -88,6 +109,7 @@ static void *wind_task_trampoline(void *cookie)
 	bulk.a1 = (u_long)iargs->name;
 	bulk.a2 = (u_long)iargs->prio;
 	bulk.a3 = (u_long)iargs->flags;
+	bulk.a4 = (u_long)pthread_self();
 
 	err = XENOMAI_SKINCALL3(__vxworks_muxid,
 				__vxworks_task_init,
@@ -125,9 +147,10 @@ STATUS taskInit(WIND_TCB *pTcb,
 {
 	struct wind_task_iargs iargs;
 	xncompletion_t completion;
+	struct sched_param param;
 	pthread_attr_t thattr;
+	int err, policy;
 	pthread_t thid;
-	int err;
 
 	/* Migrate this thread to the Linux domain since we are about to
 	   issue a series of regular kernel syscalls in order to create
@@ -160,13 +183,17 @@ STATUS taskInit(WIND_TCB *pTcb,
 
 	if (stacksize == 0)
 		stacksize = PTHREAD_STACK_MIN * 4;
-	else if (stacksize < PTHREAD_STACK_MIN)
-		stacksize = PTHREAD_STACK_MIN;
+	else if (stacksize < PTHREAD_STACK_MIN * 2)
+		stacksize = PTHREAD_STACK_MIN * 2;
 
+	pthread_attr_setinheritsched(&thattr, PTHREAD_EXPLICIT_SCHED);
+	policy = wind_task_set_posix_priority(prio, &param);
+	pthread_attr_setschedpolicy(&thattr, policy);
+	pthread_attr_setschedparam(&thattr, &param);
 	pthread_attr_setstacksize(&thattr, stacksize);
 	pthread_attr_setdetachstate(&thattr, PTHREAD_CREATE_DETACHED);
 
-	err = pthread_create(&thid, &thattr, &wind_task_trampoline, &iargs);
+	err = __real_pthread_create(&thid, &thattr, &wind_task_trampoline, &iargs);
 
 	/* POSIX codes returned by internal calls do not conflict with
 	   VxWorks ones, so let's use errno for passing the back

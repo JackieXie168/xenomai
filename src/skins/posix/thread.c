@@ -17,6 +17,7 @@
  */
 
 #include <stddef.h>
+#include <string.h>
 #include <errno.h>
 #include <signal.h>
 #include <unistd.h>
@@ -53,6 +54,8 @@ int __wrap_pthread_setschedparam(pthread_t thread,
 
 	if (err == EPERM)
 		return __real_pthread_setschedparam(thread, policy, param);
+	else
+		__real_pthread_setschedparam(thread, policy, param);
 
 	if (!err && promoted) {
 		old_sigharden_handler = signal(SIGHARDEN, &__pthread_sigharden_handler);
@@ -170,8 +173,6 @@ int __wrap_pthread_create(pthread_t *tid,
 		
 	pthread_attr_getinheritsched(attr, &inherit);
 	__wrap_pthread_getschedparam(pthread_self(), &iargs.policy, &param);
-	/* Set the glibc idea of our priority to the same as Xenomai. */
-	__real_pthread_setschedparam(pthread_self(), iargs.policy, &param);
 	iargs.parent_prio = param.sched_priority;
 	if (inherit == PTHREAD_EXPLICIT_SCHED) {
 		pthread_attr_getschedpolicy(attr, &iargs.policy);
@@ -281,7 +282,11 @@ static __attribute__((constructor)) void pse51_thread_init(void)
 {
 	char vers[128];
 	pthread_attr_init(&default_attr);
+#ifdef _CS_GNU_LIBPTHREAD_VERSION
 	linuxthreads =
 		!confstr(_CS_GNU_LIBPTHREAD_VERSION, vers, sizeof(vers))
 		|| strstr(vers, "linuxthreads");
+#else /* !_CS_GNU_LIBPTHREAD_VERSION */
+	linuxthreads = 1;
+#endif /* !_CS_GNU_LIBPTHREAD_VERSION */
 }

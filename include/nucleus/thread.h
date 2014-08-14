@@ -22,8 +22,6 @@
 #ifndef _XENO_NUCLEUS_THREAD_H
 #define _XENO_NUCLEUS_THREAD_H
 
-#include <nucleus/timer.h>
-
 /*! @ingroup nucleus 
   @defgroup nucleus_state_flags Thread state flags.
   @brief Bits reporting permanent or transient states of thread.
@@ -130,6 +128,7 @@
 #if defined(__KERNEL__) || defined(__XENO_SIM__)
 
 #include <nucleus/stat.h>
+#include <nucleus/timer.h>
 
 #ifdef __XENO_SIM__
 /* Pseudo-status (must not conflict with other bits) */
@@ -146,7 +145,7 @@ struct xnrpi;
 
 typedef struct xnthrops {
 
-	int (*get_denormalized_prio)(struct xnthread *);
+	int (*get_denormalized_prio)(struct xnthread *, int coreprio);
 	unsigned (*get_magic)(void);
 
 } xnthrops_t;
@@ -188,6 +187,8 @@ typedef struct xnthread {
     xnpqueue_t claimq;		/* Owned resources claimed by others (PIP) */
 
     struct xnsynch *wchan;	/* Resource the thread pends on */
+
+    struct xnsynch *wwake;	/* Wait channel the thread was resumed from */
 
     xntimer_t rtimer;		/* Resource timer */
 
@@ -277,6 +278,8 @@ typedef struct xnhook {
 #define xnthread_pending_signals(thread)  ((thread)->signals)
 #define xnthread_timeout(thread)           xntimer_get_timeout(&(thread)->rtimer)
 #define xnthread_stack_size(thread)        xnarch_stack_size(xnthread_archtcb(thread))
+#define xnthread_stack_base(thread)        xnarch_stack_base(xnthread_archtcb(thread))
+#define xnthread_stack_end(thread)         xnarch_stack_end(xnthread_archtcb(thread))
 #define xnthread_handle(thread)            ((thread)->registry.handle)
 #ifdef CONFIG_XENO_OPT_TIMING_PERIODIC
 #define xnthread_time_base(thread)         ((thread)->rtimer.base)
@@ -295,9 +298,10 @@ typedef struct xnhook {
 #define xnthread_get_lastswitch(thread)    xnstat_exectime_get_last_switch((thread)->sched)
 
 /* Class-level operations for threads. */
-static inline int xnthread_get_denormalized_prio(xnthread_t *t)
+static inline int xnthread_get_denormalized_prio(xnthread_t *t, int coreprio)
 {
-	return t->ops ? t->ops->get_denormalized_prio(t) : xnthread_current_priority(t);
+	return t->ops && t->ops->get_denormalized_prio ?
+		t->ops->get_denormalized_prio(t, coreprio) : coreprio;
 }
 
 static inline unsigned xnthread_get_magic(xnthread_t *t)

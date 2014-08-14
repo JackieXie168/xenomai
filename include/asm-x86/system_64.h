@@ -31,6 +31,8 @@
 #define XNARCH_THREAD_STACKSZ	4096
 
 #define xnarch_stack_size(tcb)  ((tcb)->stacksize)
+#define xnarch_stack_base(tcb)	((tcb)->stackbase)
+#define xnarch_stack_end(tcb)	((caddr_t)(tcb)->stackbase - (tcb)->stacksize)
 #define xnarch_fpu_ptr(tcb)     ((tcb)->fpup)
 #define xnarch_user_task(tcb)   ((tcb)->user_task)
 #define xnarch_user_pid(tcb)    ((tcb)->user_task->pid)
@@ -78,7 +80,7 @@ typedef struct xnarch_fltinfo {
 
 #define xnarch_fault_trap(fi)   ((fi)->vector)
 #define xnarch_fault_code(fi)   ((fi)->errcode)
-#define xnarch_fault_pc(fi)     ((fi)->regs->rip)
+#define xnarch_fault_pc(fi)     ((fi)->regs->x86reg_ip)
 /* fault is caused by use FPU while FPU disabled. */
 #define xnarch_fault_fpu_p(fi)  ((fi)->vector == 7)
 /* The following predicates are only usable over a regular Linux stack

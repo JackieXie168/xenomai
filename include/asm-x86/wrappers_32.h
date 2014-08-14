@@ -163,14 +163,38 @@ typedef irqreturn_t (*rthal_irq_host_handler_t)(int irq,
 
 #define rthal_irq_chip_end(irq)	rthal_irq_chip_enable(irq)
 #else /* >= 2.6.19 */
-#define rthal_irq_chip_enable(irq)   ({ rthal_irq_descp(irq)->chip->enable(irq); 0; })
-#define rthal_irq_chip_disable(irq)  ({ rthal_irq_descp(irq)->chip->disable(irq); 0; })
+#define rthal_irq_chip_enable(irq)   ({ rthal_irq_descp(irq)->chip->unmask(irq); 0; })
+#define rthal_irq_chip_disable(irq)  ({ rthal_irq_descp(irq)->chip->mask(irq); 0; })
 #define rthal_irq_chip_end(irq)      ({ rthal_irq_descp(irq)->ipipe_end(irq, rthal_irq_descp(irq)); 0; })
 typedef irq_handler_t rthal_irq_host_handler_t;
 
 #define DECLARE_LINUX_IRQ_HANDLER(fn, irq, dev_id)	\
 	irqreturn_t fn(int irq, void *dev_id)
 
+#endif
+
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,25)
+#define x86reg_origax	orig_ax
+#define x86reg_ax	ax
+#define x86reg_bx	bx
+#define x86reg_cx	cx
+#define x86reg_dx	dx
+#define x86reg_si	si
+#define x86reg_di	di
+#define x86reg_sp	sp
+#define x86reg_bp	bp
+#define x86reg_ip	ip
+#else
+#define x86reg_origax	orig_eax
+#define x86reg_ax	eax
+#define x86reg_bx	ebx
+#define x86reg_cx	ecx
+#define x86reg_dx	edx
+#define x86reg_si	esi
+#define x86reg_di	edi
+#define x86reg_sp	esp
+#define x86reg_bp	ebp
+#define x86reg_ip	eip
 #endif
 
 #endif /* _XENO_ASM_X86_WRAPPERS_32_H */

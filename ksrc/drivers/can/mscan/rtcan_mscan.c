@@ -29,7 +29,6 @@
 #include <linux/module.h>
 #include <linux/ioport.h>
 #include <linux/delay.h>
-#include <asm/ppcboot.h>
 
 #include <rtdm/rtdm_driver.h>
 
@@ -854,7 +853,7 @@ out_dev_free:
 
 }
 
-static void __exit rtcan_mscan_exit(void)
+static void rtcan_mscan_exit(void)
 {
     int i;
     struct rtcan_device *dev;

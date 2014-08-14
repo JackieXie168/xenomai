@@ -30,9 +30,9 @@ static int testSafe(wind_task_t *task);
 static void wind_task_delete_hook(xnthread_t *xnthread);
 static void wind_task_trampoline(void *cookie);
 
-static int wind_task_get_denormalized_prio(xnthread_t *thread)
+static int wind_task_get_denormalized_prio(xnthread_t *thread, int coreprio)
 {
-	return wind_denormalized_prio(xnthread_current_priority(thread));
+	return wind_denormalized_prio(coreprio);
 }
 
 static unsigned wind_task_get_magic(void)
@@ -104,6 +104,8 @@ STATUS taskInit(WIND_TCB *pTcb,
 	   neither. */
 
 #ifdef CONFIG_XENO_OPT_PERVASIVE
+ 	/* Caller should fill in this field whenever applicable. */
+ 	pTcb->ptid = 0;
 	if (flags & VX_SHADOW)
 		bflags |= XNSHADOW;
 #else /* !CONFIG_XENO_OPT_PERVASIVE */
@@ -485,7 +487,7 @@ STATUS taskSafe(void)
 	spl_t s;
 
 	xnlock_get_irqsave(&nklock, s);
-	taskSafeInner(wind_current_task());
+	taskSafeInner(xnpod_current_thread());
 	xnlock_put_irqrestore(&nklock, s);
 
 	return OK;
@@ -495,24 +497,18 @@ STATUS taskUnsafe(void)
 {
 	spl_t s;
 
-	xnlock_get_irqsave(&nklock, s);
-
-	switch (taskUnsafeInner(wind_current_task())) {
-
-	case ERROR:
+	if (!xnpod_primary_p()) {
 		wind_errnoset(-EPERM);
-		xnlock_put_irqrestore(&nklock, s);
 		return ERROR;
-
-	case OK:
-		break;
-
-	case 1:
-		xnpod_schedule();
-		break;
 	}
 
+	xnlock_get_irqsave(&nklock, s);
+
+	if (taskUnsafeInner(xnpod_current_thread()))
+		xnpod_schedule();
+
 	xnlock_put_irqrestore(&nklock, s);
+
 	return OK;
 }
 

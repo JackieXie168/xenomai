@@ -54,18 +54,12 @@ static DEFINE_XNQUEUE(__xeno_task_q);
 
 static u_long __xeno_task_stamp;
 
-static int __task_get_denormalized_prio(xnthread_t *thread)
-{
-	return xnthread_current_priority(thread);
-}
-
 static unsigned __task_get_magic(void)
 {
 	return XENO_SKIN_MAGIC;
 }
 
 static xnthrops_t __xeno_task_ops = {
-	.get_denormalized_prio = &__task_get_denormalized_prio,
 	.get_magic = &__task_get_magic,
 };
 
@@ -410,10 +404,16 @@ int rt_task_start(RT_TASK *task, void (*entry) (void *cookie), void *cookie)
  * A nesting count is maintained so that rt_task_suspend() and
  * rt_task_resume() must be used in pairs.
  *
+ * Receiving a Linux signal causes the suspended task to resume
+ * immediately.
+ *
  * @param task The descriptor address of the affected task. If @a task
  * is NULL, the current task is suspended.
  *
  * @return 0 is returned upon success. Otherwise:
+ *
+ * - -EINTR is returned if a Linux signal has been received by the
+ * suspended task.
  *
  * - -EINVAL is returned if @a task is not a task descriptor.
  *
@@ -463,9 +463,12 @@ int rt_task_suspend(RT_TASK *task)
 		goto unlock_and_exit;
 	}
 
-	if (task->suspend_depth++ == 0)
+	if (task->suspend_depth++ == 0) {
 		xnpod_suspend_thread(&task->thread_base, XNSUSP,
 				     XN_INFINITE, XN_RELATIVE, NULL);
+		if (xnthread_test_info(&task->thread_base, XNBREAK))
+			err = -EINTR;
+	}
 
       unlock_and_exit:
 
@@ -949,8 +952,10 @@ int rt_task_sleep(RTIME delay)
  * reached.
  *
  * @param date The absolute date in clock ticks to wait before
- * resuming the task (see note). Passing an already elapsed date
- * causes the task to return immediately with no delay.
+ * resuming the task (see note). As a special case, TM_INFINITE is an
+ * acceptable value that makes the caller block indefinitely, until
+ * rt_task_unblock() is called against it. Otherwise, any wake up date
+ * in the past causes the task to return immediately with no delay.
  *
  * @return 0 is returned upon success. Otherwise:
  *
@@ -959,7 +964,8 @@ int rt_task_sleep(RTIME delay)
  *
  * - -ETIMEDOUT is returned if @a date has already elapsed.
  *
- * - -EWOULDBLOCK is returned if the system timer is inactive.
+ * - -EWOULDBLOCK is returned if the system timer is inactive, and
+ *    @date is valid but different from TM_INFINITE.
  *
  * - -EPERM is returned if this service was called from a context
  * which cannot sleep (e.g. interrupt, non-realtime or scheduler
@@ -981,8 +987,8 @@ int rt_task_sleep(RTIME delay)
 
 int rt_task_sleep_until(RTIME date)
 {
+	int err = 0, mode = XN_REALTIME;
 	xnthread_t *self;
-	int err = 0;
 	spl_t s;
 
 	if (xnpod_unblockable_p())
@@ -990,21 +996,29 @@ int rt_task_sleep_until(RTIME date)
 
 	self = xnpod_current_thread();
 
-	if (!xnthread_timed_p(self))
-		return -EWOULDBLOCK;
-
 	xnlock_get_irqsave(&nklock, s);
 
-	/* Calling the suspension service on behalf of the current task
-	   implicitely calls the rescheduling procedure. */
-
-	if (date > xntbase_get_time(__native_tbase)) {
-		xnpod_suspend_thread(self, XNDELAY, date, XN_REALTIME, NULL);
-
-		if (xnthread_test_info(self, XNBREAK))
-			err = -EINTR;
-	} else
+	if (date == TM_INFINITE)
+		/* i.e. will resume only upon rt_task_unblock(). */
+		mode = XN_RELATIVE;
+	else if (date <= xntbase_get_time(__native_tbase)) {
 		err = -ETIMEDOUT;
+		goto unlock_and_exit;
+	} else if (!xnthread_timed_p(self)) {
+		err = -EWOULDBLOCK;
+		goto unlock_and_exit;
+	}
+
+	/*
+	 * Calling the suspension service on behalf of the current
+	 * task implicitely calls the rescheduling procedure.
+	 */
+	xnpod_suspend_thread(self, XNDELAY, date, mode, NULL);
+
+	if (xnthread_test_info(self, XNBREAK))
+		err = -EINTR;
+
+ unlock_and_exit:
 
 	xnlock_put_irqrestore(&nklock, s);
 
@@ -1671,7 +1685,8 @@ int rt_task_slice(RT_TASK *task, RTIME quantum)
  * remote task eventually replies. Passing TM_NONBLOCK causes the
  * service to return immediately without waiting if the remote task is
  * not waiting for messages (i.e. if @a task is not currently blocked
- * on the rt_task_receive() service).
+ * on the rt_task_receive() service); however, the caller will wait
+ * indefinitely for a reply from that remote task if present.
  *
  * @return A positive value is returned upon success, representing the
  * length (in bytes) of the reply message returned by the remote
@@ -1697,6 +1712,9 @@ int rt_task_slice(RT_TASK *task, RTIME quantum)
  * - -EPERM is returned if this service should block, but was called
  * from a context which cannot sleep (e.g. interrupt, non-realtime or
  * scheduler locked).
+ *
+ * - -ESRCH is returned if @a task cannot be found (when called from
+ *    user-space only).
  *
  * Environments:
  *
@@ -1735,10 +1753,17 @@ ssize_t rt_task_send(RT_TASK *task,
 		goto unlock_and_exit;
 	}
 
-	if (timeout == TM_NONBLOCK && xnsynch_nsleepers(&task->mrecv) == 0) {
-		/* Can't block and no server listening; just bail out. */
-		err = -EWOULDBLOCK;
-		goto unlock_and_exit;
+	if (timeout == TM_NONBLOCK) {
+		if (xnsynch_nsleepers(&task->mrecv) == 0) {
+			/* Can't block and no server listening; just bail out. */
+			err = -EWOULDBLOCK;
+			goto unlock_and_exit;
+		} else
+			/*
+			 * Make sure we'll wait indefinitely once we
+			 * know that a remote task is listening.
+			 */
+			timeout = TM_INFINITE;
 	}
 
 	if (xnpod_unblockable_p()) {

@@ -127,6 +127,32 @@ typedef struct WIND_TCB_PLACEHOLDER {
     TASK_ID handle;
 } WIND_TCB_PLACEHOLDER;
 
+#define WIND_READY	0x0
+#define WIND_SUSPEND	0x1
+#define WIND_PEND	0x2
+#define WIND_DELAY	0x4
+#define WIND_DEAD	0x8
+#define WIND_STOP	0x10	/* Never reported. */
+
+typedef struct _TASK_DESC {
+
+	TASK_ID td_tid;
+	char    td_name[XNOBJECT_NAME_LEN];
+	int	td_priority;
+	int	td_status;
+	int	td_flags;
+	FUNCPTR	td_entry;
+	int	td_stacksize;
+	char	*td_pStackBase;
+	char	*td_pStackEnd;
+	char	*td_pExcStackBase;
+	char	*td_pExcStackEnd;
+	int	td_errorStatus;
+
+	unsigned long td_opaque;
+
+} TASK_DESC;
+
 typedef void (*wind_timer_t)(long);
     
 typedef struct wind_wd_utarget {
@@ -156,6 +182,9 @@ typedef struct wind_tcb {
     int status;
     int prio;
     FUNCPTR entry;
+#ifdef CONFIG_XENO_OPT_PERVASIVE
+    unsigned long ptid;
+#endif
 
     /* Xenomai specific: used by taskLib */
 
@@ -259,6 +288,18 @@ typedef WIND_TCB_PLACEHOLDER WIND_TCB;
 
 #endif /* __KERNEL__ || __XENO_SIM__ */
 
+/*
+ * The following macros return normalized or native VxWorks priority
+ * values. The core pod uses an ascending [0-257] priority scale
+ * (include/nucleus/core.h), whilst the VxWorks personality exhibits a
+ * decreasing scale [255-0]; normalization is done in the [1-256]
+ * range so that priority 0 is kept for non-realtime shadows.
+ */
+#define wind_normalized_prio(prio)  \
+  ({ int __p = (prio) ? XNCORE_MAX_PRIO - (prio) - 1 : 0; __p; })
+#define wind_denormalized_prio(prio) \
+  ({ int __p = (prio) ? 256 - (prio) : 0; __p; })
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -333,6 +374,9 @@ BOOL taskIsReady(TASK_ID task_id);
 
 BOOL taskIsSuspended (TASK_ID task_id);
          
+STATUS taskInfoGet(TASK_ID task_id,
+		   TASK_DESC *desc);
+
 STATUS semGive(SEM_ID sem_id);
 
 STATUS semTake(SEM_ID sem_id,

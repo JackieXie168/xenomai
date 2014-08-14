@@ -60,9 +60,9 @@ pidFile=/var/lock/`basename $0.$$`.pids
 
 checkUtilities() {
   # Check for needed helper utilities
-  local neededApplets="awk basename cut date dd dirname egrep grep head
+  neededApplets="awk basename cut date dd dirname egrep grep head
 		       kill md5sum mount sleep test top uname zcat"
-  local foundAll=1
+  foundAll=1
   for  _j in $neededApplets
   do
     if test -z "`which $_j`"; then
@@ -74,11 +74,17 @@ checkUtilities() {
     echo "Please build busybox's ash with support for getopts"
     foundAll=0
   fi
-  if test $foundAll -eq 0 ; then exit 3 ; fi
+  if test $foundAll -eq 0 ; then 
+      needApplets=""
+      foundAll=""
+      exit 3
+  fi
+  needApplets=""
+  foundAll=""
 }
 
 checkHelpers() {
-  local foundAll=1
+  foundAll=1
   if test -z "`which script`" -a -n "$logging"; then
       echo "You will not be able to log (-L option) as script is missing"
       foundAll=0
@@ -91,7 +97,11 @@ checkHelpers() {
       echo "You will not be able to upload (-U option) as curl is missing"
       foundAll=0
   fi
-  if test $foundAll -eq 0 ; then exit 3 ; fi
+  if test $foundAll -eq 0 ; then 
+      foundAll=""
+      exit 3
+  fi
+  foundAll=""
 }
 
 loudly() {
@@ -111,7 +121,7 @@ dd_jobs=
 mkload() { dd if=$device of=/dev/null $* & }
 
 generate_loads() {
-    local jobsct=$1;
+    jobsct=$1;
     # if test -z "$1"; then echo Skipping generate_loads; return; fi
     shift 1
     if test 0 -eq $withBusybox ; then
@@ -120,13 +130,14 @@ generate_loads() {
 	trap cleanup_load EXIT	# under all exit conditions
     fi
     while test $jobsct -ge 1; do 
-        jobsct=$((jobsct-1)); 
+        jobsct=$(($jobsct-1));
         mkload
         dd_jobs="$dd_jobs $!" ;
     done
 
     echo dd workload started, pids $dd_jobs stored in $pidFile
     echo  $dd_jobs > $pidFile
+    jobsct=""
 }
 
 cleanup_load() {
@@ -159,7 +170,7 @@ boxinfo() { # static info, show once
     loudly md5sum /proc/cpuinfo	'# cpuinfo fingerprint'
 
     # how much of the config do we want ?
-    local filter=" grep -E '$whatconf'"
+    filter=" grep -E '$whatconf'"
     [ "$verbose" = 1 ] && filter=
     if test -f /proc/config.gz; then # get the config
          loudly zcat /proc/config.gz | $filter
@@ -170,6 +181,7 @@ boxinfo() { # static info, show once
 
     [ -d /proc/adeos ] && for f in /proc/adeos/*; do loudly cat $f; done
     [ -d /proc/ipipe ] && for f in /proc/ipipe/*; do loudly cat $f; done
+    filter=""
 }
 
 boxstatus() {     # get dynamic status
@@ -274,7 +286,7 @@ verbose=
 dateargs='+%y%m%d.%H%M%S'
 
 sendit() {
-    local file=$1
+    file=$1
     if test "$sendit" = 'm' ; then
 	echo "mailing $file to $email"
 	if test -n "$file" ; then
@@ -290,6 +302,7 @@ sendit() {
     else
 	echo "sendit unsupported option '$sendit'"
     fi
+    file=""
 }
 
 handle_options() {	# called for XENOTEST_OPTS, ARGV
@@ -379,7 +392,7 @@ if test "$logging" != "" ; then
     # restart inside a script invocation, passing appropriate args
     script -c "`dirname $0`/xeno-test $loadpass $latpass $*" $wfile
     res="$?"
-    if test "$res" == "0" ; then
+    if test "$res" = "0" ; then
 	sendit $wfile
     fi
 else
@@ -428,18 +441,18 @@ exit 0
 #
 #2. Much more testing.  Heres a weak start. You migth be better off
 #using and improving test/test-xeno-test.rb.
-
-#!/bin/bash
-PATH=.:$PATH
-xeno-test -L
-xeno-test -N foo -T 18 -l 6 -s
-xeno-test -L -N foo1-
-xeno-test -m
-xeno-test -T 1 -M $USER@localhost
-xeno-test -N foo0 -w0 -l 5 -T 30 -h
-xeno-test -L -N foo4- -w4
-xeno-test -L -N foo4W- -w4 -W 'dd if=/dev/hda1 of=/dev/null'
-
-3. Repeat the same tests under the BusyBox.
-
-4. Check for border cases like missing awk, curl, mail, script, /proc/config.gz
+#
+##!/bin/bash
+#PATH=.:$PATH
+#xeno-test -L
+#xeno-test -N foo -T 18 -l 6 -s
+#xeno-test -L -N foo1-
+#xeno-test -m
+#xeno-test -T 1 -M $USER@localhost
+#xeno-test -N foo0 -w0 -l 5 -T 30 -h
+#xeno-test -L -N foo4- -w4
+#xeno-test -L -N foo4W- -w4 -W 'dd if=/dev/hda1 of=/dev/null'
+#
+#3. Repeat the same tests under the BusyBox.
+#
+#4. Check for border cases like missing awk, curl, mail, script, /proc/config.gz

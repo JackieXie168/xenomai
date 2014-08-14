@@ -46,15 +46,39 @@ static void uitron_task_sigharden(int sig)
 	XENOMAI_SYSCALL1(__xn_sys_migrate, XENOMAI_XENO_DOMAIN);
 }
 
+static int uitron_task_set_posix_priority(int prio, struct sched_param *param)
+{
+	int maxpprio, pprio;
+
+	maxpprio = sched_get_priority_max(SCHED_FIFO);
+
+	/* We need to normalize this value first. */
+	pprio = ui_normalized_prio(prio);
+	if (pprio > maxpprio)
+		pprio = maxpprio;
+
+	memset(param, 0, sizeof(*param));
+	param->sched_priority = pprio;
+
+	return pprio ? SCHED_FIFO : SCHED_OTHER;
+}
+
 static void *uitron_task_trampoline(void *cookie)
 {
 	struct uitron_task_iargs *iargs = (struct uitron_task_iargs *)cookie;
+	struct sched_param param;
 	void (*entry)(INT);
+	int policy;
 	long err;
 	INT arg;
 
-	/* Apply sched params here as some libpthread implementions fail
-	   doing this via pthread_create. */
+	/*
+	 * Apply sched params here as some libpthread implementations
+	 * fail doing this properly via pthread_create.
+	 */
+	policy = uitron_task_set_posix_priority(iargs->pk_ctsk->itskpri, &param);
+	pthread_setschedparam(pthread_self(), policy, &param);
+
 	pthread_setcanceltype(PTHREAD_CANCEL_ASYNCHRONOUS, NULL);
 	old_sigharden_handler = signal(SIGHARDEN, &uitron_task_sigharden);
 
@@ -85,8 +109,10 @@ ER cre_tsk(ID tskid, T_CTSK *pk_ctsk)
 {
 	struct uitron_task_iargs iargs;
 	xncompletion_t completion;
+	struct sched_param param;
 	pthread_attr_t thattr;
 	pthread_t thid;
+	int policy;
 	long err;
 
 	XENOMAI_SYSCALL1(__xn_sys_migrate, XENOMAI_LINUX_DOMAIN);
@@ -102,13 +128,17 @@ ER cre_tsk(ID tskid, T_CTSK *pk_ctsk)
 
 	if (pk_ctsk->stksz == 0)
 		pk_ctsk->stksz = PTHREAD_STACK_MIN * 4;
-	else if (pk_ctsk->stksz < PTHREAD_STACK_MIN)
-		pk_ctsk->stksz = PTHREAD_STACK_MIN;
+	else if (pk_ctsk->stksz < PTHREAD_STACK_MIN * 2)
+		pk_ctsk->stksz = PTHREAD_STACK_MIN * 2;
 
+	pthread_attr_setinheritsched(&thattr, PTHREAD_EXPLICIT_SCHED);
+	policy = uitron_task_set_posix_priority(pk_ctsk->itskpri, &param);
+	pthread_attr_setschedparam(&thattr, &param);
+	pthread_attr_setschedpolicy(&thattr, policy);
 	pthread_attr_setstacksize(&thattr, pk_ctsk->stksz);
 	pthread_attr_setdetachstate(&thattr, PTHREAD_CREATE_DETACHED);
-	err = pthread_create(&thid, &thattr, &uitron_task_trampoline, &iargs);
 
+	err = pthread_create(&thid, &thattr, &uitron_task_trampoline, &iargs);
 	if (err)
 		return -err;
 
@@ -119,6 +149,13 @@ ER cre_tsk(ID tskid, T_CTSK *pk_ctsk)
 
 ER shd_tsk(ID tskid, T_CTSK *pk_ctsk) /* Xenomai extension. */
 {
+	struct sched_param param;
+	int policy;
+	
+	/* Make sure the POSIX library caches the right priority. */
+	policy = uitron_task_set_posix_priority(pk_ctsk->itskpri, &param);
+	pthread_setschedparam(pthread_self(), policy, &param);
+
 	pthread_setcanceltype(PTHREAD_CANCEL_ASYNCHRONOUS, NULL);
 
 	old_sigharden_handler = signal(SIGHARDEN, &uitron_task_sigharden);

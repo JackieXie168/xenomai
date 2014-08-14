@@ -34,6 +34,7 @@
 #include <linux/wrapper.h>
 #include <linux/wait.h>
 #include <linux/sched.h>
+#include <linux/bitops.h>
 #include <linux/moduleparam.h>	/* Use the backport. */
 
 /* Compiler */
@@ -95,7 +96,6 @@ unsigned long __va_to_kva(unsigned long va);
 #define PF_NOFREEZE 0
 
 /* Signals */
-#define wrap_sighand_lock(p)     ((p)->sigmask_lock)
 #define wrap_get_sigpending(m,p) sigandsets(m, \
 					    &(p)->pending.signal, \
 					    &(p)->pending.signal)
@@ -185,6 +185,10 @@ void show_stack(struct task_struct *task,
 
 #ifndef __deprecated
 #define __deprecated  __attribute__((deprecated))
+#endif
+
+#ifndef BITOP_WORD
+#define BITOP_WORD(nr)	((nr) / BITS_PER_LONG)
 #endif
 
 #else /* LINUX_VERSION_CODE >= KERNEL_VERSION(2,5,0) */
@@ -277,7 +281,6 @@ unsigned long __va_to_kva(unsigned long va);
 #endif /* < 2.6.15 */
 
 /* Signals */
-#define wrap_sighand_lock(p)     ((p)->sighand->siglock)
 #define wrap_get_sigpending(m,p) sigorsets(m, \
 					   &(p)->pending.signal, \
 					   &(p)->signal->shared_pending.signal)
@@ -296,11 +299,17 @@ unsigned long __va_to_kva(unsigned long va);
 #define IRQF_SHARED			SA_SHIRQ
 #endif /* < 2.6.18 */
 
-#if defined(CONFIG_MARKERS) || LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,24)
+#if LINUX_VERSION_CODE < KERNEL_VERSION(2,6,24)
+/* For pre-2.6.24 kernel with LTTng add-on. */
+#ifdef CONFIG_MARKERS
 #include <linux/marker.h>
+#define trace_mark(ev, fmt, args...)	MARK(ev, fmt , ##args)
 #else /* !CONFIG_MARKERS */
 #define trace_mark(ev, fmt, args...)	do { } while (0)
-#endif /* CONFIG_MARKERS */
+#endif /* !CONFIG_MARKERS */
+#else /* LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,24) */
+#include <linux/marker.h>
+#endif /* LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,24) */
 
 #if LINUX_VERSION_CODE < KERNEL_VERSION(2,6,0)
 static inline unsigned long hweight_long(unsigned long w)

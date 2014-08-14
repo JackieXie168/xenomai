@@ -276,9 +276,11 @@ static void rpi_update(xnthread_t *thread)
 
 	xnlock_get_irqsave(&rpislot->lock, s);
 
-	sched_removepq(&rpislot->threadq, &thread->xlink);
-	rpi_none(thread);
-	rpi_push(thread, cpu);
+	if (rpi_p(thread)) {
+		sched_removepq(&rpislot->threadq, &thread->xlink);
+		rpi_none(thread);
+		rpi_push(thread, cpu);
+	}
 
 	xnlock_put_irqrestore(&rpislot->lock, s);
 }
@@ -1241,8 +1243,8 @@ void xnshadow_relax(int notify)
 	   root thread. */
 
 	trace_mark(xn_nucleus_shadow_relaxed,
-		  "thread %p thread_name %s comm %s",
-		  thread, xnthread_name(thread), current->comm);
+		   "thread %p thread_name %s comm %s",
+		   thread, xnthread_name(thread), current->comm);
 }
 
 void xnshadow_exit(void)
@@ -1259,10 +1261,9 @@ void xnshadow_exit(void)
  * \brief Create a shadow thread context.
  *
  * This call maps a nucleus thread to the "current" Linux task.  The
- * priority of the Linux task is set to the priority of the shadow
- * thread bounded to the [0..MAX_RT_PRIO-1] range, and its scheduling
- * policy is set to either SCHED_FIFO for non-zero priority levels, or
- * SCHED_NORMAL otherwise.
+ * priority and scheduling class of the underlying Linux task are not
+ * affected; it is assumed that the interface library did set them
+ * appropriately before issuing the shadow mapping request.
  *
  * @param thread The descriptor address of the new shadow thread to be
  * mapped to "current". This descriptor must have been previously
@@ -1308,7 +1309,7 @@ int xnshadow_map(xnthread_t *thread, xncompletion_t __user *u_completion)
 {
 	xnarch_cpumask_t affinity;
 	unsigned muxid, magic;
-	int prio, err;
+	int err;
 
 	if (!xnthread_test_state(thread, XNSHADOW))
 		return -EINVAL;
@@ -1353,8 +1354,6 @@ int xnshadow_map(xnthread_t *thread, xncompletion_t __user *u_completion)
 
 	xnarch_init_shadow_tcb(xnthread_archtcb(thread), thread,
 			       xnthread_name(thread));
-	prio = normalize_priority(xnthread_base_priority(thread));
-	set_linux_task_priority(current, prio);
 	xnshadow_thrptd(current) = thread;
 	xnthread_set_state(thread, XNMAPPED);
 	xnpod_suspend_thread(thread, XNRELAX, XN_INFINITE, XN_RELATIVE, NULL);
@@ -2148,6 +2147,9 @@ static inline void do_taskexit_event(struct task_struct *p)
 	if (!thread)
 		return;
 
+	if (xnthread_test_info(thread, XNDEBUG))
+		unlock_timers();
+
 	if (xnpod_shadow_p())
 		xnshadow_relax(0);
 
@@ -2183,20 +2185,26 @@ static inline void do_schedule_event(struct task_struct *next)
 	set_switch_lock_owner(prev);
 
 	if (threadin) {
-		/* Check whether we need to unlock the timers, each time a
-		   Linux task resumes from a stopped state, excluding tasks
-		   resuming shortly for entering a stopped state asap due to
-		   ptracing. To identify the latter, we need to check for
-		   SIGSTOP and SIGINT in order to encompass both the NPTL and
-		   LinuxThreads behaviours. */
-
+		/*
+		 * Check whether we need to unlock the timers, each
+		 * time a Linux task resumes from a stopped state,
+		 * excluding tasks resuming shortly for entering a
+		 * stopped state asap due to ptracing. To identify the
+		 * latter, we need to check for SIGSTOP and SIGINT in
+		 * order to encompass both the NPTL and LinuxThreads
+		 * behaviours.
+		 */
 		if (xnthread_test_info(threadin, XNDEBUG)) {
 			if (signal_pending(next)) {
 				sigset_t pending;
-
-				spin_lock(&wrap_sighand_lock(next));	/* Already interrupt-safe. */
+				/*
+				 * Do not grab the sighand lock here:
+				 * it's useless, and we already own
+				 * the runqueue lock, so this would
+				 * expose us to deadlock situations on
+				 * SMP.
+				 */
 				wrap_get_sigpending(&pending, next);
-				spin_unlock(&wrap_sighand_lock(next));
 
 				if (sigismember(&pending, SIGSTOP) ||
 				    sigismember(&pending, SIGINT))
@@ -2306,11 +2314,15 @@ static inline void do_setsched_event(struct task_struct *p, int priority)
 	if (!thread || p->policy != SCHED_FIFO)
 		return;
 
-	/* Linux's priority scale is a subset of the core pod's priority
-	   scale, so there is no need to bound the priority values when
-	   mapping them from Linux -> Xenomai. */
-
-	if (xnthread_current_priority(thread) != priority) {
+	/*
+	 * Linux's priority scale is a subset of the core pod's
+	 * priority scale, so there is no need to bound the priority
+	 * values when mapping them from Linux -> Xenomai. We
+	 * propagate priority changes to the nucleus only for threads
+	 * that belong to skins that have a compatible priority scale.
+	 */
+	if (xnthread_current_priority(thread) != priority &&
+		xnthread_get_denormalized_prio(thread, priority) == priority) {
 		xnpod_renice_thread_inner(thread, priority, 0);
 		if (xnsched_resched_p()) {
 			if (p == current &&

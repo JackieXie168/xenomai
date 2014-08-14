@@ -26,6 +26,7 @@
 #include <limits.h>
 #include <native/syscall.h>
 #include <native/task.h>
+#include "wrappers.h"
 
 extern pthread_key_t __native_tskey;
 
@@ -61,10 +62,13 @@ static void *rt_task_trampoline(void *cookie)
 	long err;
 
 	if (iargs->prio > 0) {
-		/* Apply sched params here as some libpthread implementions
-		   fail doing this via pthread_create. */
-		param.sched_priority = sched_get_priority_max(SCHED_FIFO);
-		pthread_setschedparam(pthread_self(), SCHED_FIFO, &param);
+		/*
+		 * Re-apply sched params here as some libpthread
+		 * implementations fail doing this via pthread_create.
+		 */
+		memset(&param, 0, sizeof(param));
+		param.sched_priority = iargs->prio;
+		__real_pthread_setschedparam(pthread_self(), SCHED_FIFO, &param);
 	}
 
 	/* rt_task_delete requires asynchronous cancellation */
@@ -105,6 +109,7 @@ int rt_task_create(RT_TASK *task,
 {
 	struct rt_task_iargs iargs;
 	xncompletion_t completion;
+	struct sched_param param;
 	pthread_attr_t thattr;
 	pthread_t thid;
 	int err;
@@ -129,14 +134,22 @@ int rt_task_create(RT_TASK *task,
 
 	if (stksize == 0)
 		stksize = PTHREAD_STACK_MIN * 4;
-	else if (stksize < PTHREAD_STACK_MIN)
-		stksize = PTHREAD_STACK_MIN;
+	else if (stksize < PTHREAD_STACK_MIN * 2)
+		stksize = PTHREAD_STACK_MIN * 2;
 
+	pthread_attr_setinheritsched(&thattr, PTHREAD_EXPLICIT_SCHED);
+	memset(&param, 0, sizeof(param));
+	if (prio > 0) {
+		pthread_attr_setschedpolicy(&thattr, SCHED_FIFO);
+		param.sched_priority = prio;
+	} else
+		pthread_attr_setschedpolicy(&thattr, SCHED_OTHER);
+	pthread_attr_setschedparam(&thattr, &param);
 	pthread_attr_setstacksize(&thattr, stksize);
 	if (!(mode & T_JOINABLE))
 		pthread_attr_setdetachstate(&thattr, PTHREAD_CREATE_DETACHED);
 
-	err = pthread_create(&thid, &thattr, &rt_task_trampoline, &iargs);
+	err = __real_pthread_create(&thid, &thattr, &rt_task_trampoline, &iargs);
 
 	if (err)
 		return -err;
@@ -153,12 +166,20 @@ int rt_task_start(RT_TASK *task, void (*entry) (void *cookie), void *cookie)
 
 int rt_task_shadow(RT_TASK *task, const char *name, int prio, int mode)
 {
+	struct sched_param param;
 	struct rt_arg_bulk bulk;
 
 	/* rt_task_delete requires asynchronous cancellation */
 	pthread_setcanceltype(PTHREAD_CANCEL_ASYNCHRONOUS, NULL);
 
 	old_sigharden_handler = signal(SIGHARDEN, &rt_task_sigharden);
+
+	if (prio > 0) {
+		/* Make sure the POSIX library caches the right priority. */
+		memset(&param, 0, sizeof(param));
+		param.sched_priority = prio;
+		__real_pthread_setschedparam(pthread_self(), SCHED_FIFO, &param);
+	}
 
 	bulk.a1 = (u_long)task;
 	bulk.a2 = (u_long)name;
@@ -290,8 +311,10 @@ RT_TASK *rt_task_self(void)
 	self = (RT_TASK *)malloc(sizeof(*self));
 
 	if (!self ||
-	    XENOMAI_SKINCALL1(__native_muxid, __native_task_self, self) != 0)
+	    XENOMAI_SKINCALL1(__native_muxid, __native_task_self, self) != 0) {
+		free(self);
 		return NULL;
+	}
 
 	pthread_setspecific(__native_tskey, self);
 

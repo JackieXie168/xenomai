@@ -70,3 +70,63 @@ BOOL taskIsSuspended(TASK_ID task_id)
 
 	return testbits(xnthread_state_flags(&task->threadbase), XNSUSP);
 }
+
+STATUS taskInfoGet(TASK_ID task_id, TASK_DESC *desc)
+{
+	wind_task_t *task;
+	xnflags_t status;
+	spl_t s;
+
+	memset(desc, 0, sizeof(*desc));
+
+	xnlock_get_irqsave(&nklock, s);
+
+	check_OBJ_ID_ERROR(task_id, wind_task_t, task, WIND_TASK_MAGIC,
+			   goto error);
+
+	desc->td_tid = task_id;
+	xnobject_copy_name(desc->td_name, task->name);
+	desc->td_priority = wind_denormalized_prio(xnthread_current_priority
+						(&task->threadbase));
+
+	status = xnthread_state_flags(&task->threadbase);
+
+	if (xnpod_current_thread() == &task->threadbase || (status & XNREADY))
+		desc->td_status |= WIND_READY;
+	else if (status & XNDORMANT)
+		desc->td_status |= WIND_DEAD;
+	else {
+		if (status & XNSUSP)
+			desc->td_status |= WIND_SUSPEND;
+		if (status & XNPEND)
+			desc->td_status |= WIND_PEND;
+		if (status & XNDELAY)
+			desc->td_status |= WIND_DELAY;
+	}
+
+	desc->td_flags = task->flags;
+	desc->td_entry = task->entry;
+	desc->td_errorStatus = errnoOfTaskGet(task_id);
+
+#ifdef CONFIG_XENO_OPT_PERVASIVE
+	if (status & XNSHADOW)
+		desc->td_opaque = task->ptid;
+		/* Userland should fill in the stack information. */
+	else
+#endif
+	{
+		desc->td_stacksize = xnthread_stack_size(&task->threadbase);
+		desc->td_pStackBase = (char *)xnthread_stack_base(&task->threadbase);
+		desc->td_pStackEnd = (char *)xnthread_stack_end(&task->threadbase);
+		desc->td_pExcStackBase = desc->td_pStackBase;
+		desc->td_pExcStackEnd = desc->td_pStackEnd;
+	}
+
+	xnlock_put_irqrestore(&nklock, s);
+
+	return OK;
+
+      error:
+	xnlock_put_irqrestore(&nklock, s);
+	return ERROR;
+}
