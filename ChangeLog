@@ -1,3 +1,48 @@
+2006-11-05  Philippe Gerum  <rpm@xenomai.org>
+
+ 	* RELEASE: Xenomai 2.2.5 (Redshift Riders)
+
+2006-11-05  Philippe Gerum  <rpm@xenomai.org>
+
+	* ksrc/arch/arm/patches: Upgrade to 2.6.15-1.5-02.
+
+	* ksrc/arch/i386/patches: Upgrade to 2.4.33-1.3-03 and
+	2.6.17-1.5-02.
+
+2006-11-02  Philippe Gerum  <rpm@xenomai.org>
+
+	* include/posix/pthread.h: Include nucleus/intr.h for user-space
+	readers.
+
+2006-10-27  Jan Kiszka  <jan.kiszka@web.de>
+
+	* ksrc/nucleus/pod.c (xnpod_set_thread_periodic): Fix LART in
+	periodic timing mode.
+
+2006-10-27  Andrew Dennison <andrewd.lists@gmail.com>
+
+	* scripts/prepare-kernel.sh: Fix patch code for 2.4
+	drivers/Makefile.
+
+2006-10-26  Jan Kiszka  <jan.kiszka@web.de>
+
+	* ksrc/skins/native/queue.c (rt_queue_send): Track message count
+	correctly when broadcasting to a queue without listeners.
+
+2006-10-21  Philippe Gerum  <rpm@xenomai.org>
+
+	* ksrc/arch/i386/patches: Upgrade to 2.4.33-1.3-02 and
+	2.6.17-1.5-01.
+
+	* ksrc/arch/powerpc/patches: Upgrade to 2.6.14-ppc-1.5-01 and
+	2.4.25-CVS-20060707-1.2-01.
+
+2006-10-19  Wolfgang Grandegger  <wg@grandegger.com>
+
+	* include/asm-powerpc/wrappers.h, include/asm-powerpc/syscall.h:
+	Since Linux 2.4.15, __put_user and __get_user call migth_sleep.
+	To avoid that, wrapper functions have been added.
+
 2006-10-16  Philippe Gerum  <rpm@xenomai.org>
 
  	* RELEASE: Xenomai 2.2.4 (Headless Horseman)
