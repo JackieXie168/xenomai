@@ -401,12 +401,10 @@ static inline void xnlock_put_irqrestore(xnlock_t *lock, spl_t flags)
 	rthal_local_irq_restore(flags & 1);
 }
 
-static inline int xnarch_send_ipi(xnarch_cpumask_t cpumask)
+static inline void xnarch_send_ipi(xnarch_cpumask_t cpumask)
 {
 #ifdef CONFIG_SMP
-	return rthal_send_ipi(RTHAL_SERVICE_IPI0, cpumask);
-#else /* !CONFIG_SMP */
-	return 0;
+	rthal_send_ipi(RTHAL_RESCHEDULE_IPI, cpumask);
 #endif /* !CONFIG_SMP */
 }
 
@@ -431,9 +429,8 @@ static inline int xnlock_is_owner(xnlock_t *lock)
 #define DEFINE_XNLOCK(lock)
 #define DEFINE_PRIVATE_XNLOCK(lock)
 
-static inline int xnarch_send_ipi (xnarch_cpumask_t cpumask)
+static inline void xnarch_send_ipi (xnarch_cpumask_t cpumask)
 {
-	return 0;
 }
 
 #endif /* !(CONFIG_SMP || XENO_DEBUG(XNLOCK)) */

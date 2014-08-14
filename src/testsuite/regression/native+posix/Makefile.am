@@ -1,4 +1,6 @@
-tstdir = $(pkgdatadir)/regression/native+posix
+tstdir = @XENO_TEST_DIR@/regression/native+posix
+
+CCLD = $(top_srcdir)/scripts/wrap-link.sh $(CC)
 
 tst_PROGRAMS = mq_select
 
@@ -15,4 +17,4 @@ LDADD = \
 	../../../skins/posix/libpthread_rt.la \
 	../../../skins/rtdm/librtdm.la \
 	../../../skins/common/libxenomai.la \
-	-lpthread -lm
+	-lpthread -lrt -lm

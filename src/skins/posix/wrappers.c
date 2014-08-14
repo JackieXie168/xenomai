@@ -280,7 +280,6 @@ void *__real_mmap(void *addr,
 }
 
 /* 32 bits platform */
-#if __WORDSIZE == 32
 #ifdef HAVE_FTRUNCATE64
 __attribute__ ((weak))
 int __real_ftruncate64(int fildes, long long length)
@@ -297,7 +296,6 @@ void *__real_mmap64(void *addr,
 	return mmap64(addr, len, prot, flags, fd, off);
 }
 #endif /* HAVE_MMAP64 */
-#endif /* 32 bits */
 
 __attribute__ ((weak))
 int __real_munmap(void *addr, size_t len)
@@ -356,6 +354,30 @@ __attribute__ ((weak))
 int __real_puts(const char *s)
 {
 	return puts(s);
+}
+
+__attribute__ ((weak))
+int __real_fputs(const char *s, FILE *stream)
+{
+	return fputs(s, stream);
+}
+
+__attribute__ ((weak))
+int __real_fputc(int c, FILE *stream)
+{
+	return fputc(c, stream);
+}
+
+__attribute__ ((weak))
+int __real_putchar(int c)
+{
+	return putchar(c);
+}
+
+__attribute__ ((weak))
+size_t __real_fwrite(const void *ptr, size_t sz, size_t nmemb, FILE *stream)
+{
+	return fwrite(ptr, sz, nmemb, stream);
 }
 
 __attribute__ ((weak))

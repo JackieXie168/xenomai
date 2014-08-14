@@ -2,6 +2,8 @@ config XENO_OPT_NUCLEUS
 	depends on XENOMAI
 	tristate "Nucleus"
 	default y
+	select IPIPE_LEGACY if IPIPE_CORE
+	select XENO_OPT_PIPELINE_HEAD if IPIPE_CORE
 
 if XENO_OPT_NUCLEUS != n
 
@@ -13,15 +15,14 @@ config XENO_OPT_PERVASIVE
 
 	Enable pervasive real-time support for user-space Linux
 	processes, which is the default operating mode for
-	Xenomai. Switching this option out only leaves the
-	minimal support needed for running in-kernel
-	applications, which directly call the real-time APIs from
-	kernel modules.
+	Xenomai. Switching this option out only leaves the minimal
+	support needed for running in-kernel applications, which
+	directly call the real-time APIs from kernel modules.
 
 config XENO_OPT_PRIOCPL
 	depends on XENO_OPT_PERVASIVE
-	bool "Priority coupling support"
-	default y
+	bool "Priority coupling support (DEPRECATED)"
+	default n
 	help
 
 	This option builds in the priority coupling support between
@@ -50,10 +51,12 @@ config XENO_OPT_PRIOCPL
 	support globally. Otherwise, no priority coupling will ever
 	occur.
 
-	If in doubt, say Y.
+	Most applications do not require priority coupling, and should
+	leave this option disabled, unless you really know what you
+	are doing. If in doubt, say N.
 
 config XENO_OPT_PIPELINE_HEAD
-	bool "Optimize as pipeline head"
+	bool "Optimize as pipeline head (DEPRECATED)"
 	default y
 	help
 
@@ -69,6 +72,9 @@ config XENO_OPT_PIPELINE_HEAD
 	optimizations, which some older patches might not provide. In
 	the latter case, this option will simply have no effect. If in
 	doubt, say 'Y' here.
+
+	NOTE: this feature is forced in when running over the pipeline
+	core series.
 
 config XENO_OPT_SCHED_CLASSES
 	bool "Extra scheduling classes"
@@ -302,6 +308,7 @@ config XENO_OPT_DEBUG_TIMERS
 config XENO_OPT_DEBUG_SYNCH_RELAX
 	bool "Detect mutexes held in relaxed sections"
 	depends on XENO_OPT_PERVASIVE && XENO_OPT_DEBUG
+	default y
 	help
 
 	This option detects situations where a real-time thread
@@ -362,7 +369,7 @@ config XENO_OPT_SELECT
 	bool
 
 config XENO_OPT_HOSTRT
-       depends on HAVE_IPIPE_HOSTRT
+       depends on HAVE_IPIPE_HOSTRT || IPIPE_HAVE_HOSTRT
        def_bool y
 
 menu "Timing"

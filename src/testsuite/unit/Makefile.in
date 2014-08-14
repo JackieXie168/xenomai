@@ -178,6 +178,7 @@ DBX_XSLTPROC = @DBX_XSLTPROC@
 DBX_XSL_ROOT = @DBX_XSL_ROOT@
 DEFS = @DEFS@
 DEPDIR = @DEPDIR@
+DLLTOOL = @DLLTOOL@
 DOXYGEN = @DOXYGEN@
 DOXYGEN_HAVE_DOT = @DOXYGEN_HAVE_DOT@
 DOXYGEN_SHOW_INCLUDE_FILES = @DOXYGEN_SHOW_INCLUDE_FILES@
@@ -211,9 +212,11 @@ LN_S = @LN_S@
 LTLIBOBJS = @LTLIBOBJS@
 MAINT = @MAINT@
 MAKEINFO = @MAKEINFO@
+MANIFEST_TOOL = @MANIFEST_TOOL@
 MKDIR_P = @MKDIR_P@
 NM = @NM@
 NMEDIT = @NMEDIT@
+OBJDUMP = @OBJDUMP@
 OBJEXT = @OBJEXT@
 OTOOL = @OTOOL@
 OTOOL64 = @OTOOL64@
@@ -234,6 +237,8 @@ VERSION = @VERSION@
 XENO_BUILD_STRING = @XENO_BUILD_STRING@
 XENO_DLOPEN_CONSTRAINT = @XENO_DLOPEN_CONSTRAINT@
 XENO_HOST_STRING = @XENO_HOST_STRING@
+XENO_LIB_CFLAGS = @XENO_LIB_CFLAGS@
+XENO_LIB_LDFLAGS = @XENO_LIB_LDFLAGS@
 XENO_MAYBE_DOCDIR = @XENO_MAYBE_DOCDIR@
 XENO_POSIX_WRAPPERS = @XENO_POSIX_WRAPPERS@
 XENO_TARGET_ARCH = @XENO_TARGET_ARCH@
@@ -246,6 +251,7 @@ abs_builddir = @abs_builddir@
 abs_srcdir = @abs_srcdir@
 abs_top_builddir = @abs_top_builddir@
 abs_top_srcdir = @abs_top_srcdir@
+ac_ct_AR = @ac_ct_AR@
 ac_ct_CC = @ac_ct_CC@
 ac_ct_CC_FOR_BUILD = @ac_ct_CC_FOR_BUILD@
 ac_ct_DUMPBIN = @ac_ct_DUMPBIN@
@@ -279,7 +285,6 @@ libdir = @libdir@
 libexecdir = @libexecdir@
 localedir = @localedir@
 localstatedir = @localstatedir@
-lt_ECHO = @lt_ECHO@
 mandir = @mandir@
 mkdir_p = @mkdir_p@
 oldincludedir = @oldincludedir@
@@ -311,7 +316,7 @@ arith_LDFLAGS = @XENO_USER_LDFLAGS@
 arith_LDADD = \
 	../../skins/native/libnative.la \
 	../../skins/common/libxenomai.la \
-	-lpthread -lm
+	-lpthread -lrt -lm
 
 wakeup_time_SOURCES = wakeup-time.c
 wakeup_time_CPPFLAGS = \
@@ -322,7 +327,7 @@ wakeup_time_LDFLAGS = @XENO_USER_LDFLAGS@
 wakeup_time_LDADD = \
 	../../skins/native/libnative.la \
 	../../skins/common/libxenomai.la \
-	-lpthread -lm
+	-lpthread -lrt -lm
 
 mutex_torture_posix_SOURCES = mutex-torture.c
 mutex_torture_posix_CPPFLAGS = \
@@ -345,7 +350,7 @@ mutex_torture_native_LDFLAGS = @XENO_USER_LDFLAGS@
 mutex_torture_native_LDADD = \
 	../../skins/native/libnative.la \
 	../../skins/common/libxenomai.la \
-	-lpthread -lm
+	-lpthread -lrt -lm
 
 cond_torture_posix_SOURCES = cond-torture.c
 cond_torture_posix_CPPFLAGS = \
@@ -368,7 +373,7 @@ cond_torture_native_LDFLAGS = @XENO_USER_LDFLAGS@
 cond_torture_native_LDADD = \
 	../../skins/native/libnative.la \
 	../../skins/common/libxenomai.la \
-	-lpthread -lm
+	-lpthread -lrt -lm
 
 check_vdso_SOURCES = check-vdso.c
 check_vdso_CPPFLAGS = \
@@ -379,7 +384,7 @@ check_vdso_LDFLAGS = @XENO_USER_LDFLAGS@
 check_vdso_LDADD = \
 	../../skins/native/libnative.la \
 	../../skins/common/libxenomai.la \
-	-lpthread -lm
+	-lpthread -lrt -lm
 
 rtdm_SOURCES = rtdm.c
 rtdm_CPPFLAGS = \

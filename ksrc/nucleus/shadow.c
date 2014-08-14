@@ -113,7 +113,7 @@ static int nucleus_muxid = -1;
 
 static struct semaphore completion_mutex;
 
-static DEFINE_SEMAPHORE(registration_mutex);
+static DEFINE_BINARY_SEMAPHORE(registration_mutex);
 
 static inline struct task_struct *get_switch_lock_owner(void)
 {
@@ -1663,7 +1663,12 @@ static int xnshadow_sys_mayday(struct pt_regs *regs)
 		 * relax. See do_hisyscall_event().
 		 */
 		xnarch_fixup_mayday(xnthread_archtcb(cur), regs);
-		return 0;
+
+		/* returning 0 here would clobber the register holding
+		   the return value. Instead, return whatever value
+		   xnarch_fixup_mayday set for this register, in order
+		   not to undo what xnarch_fixup_mayday did. */
+		return __xn_reg_rval(regs);
 	}
 
 	printk(KERN_WARNING
@@ -2228,7 +2233,9 @@ void xnshadow_send_sig(xnthread_t *thread, int sig, int arg, int specific)
 }
 EXPORT_SYMBOL_GPL(xnshadow_send_sig);
 
-static inline int do_hisyscall_event(unsigned event, unsigned domid, void *data)
+static inline
+int do_hisyscall_event(unsigned event, rthal_pipeline_stage_t *stage,
+		       void *data)
 {
 	struct pt_regs *regs = (struct pt_regs *)data;
 	int muxid, muxop, switched, err, sigs;
@@ -2307,7 +2314,7 @@ static inline int do_hisyscall_event(unsigned event, unsigned domid, void *data)
 	if ((sysflags & __xn_exec_lostage) != 0) {
 		/* Syscall must run into the Linux domain. */
 
-		if (domid == RTHAL_DOMAIN_ID) {
+		if (stage == &rthal_domain) {
 			/* Request originates from the Xenomai domain: just relax the
 			   caller and execute the syscall immediately after. */
 			xnshadow_relax(1, SIGDEBUG_MIGRATE_SYSCALL);
@@ -2321,7 +2328,7 @@ static inline int do_hisyscall_event(unsigned event, unsigned domid, void *data)
 		/* Syscall must be processed either by Xenomai, or by the
 		   calling domain. */
 
-		if (domid != RTHAL_DOMAIN_ID)
+		if (stage != &rthal_domain)
 			/* Request originates from the Linux domain: propagate the
 			   event to our Linux-based handler, so that the caller is
 			   hardened and the syscall is eventually executed from
@@ -2446,7 +2453,9 @@ static inline int do_hisyscall_event(unsigned event, unsigned domid, void *data)
 
 RTHAL_DECLARE_EVENT(hisyscall_event);
 
-static inline int do_losyscall_event(unsigned event, unsigned domid, void *data)
+static inline
+int do_losyscall_event(unsigned event, rthal_pipeline_stage_t *stage,
+		       void *data)
 {
 	int muxid, muxop, sysflags, switched, err, sigs;
 	struct pt_regs *regs = (struct pt_regs *)data;
@@ -2533,7 +2542,8 @@ static inline int do_losyscall_event(unsigned event, unsigned domid, void *data)
 			   xnthread_get_rescnt(thread) == 0)
 			sysflags |= __xn_exec_switchback;
 	}
-	if (!sigs && (sysflags & __xn_exec_switchback) != 0 && switched)
+	if (!sigs && (sysflags & __xn_exec_switchback) != 0
+	    && (switched || xnpod_primary_p()))
 		xnshadow_relax(0, 0);
 
       ret_handled:

@@ -38,7 +38,9 @@
 #define _XENO_ASM_X86_HAL_32_H
 
 #define RTHAL_ARCH_NAME			"i386"
-#ifdef CONFIG_X86_LOCAL_APIC
+#ifdef CONFIG_IPIPE_CORE
+# define RTHAL_TIMER_DEVICE		(ipipe_timer_name())
+#elif defined(CONFIG_X86_LOCAL_APIC)
 # define RTHAL_TIMER_DEVICE		"lapic"
 #else
 # define RTHAL_TIMER_DEVICE		"pit"
@@ -87,18 +89,25 @@ static inline __attribute_const__ unsigned long ffnz(unsigned long ul)
 #include <asm/fixmap.h>
 #include <asm/apic.h>
 #endif /* CONFIG_X86_LOCAL_APIC */
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,23)
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(3,1,0)
+#include <linux/i8253.h>
+#elif LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,23)
 #include <asm/i8253.h>
 #endif
 #include <asm/msr.h>
 #include <asm/xenomai/atomic.h>
 #include <asm/xenomai/smi.h>
 
-#ifdef CONFIG_X86_LOCAL_APIC
-#define RTHAL_APIC_TIMER_VECTOR	RTHAL_SERVICE_VECTOR3
-#define RTHAL_APIC_TIMER_IPI	RTHAL_SERVICE_IPI3
+#ifdef CONFIG_IPIPE_CORE
+#define RTHAL_TIMER_IRQ		__ipipe_hrtimer_irq
+#define RTHAL_HOST_TICK_IRQ	__ipipe_hrtimer_irq
+#define RTHAL_TIMER_IPI		RTHAL_HRTIMER_IPI
+#elif defined(CONFIG_X86_LOCAL_APIC)
+#define RTHAL_HRTIMER_VECTOR	IPIPE_SERVICE_VECTOR0
+#define RTHAL_APIC_TIMER_VECTOR	RTHAL_HRTIMER_VECTOR
+#define RTHAL_TIMER_IPI	RTHAL_HRTIMER_IPI
 #define RTHAL_APIC_ICOUNT	((RTHAL_TIMER_FREQ + HZ/2)/HZ)
-#define RTHAL_TIMER_IRQ		RTHAL_APIC_TIMER_IPI
+#define RTHAL_TIMER_IRQ		RTHAL_TIMER_IPI
 #define RTHAL_HOST_TICK_IRQ	ipipe_apic_vector_irq(LOCAL_TIMER_VECTOR)
 #define RTHAL_BCAST_TICK_IRQ	0	/* Tick broadcasting interrupt. */
 #ifndef ipipe_apic_vector_irq
@@ -145,6 +154,9 @@ static inline void rthal_timer_program_shot(unsigned long delay)
 {
 /* With head-optimization, callers are expected to have switched off
    hard-IRQs already -- no need for additional protection in this case. */
+#ifdef CONFIG_IPIPE_CORE
+	ipipe_timer_set(delay);
+#else /* !I-pipe core */
 #ifndef CONFIG_XENO_OPT_PIPELINE_HEAD
 	unsigned long flags;
 
@@ -153,7 +165,7 @@ static inline void rthal_timer_program_shot(unsigned long delay)
 #ifdef CONFIG_X86_LOCAL_APIC
 	if (!delay) {
 		/* Pend the timer interrupt. */
-		rthal_schedule_irq_head(RTHAL_APIC_TIMER_IPI);
+		rthal_schedule_irq_head(RTHAL_TIMER_IPI);
 	} else {
 		/* Note: reading before writing just to work around the Pentium
 		   APIC double write bug. apic_read() expands to nil
@@ -172,6 +184,7 @@ static inline void rthal_timer_program_shot(unsigned long delay)
 #ifndef CONFIG_XENO_OPT_PIPELINE_HEAD
 	rthal_local_irq_restore_hw(flags);
 #endif /* CONFIG_XENO_OPT_PIPELINE_HEAD */
+#endif /* !I-pipe core */
 }
 
 static const char *const rthal_fault_labels[] = {

@@ -37,7 +37,8 @@ void xnpod_schedule_handler(void);
 
 static rthal_trap_handler_t xnarch_old_trap_handler;
 
-static int xnarch_trap_fault(unsigned event, unsigned domid, void *data)
+static int xnarch_trap_fault(unsigned event, rthal_pipeline_stage_t *stage,
+			     void *data)
 {
 	struct pt_regs *regs = (struct pt_regs *)data;
 	xnarch_fltinfo_t fltinfo;
@@ -57,7 +58,7 @@ static inline unsigned long xnarch_calibrate_timer(void)
 	   kernel configuration Xenomai is compiled against, the
 	   calibrated value will either refer to the local APIC or
 	   8254 timer latency value. */
-	return xnarch_ns_to_tsc(rthal_timer_calibrate())? : 1;
+	return rthal_timer_calibrate() ? : 1;
 }
 
 int xnarch_calibrate_sched(void)
@@ -111,6 +112,8 @@ static inline int xnarch_init(void)
 static inline void xnarch_exit(void)
 {
 	rthal_trap_catch(xnarch_old_trap_handler);
+	rthal_virtualize_irq(&rthal_domain,
+			     xnarch_escalation_virq, NULL, NULL, NULL, 0);
 	rthal_free_virq(xnarch_escalation_virq);
 	rthal_exit();
 }

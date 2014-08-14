@@ -37,9 +37,10 @@ void xnpod_schedule_handler(void);
 
 static rthal_trap_handler_t xnarch_old_trap_handler;
 
-static int xnarch_trap_fault(unsigned event, unsigned domid, void *data)
+static int xnarch_trap_fault(unsigned event, rthal_pipeline_stage_t *stage,
+			     void *data)
 {
-	struct pt_regs *regs = (struct pt_regs *)data;
+	struct pt_regs *regs = data;
 	xnarch_fltinfo_t fltinfo;
 
 	fltinfo.vector = event;
@@ -54,7 +55,7 @@ static inline unsigned long xnarch_calibrate_timer(void)
 	/* Compute the time needed to program the APIC timer in aperiodic
 	   mode. The return value is expressed in CPU ticks. It is assumed
 	   that CONFIG_X86_LOCAL_APIC is always enabled for x86_64. */
-	return xnarch_ns_to_tsc(rthal_timer_calibrate())? : 1;
+	return rthal_timer_calibrate()? : 1;
 }
 
 int xnarch_calibrate_sched(void)
@@ -108,6 +109,8 @@ static inline int xnarch_init(void)
 static inline void xnarch_exit(void)
 {
 	rthal_trap_catch(xnarch_old_trap_handler);
+	rthal_virtualize_irq(&rthal_domain,
+			     xnarch_escalation_virq, NULL, NULL, NULL, 0);
 	rthal_free_virq(xnarch_escalation_virq);
 	rthal_exit();
 }

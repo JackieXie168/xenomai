@@ -58,15 +58,15 @@
 #define rthal_virtual_irq_p(irq)	((irq) >= RTHAL_VIRQ_BASE && \
 					(irq) < RTHAL_NR_IRQS)
 
-#define RTHAL_SERVICE_IPI0	IPIPE_SERVICE_IPI0
-#define RTHAL_SERVICE_VECTOR0	IPIPE_SERVICE_VECTOR0
-#define RTHAL_SERVICE_IPI1	IPIPE_SERVICE_IPI1
-#define RTHAL_SERVICE_VECTOR1	IPIPE_SERVICE_VECTOR1
-#define RTHAL_SERVICE_IPI2	IPIPE_SERVICE_IPI2
-#define RTHAL_SERVICE_VECTOR2	IPIPE_SERVICE_VECTOR2
-#define RTHAL_SERVICE_IPI3	IPIPE_SERVICE_IPI3
-#define RTHAL_SERVICE_VECTOR3	IPIPE_SERVICE_VECTOR3
+#ifdef CONFIG_IPIPE_CORE
+#define RTHAL_HRTIMER_IPI	IPIPE_HRTIMER_IPI
+#define RTHAL_RESCHEDULE_IPI	IPIPE_RESCHEDULE_IPI
 #define RTHAL_CRITICAL_IPI	IPIPE_CRITICAL_IPI
+#else
+#define RTHAL_HRTIMER_IPI	IPIPE_SERVICE_IPI0
+#define RTHAL_RESCHEDULE_IPI	IPIPE_SERVICE_IPI1
+#define RTHAL_CRITICAL_IPI	IPIPE_CRITICAL_IPI
+#endif
 
 enum rthal_ktimer_mode { /* <!> Must follow enum clock_event_mode */
 	KTIMER_MODE_UNUSED = 0,
@@ -190,6 +190,11 @@ typedef spinlock_t rthal_spinlock_t;
 #define rthal_setsched_root(t,pol,prio)	ipipe_setscheduler_root(t,pol,prio)
 #define rthal_reenter_root(t,pol,prio)	ipipe_reenter_root(t,pol,prio)
 #define rthal_read_tsc(v)		ipipe_read_tsc(v)
+#ifdef __IPIPE_FEATURE_ROOTPREEMPT_NOTIFIER
+#define rthal_root_preempt_notify()	ipipe_root_preempt_notify()
+#else /* !__IPIPE_FEATURE_ROOTPREEMPT_NOTIFIER */
+#define rthal_root_preempt_notify()	do { } while (0)
+#endif /* !__IPIPE_FEATURE_ROOTPREEMPT_NOTIFIER */
 
 #define rthal_emergency_console()				\
 	do {							\
@@ -246,7 +251,7 @@ static inline unsigned long rthal_get_clockfreq(void)
 #define RTHAL_DECLARE_EVENT(hdlr)				       \
 static int hdlr (unsigned event, struct ipipe_domain *ipd, void *data) \
 {								       \
-	return do_##hdlr(event,ipd->domid,data);		       \
+	return do_##hdlr(event,ipd,data);			       \
 }
 
 #define RTHAL_DECLARE_SCHEDULE_EVENT(hdlr)			       \
@@ -440,7 +445,7 @@ struct rthal_apc_desc {
 };
 
 typedef int (*rthal_trap_handler_t)(unsigned trapno,
-				    unsigned domid,
+				    rthal_pipeline_stage_t *stage,
 				    void *data);
 
 extern unsigned long rthal_cpufreq_arg;
@@ -544,6 +549,10 @@ rthal_trap_handler_t rthal_trap_catch(rthal_trap_handler_t handler);
 unsigned long rthal_timer_calibrate(void);
 
 #ifdef CONFIG_GENERIC_CLOCKEVENTS
+
+enum clock_event_mode;
+struct clock_event_device;
+
 int rthal_timer_request(void (*tick_handler)(void),
 			void (*mode_emul)(enum clock_event_mode mode, struct clock_event_device *cdev),
 			int (*tick_emul) (unsigned long delay, struct clock_event_device *cdev),

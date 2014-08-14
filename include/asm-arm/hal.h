@@ -39,6 +39,11 @@
 #include <asm/vfp.h>
 #endif /* CONFIG_VFP */
 
+#ifdef CONFIG_IPIPE_CORE
+#define RTHAL_TIMER_DEVICE	(ipipe_timer_name())
+#define RTHAL_CLOCK_DEVICE	"ipipe_tsc"
+#define RTHAL_TIMER_IRQ		__ipipe_hrtimer_irq
+#else /* !CONFIG_IPIPE_CORE */
 #if defined(CONFIG_ARCH_AT91)
 #include <linux/stringify.h>
 #define RTHAL_TIMER_DEVICE	"at91_tc" __stringify(CONFIG_IPIPE_AT91_TC)
@@ -55,7 +60,7 @@
 #elif defined(CONFIG_ARCH_IXP4XX)
 #define RTHAL_TIMER_DEVICE	"ixp4xx timer1"
 #define RTHAL_CLOCK_DEVICE	"OSTS"
-#elif defined(CONFIG_ARCH_MXC)
+#elif defined(CONFIG_ARCH_MXC) && !defined(CONFIG_SMP)
 #define RTHAL_TIMER_DEVICE	"mxc_timer1"
 #define RTHAL_CLOCK_DEVICE	"mxc_timer1"
 #elif defined(CONFIG_ARCH_OMAP3)
@@ -87,9 +92,13 @@
 #elif defined(CONFIG_SMP) && defined(CONFIG_HAVE_ARM_TWD)
 #define RTHAL_TIMER_DEVICE	"local_timer"
 #define RTHAL_CLOCK_DEVICE	"global_timer"
+#elif defined(CONFIG_PLAT_SPEAR)
+#define RTHAL_TIMER_DEVICE      "tmr0"
+#define RTHAL_CLOCK_DEVICE	"tmr1"
 #else
 #error "Unsupported ARM machine"
 #endif /* CONFIG_ARCH_SA1100 */
+#endif /* !CONFIG_IPIPE_CORE */
 
 typedef unsigned long long rthal_time_t;
 
@@ -152,10 +161,12 @@ static inline __attribute_const__ unsigned long ffnz (unsigned long ul)
 #endif /* RTHAL_TIMER_IRQ */
 
 #ifndef RTHAL_TIMER_IPI
-#define RTHAL_TIMER_IPI RTHAL_SERVICE_IPI3
+#define RTHAL_TIMER_IPI RTHAL_HRTIMER_IPI
 #endif /* RTHAL_TIMER_IPI */
 
-#ifdef __IPIPE_FEATURE_SYSINFO_V2
+#ifdef CONFIG_IPIPE_CORE
+#define RTHAL_TSC_INFO(p)	((p)->arch.tsc)
+#elif defined(__IPIPE_FEATURE_SYSINFO_V2)
 #define RTHAL_TSC_INFO(p)	((p)->arch_tsc)
 #else
 #define RTHAL_TSC_INFO(p)	((p)->archdep.tsc)
@@ -184,19 +195,25 @@ static inline struct task_struct *rthal_current_host_task (int cpuid)
 
 static inline void rthal_timer_program_shot (unsigned long delay)
 {
-    if(!delay)
-	rthal_schedule_irq_head(RTHAL_TIMER_IRQ);
-    else
-	__ipipe_mach_set_dec(delay);
+#ifdef CONFIG_IPIPE_CORE
+	ipipe_timer_set(delay);
+#else /* !CONFIG_IPIPE_CORE */
+	if(!delay)
+		rthal_schedule_irq_head(RTHAL_TIMER_IRQ);
+	else
+		__ipipe_mach_set_dec(delay);
+#endif /* !CONFIG_IPIPE_CORE */
 }
 
 static inline struct mm_struct *rthal_get_active_mm(void)
 {
-#ifdef TIF_MMSWITCH_INT
-	return per_cpu(ipipe_active_mm, smp_processor_id());
-#else /* !TIF_MMSWITCH_INT */
+#if !defined(TIF_MMSWITCH_INT) || !defined(CONFIG_XENO_HW_UNLOCKED_SWITCH)
 	return current->active_mm;
-#endif /* !TIF_MMSWITCH_INT */
+#elif defined(CONFIG_IPIPE_CORE)
+	return __this_cpu_read(ipipe_percpu.active_mm);
+#else /* !CONFIG_IPIPE_CORE */
+	return per_cpu(ipipe_active_mm, smp_processor_id());
+#endif /* !CONFIG_IPIPE_CORE */
 }
 
 /* Private interface -- Internal use only */
@@ -236,6 +253,10 @@ static inline void rthal_init_fpu(rthal_fpenv_t *fpuenv)
     /* vfpstate has already been zeroed by xnarch_init_fpu */
     fpuenv->vfpstate.hard.fpexc = FPEXC_EN;
     fpuenv->vfpstate.hard.fpscr = FPSCR_ROUND_NEAREST;
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(3, 2, 0) \
+     || defined(CONFIG_VFP_3_2_BACKPORT)) && defined(CONFIG_SMP)
+    fpuenv->vfpstate.hard.cpu = NR_CPUS;
+#endif /* linux >= 3.2.0 */
 #endif
 }
 
@@ -245,7 +266,7 @@ static inline void rthal_init_fpu(rthal_fpenv_t *fpuenv)
 #ifdef CONFIG_VFP
 asmlinkage void rthal_vfp_save(union vfp_state *vfp, unsigned fpexc);
 
-asmlinkage void rthal_vfp_load(union vfp_state *vfp);
+asmlinkage void rthal_vfp_load(union vfp_state *vfp, unsigned cpu);
 
 static inline void rthal_save_fpu(rthal_fpenv_t *fpuenv, unsigned fpexc)
 {
@@ -254,7 +275,7 @@ static inline void rthal_save_fpu(rthal_fpenv_t *fpuenv, unsigned fpexc)
 
 static inline void rthal_restore_fpu(rthal_fpenv_t *fpuenv)
 {
-    rthal_vfp_load(&fpuenv->vfpstate);
+    rthal_vfp_load(&fpuenv->vfpstate, rthal_processor_id());
 }
 
 #define rthal_vfp_fmrx(_vfp_) ({			\
@@ -270,10 +291,12 @@ static inline void rthal_restore_fpu(rthal_fpenv_t *fpuenv)
 		 ", cr0, 0 @ fmxr " #_vfp_ ", %0":	\
 		 /* */ : "r" (_var_))
 
-extern union vfp_state *last_VFP_context[NR_CPUS];
+extern union vfp_state *vfp_current_hw_state[NR_CPUS];
+
 static inline rthal_fpenv_t *rthal_get_fpu_owner(void)
 {
 	union vfp_state *vfp_owner;
+	unsigned cpu;
 #ifdef CONFIG_SMP
 	unsigned fpexc;
 
@@ -282,9 +305,16 @@ static inline rthal_fpenv_t *rthal_get_fpu_owner(void)
 		return NULL;
 #endif
 
-	vfp_owner = last_VFP_context[ipipe_processor_id()];
+	cpu = ipipe_processor_id();
+	vfp_owner = vfp_current_hw_state[cpu];
 	if (!vfp_owner)
 		return NULL;
+
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(3, 2, 0) \
+     || defined(CONFIG_VFP_3_2_BACKPORT)) && defined(CONFIG_SMP)
+	if (vfp_owner->hard.cpu != cpu)
+		return NULL;
+#endif /* linux >= 3.2.0 */
 
 	return container_of(vfp_owner, rthal_fpenv_t, vfpstate);
 }
@@ -301,6 +331,7 @@ static inline rthal_fpenv_t *rthal_get_fpu_owner(void)
 	rthal_vfp_fmxr(FPEXC, _fpexc & ~RTHAL_VFP_ANY_EXC);	\
 	_fpexc;							\
     })
+
 
 #else /* !CONFIG_VFP */
 static inline void rthal_save_fpu(rthal_fpenv_t *fpuenv)

@@ -1,4 +1,4 @@
-/*!\file sched.h
+/*!\file nucleus/sched.h
  * \brief Scheduler interface header.
  * \author Philippe Gerum
  *
@@ -159,8 +159,8 @@ struct xnsched_class {
 	const char *name;
 };
 
-#define XNSCHED_CLASS_MAX_THREADS	32768
-#define XNSCHED_CLASS_WEIGHT(n)		(n * XNSCHED_CLASS_MAX_THREADS)
+#define XNSCHED_CLASS_MAX_PRIO		1024
+#define XNSCHED_CLASS_WEIGHT(n)		(n * XNSCHED_CLASS_MAX_PRIO)
 
 /* Placeholder for current thread priority */
 #define XNSCHED_RUNPRIO   0x80000000
@@ -298,7 +298,7 @@ void xnsched_migrate_passive(struct xnthread *thread,
  * @param sched_class The scheduling class which should rotate its
  * runqueue.
  *
- * @param sched_param The scheduling parameter providing rotation
+ * @param param The scheduling parameter providing rotation
  * information to the specified scheduling class.
  *
  * Environments:

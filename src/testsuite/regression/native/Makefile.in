@@ -36,8 +36,8 @@ POST_UNINSTALL = :
 build_triplet = @build@
 host_triplet = @host@
 target_triplet = @target@
-tst_PROGRAMS = leaks$(EXEEXT) tsc$(EXEEXT) mayday$(EXEEXT) \
-	heap$(EXEEXT)
+tst_PROGRAMS = leaks$(EXEEXT) tsc$(EXEEXT) heap$(EXEEXT) \
+	sigdebug$(EXEEXT)
 subdir = src/testsuite/regression/native
 DIST_COMMON = $(noinst_HEADERS) $(srcdir)/Makefile.am \
 	$(srcdir)/Makefile.in
@@ -70,10 +70,10 @@ leaks_LDADD = $(LDADD)
 leaks_DEPENDENCIES = ../../../skins/native/libnative.la \
 	../../../skins/rtdm/librtdm.la \
 	../../../skins/common/libxenomai.la
-mayday_SOURCES = mayday.c
-mayday_OBJECTS = mayday.$(OBJEXT)
-mayday_LDADD = $(LDADD)
-mayday_DEPENDENCIES = ../../../skins/native/libnative.la \
+sigdebug_SOURCES = sigdebug.c
+sigdebug_OBJECTS = sigdebug.$(OBJEXT)
+sigdebug_LDADD = $(LDADD)
+sigdebug_DEPENDENCIES = ../../../skins/native/libnative.la \
 	../../../skins/rtdm/librtdm.la \
 	../../../skins/common/libxenomai.la
 tsc_SOURCES = tsc.c
@@ -95,8 +95,8 @@ CCLD = $(CC)
 LINK = $(LIBTOOL) --tag=CC $(AM_LIBTOOLFLAGS) $(LIBTOOLFLAGS) \
 	--mode=link $(CCLD) $(AM_CFLAGS) $(CFLAGS) $(AM_LDFLAGS) \
 	$(LDFLAGS) -o $@
-SOURCES = heap.c leaks.c mayday.c tsc.c
-DIST_SOURCES = heap.c leaks.c mayday.c tsc.c
+SOURCES = heap.c leaks.c sigdebug.c tsc.c
+DIST_SOURCES = heap.c leaks.c sigdebug.c tsc.c
 HEADERS = $(noinst_HEADERS)
 ETAGS = etags
 CTAGS = ctags
@@ -136,6 +136,7 @@ DBX_XSLTPROC = @DBX_XSLTPROC@
 DBX_XSL_ROOT = @DBX_XSL_ROOT@
 DEFS = @DEFS@
 DEPDIR = @DEPDIR@
+DLLTOOL = @DLLTOOL@
 DOXYGEN = @DOXYGEN@
 DOXYGEN_HAVE_DOT = @DOXYGEN_HAVE_DOT@
 DOXYGEN_SHOW_INCLUDE_FILES = @DOXYGEN_SHOW_INCLUDE_FILES@
@@ -169,9 +170,11 @@ LN_S = @LN_S@
 LTLIBOBJS = @LTLIBOBJS@
 MAINT = @MAINT@
 MAKEINFO = @MAKEINFO@
+MANIFEST_TOOL = @MANIFEST_TOOL@
 MKDIR_P = @MKDIR_P@
 NM = @NM@
 NMEDIT = @NMEDIT@
+OBJDUMP = @OBJDUMP@
 OBJEXT = @OBJEXT@
 OTOOL = @OTOOL@
 OTOOL64 = @OTOOL64@
@@ -192,6 +195,8 @@ VERSION = @VERSION@
 XENO_BUILD_STRING = @XENO_BUILD_STRING@
 XENO_DLOPEN_CONSTRAINT = @XENO_DLOPEN_CONSTRAINT@
 XENO_HOST_STRING = @XENO_HOST_STRING@
+XENO_LIB_CFLAGS = @XENO_LIB_CFLAGS@
+XENO_LIB_LDFLAGS = @XENO_LIB_LDFLAGS@
 XENO_MAYBE_DOCDIR = @XENO_MAYBE_DOCDIR@
 XENO_POSIX_WRAPPERS = @XENO_POSIX_WRAPPERS@
 XENO_TARGET_ARCH = @XENO_TARGET_ARCH@
@@ -204,6 +209,7 @@ abs_builddir = @abs_builddir@
 abs_srcdir = @abs_srcdir@
 abs_top_builddir = @abs_top_builddir@
 abs_top_srcdir = @abs_top_srcdir@
+ac_ct_AR = @ac_ct_AR@
 ac_ct_CC = @ac_ct_CC@
 ac_ct_CC_FOR_BUILD = @ac_ct_CC_FOR_BUILD@
 ac_ct_DUMPBIN = @ac_ct_DUMPBIN@
@@ -237,7 +243,6 @@ libdir = @libdir@
 libexecdir = @libexecdir@
 localedir = @localedir@
 localstatedir = @localstatedir@
-lt_ECHO = @lt_ECHO@
 mandir = @mandir@
 mkdir_p = @mkdir_p@
 oldincludedir = @oldincludedir@
@@ -257,13 +262,13 @@ target_vendor = @target_vendor@
 top_build_prefix = @top_build_prefix@
 top_builddir = @top_builddir@
 top_srcdir = @top_srcdir@
-tstdir = $(pkgdatadir)/regression/native
+tstdir = @XENO_TEST_DIR@/regression/native
 noinst_HEADERS = check.h
 LDADD = \
 	../../../skins/native/libnative.la \
 	../../../skins/rtdm/librtdm.la \
 	../../../skins/common/libxenomai.la \
-	-lpthread -lm
+	-lpthread -lrt -lm
 
 all: all-am
 
@@ -348,9 +353,9 @@ heap$(EXEEXT): $(heap_OBJECTS) $(heap_DEPENDENCIES)
 leaks$(EXEEXT): $(leaks_OBJECTS) $(leaks_DEPENDENCIES) 
 	@rm -f leaks$(EXEEXT)
 	$(LINK) $(leaks_OBJECTS) $(leaks_LDADD) $(LIBS)
-mayday$(EXEEXT): $(mayday_OBJECTS) $(mayday_DEPENDENCIES) 
-	@rm -f mayday$(EXEEXT)
-	$(LINK) $(mayday_OBJECTS) $(mayday_LDADD) $(LIBS)
+sigdebug$(EXEEXT): $(sigdebug_OBJECTS) $(sigdebug_DEPENDENCIES) 
+	@rm -f sigdebug$(EXEEXT)
+	$(LINK) $(sigdebug_OBJECTS) $(sigdebug_LDADD) $(LIBS)
 tsc$(EXEEXT): $(tsc_OBJECTS) $(tsc_DEPENDENCIES) 
 	@rm -f tsc$(EXEEXT)
 	$(LINK) $(tsc_OBJECTS) $(tsc_LDADD) $(LIBS)
@@ -363,7 +368,7 @@ distclean-compile:
 
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/heap.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/leaks.Po@am__quote@
-@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/mayday.Po@am__quote@
+@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/sigdebug.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/tsc.Po@am__quote@
 
 .c.o:

@@ -59,7 +59,7 @@ am__installdirs = "$(DESTDIR)$(testdir)" "$(DESTDIR)$(bindir)" \
 PROGRAMS = $(test_PROGRAMS)
 xeno_test_run_SOURCES = xeno-test-run.c
 xeno_test_run_OBJECTS = xeno_test_run-xeno-test-run.$(OBJEXT)
-xeno_test_run_LDADD = $(LDADD)
+xeno_test_run_DEPENDENCIES =
 am__vpath_adj_setup = srcdirstrip=`echo "$(srcdir)" | sed 's|.|.|g'`;
 am__vpath_adj = case $$p in \
     $(srcdir)/*) f=`echo "$$p" | sed "s|^$$srcdirstrip/||"`;; \
@@ -133,6 +133,7 @@ DBX_XSLTPROC = @DBX_XSLTPROC@
 DBX_XSL_ROOT = @DBX_XSL_ROOT@
 DEFS = @DEFS@
 DEPDIR = @DEPDIR@
+DLLTOOL = @DLLTOOL@
 DOXYGEN = @DOXYGEN@
 DOXYGEN_HAVE_DOT = @DOXYGEN_HAVE_DOT@
 DOXYGEN_SHOW_INCLUDE_FILES = @DOXYGEN_SHOW_INCLUDE_FILES@
@@ -166,9 +167,11 @@ LN_S = @LN_S@
 LTLIBOBJS = @LTLIBOBJS@
 MAINT = @MAINT@
 MAKEINFO = @MAKEINFO@
+MANIFEST_TOOL = @MANIFEST_TOOL@
 MKDIR_P = @MKDIR_P@
 NM = @NM@
 NMEDIT = @NMEDIT@
+OBJDUMP = @OBJDUMP@
 OBJEXT = @OBJEXT@
 OTOOL = @OTOOL@
 OTOOL64 = @OTOOL64@
@@ -189,6 +192,8 @@ VERSION = @VERSION@
 XENO_BUILD_STRING = @XENO_BUILD_STRING@
 XENO_DLOPEN_CONSTRAINT = @XENO_DLOPEN_CONSTRAINT@
 XENO_HOST_STRING = @XENO_HOST_STRING@
+XENO_LIB_CFLAGS = @XENO_LIB_CFLAGS@
+XENO_LIB_LDFLAGS = @XENO_LIB_LDFLAGS@
 XENO_MAYBE_DOCDIR = @XENO_MAYBE_DOCDIR@
 XENO_POSIX_WRAPPERS = @XENO_POSIX_WRAPPERS@
 XENO_TARGET_ARCH = @XENO_TARGET_ARCH@
@@ -201,6 +206,7 @@ abs_builddir = @abs_builddir@
 abs_srcdir = @abs_srcdir@
 abs_top_builddir = @abs_top_builddir@
 abs_top_srcdir = @abs_top_srcdir@
+ac_ct_AR = @ac_ct_AR@
 ac_ct_CC = @ac_ct_CC@
 ac_ct_CC_FOR_BUILD = @ac_ct_CC_FOR_BUILD@
 ac_ct_DUMPBIN = @ac_ct_DUMPBIN@
@@ -234,7 +240,6 @@ libdir = @libdir@
 libexecdir = @libexecdir@
 localedir = @localedir@
 localstatedir = @localstatedir@
-lt_ECHO = @lt_ECHO@
 mandir = @mandir@
 mkdir_p = @mkdir_p@
 oldincludedir = @oldincludedir@
@@ -258,6 +263,7 @@ testdir = @XENO_TEST_DIR@
 test_SCRIPTS = xeno-test-run-wrapper dohell
 bin_SCRIPTS = xeno-test
 xeno_test_run_CPPFLAGS = -DTESTDIR=\"$(testdir)\"
+xeno_test_run_LDADD = -lpthread -lrt
 EXTRA_DIST = $(test_SCRIPTS) xeno-test.in
 CLEANFILES = xeno-test
 all: all-am
@@ -665,7 +671,7 @@ uninstall-am: uninstall-binSCRIPTS uninstall-testPROGRAMS \
 
 
 xeno-test: $(srcdir)/xeno-test.in Makefile
-	sed "s,@testdir@,$(testdir)," $< > $@
+	sed "s,@testdir@,$(testdir),g" $< > $@
 
 # Tell versions [3.59,3.63) of GNU make to not export all variables.
 # Otherwise a system limit (for SysV at least) may be exceeded.
