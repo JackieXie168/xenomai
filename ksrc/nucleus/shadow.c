@@ -349,6 +349,12 @@ static void schedule_linux_call (int type,
     struct __lostagerq *rq = &lostagerq[cpuid];
     spl_t s;
 
+#ifdef CONFIG_XENO_OPT_DEBUG
+    if (!p)
+        xnpod_fatal("schedule_linux_call() invoked "
+		    "with NULL task pointer (req=%d, arg=%d)?!",type,arg);
+#endif /* CONFIG_XENO_OPT_DEBUG */
+
     splhigh(s);
     reqnum = rq->in;
     rq->req[reqnum].type = type;
@@ -1898,4 +1904,5 @@ EXPORT_SYMBOL(xnshadow_unmap);
 EXPORT_SYMBOL(xnshadow_unregister_interface);
 EXPORT_SYMBOL(xnshadow_wait_barrier);
 EXPORT_SYMBOL(xnshadow_suspend);
+EXPORT_SYMBOL(xnshadow_send_sig);
 EXPORT_SYMBOL(nkgkptd);

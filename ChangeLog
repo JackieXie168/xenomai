@@ -1,3 +1,77 @@
+2006-05-19  Philippe Gerum  <rpm@xenomai.org>
+
+ 	* RELEASE: Xenomai 2.1.2 (Seven String)
+
+2006-05-19  Philippe Gerum  <rpm@xenomai.org>
+
+	* ksrc/arch/blackfin/patches: Upgrade to 2.6.16-1.4-02.
+
+	* ksrc/arch/i386/patches: Upgrade to 2.6.1{5,6}-1.3-04.
+
+	* ksrc/arch/powerpc/patches: Upgrade to 2.6.14-ppc64-1.2-03.
+
+	* ksrc/arch/arm/patches: Upgrade to 2.6.1{4,5}-1.3-04.
+
+2006-05-19  Wolfgang Grandegger  <wg@grandegger.com>
+
+	* include/rtdm/rtdm_driver.h (rtdm_strncpy_from_user): fixed
+	range check.
+
+2006-05-15  Jan Kiszka  <jan.kiszka@web.de>
+
+	* ksrc/nucleus/pipe.c (xnpipe_read_wait): Change the former macro
+	to an inline routine in order to work around an optimization bug
+	from the SuSE-originated GCC 4.x.
+
+2006-05-12  Philippe Gerum  <rpm@xenomai.org>
+
+	* ksrc/skins/native/task.c (rt_task_delete): Do not attempt to
+	send a Linux signal to an unknown Linux mate.
+
+	* ksrc/nucleus/shadow.c (schedule_linux_call): Add LART to capture
+	invocations with NULL task pointer.
+
+2006-05-11  Niklaus Giger <niklaus.giger@member.fsf.org>
+
+	* ksrc/skins/vxworks/demos/satch.c: Raise task stack size to 24Kb.
+
+2006-05-11  Philippe Gerum  <rpm@xenomai.org>
+
+	* ksrc/skins/vxworks/sysLib.c (wind_sysclk_cleanup): Reset the
+	timer instead of shutting it off.
+	
+	* ksrc/nucleus/pod.c (xnpod_start_timer): Also check the tick
+	handler address when trying to recycle the current timing setup.
+	(xnpod_reset_timer): Add reset service requesting the default
+	timing setup.
+
+	* ksrc/skins/vxworks/sysLib.c (__tickAnnounce): Add missing
+	NO_ENABLE bit to the return value.
+
+2006-05-11  Jan Kiszka  <jan.kiszka@web.de>
+
+	* ksrc/skins/rtdm/drvlib.c, include/rtdm/rtdm_driver.h: Fixed
+	ownership management in mutex code (PI was broken) and
+	refactored the implementation.
+
+2006-05-10  Philippe Gerum  <rpm@xenomai.org>
+
+	* ksrc/nucleus/synch.c (xnsynch_release_all_ownerships): Fire
+	cleanup handler for released objects.
+
+	* ksrc/nucleus/pod.c (xnpod_unblock_thread): Do not raise the
+	XNBREAK condition for already awaken threads.
+
+	* include/native/task.h (T_JOINABLE): Solve conflict with CPU
+	affinity bits.
+
+	* ksrc/skins/native/task.c (rt_task_start): Propagate error code
+	from xnpod_start_thread().
+
+2006-05-10  Philippe Gerum  <rpm@xenomai.org>
+
+	* ksrc/nucleus/shadow.c: Export xnshadow_send_sig().
+
 2006-05-09  Philippe Gerum  <rpm@xenomai.org>
 
  	* RELEASE: Xenomai 2.1.1 (Trundrumbalind)

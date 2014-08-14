@@ -970,20 +970,16 @@ void rtdm_sem_up(rtdm_sem_t *sem);
 
 /* --- mutex services --- */
 
-typedef struct {
-    unsigned long                   locked;
-    xnsynch_t                       synch_base;
-} rtdm_mutex_t;
+typedef xnsynch_t                   rtdm_mutex_t;
 
 static inline void rtdm_mutex_init(rtdm_mutex_t *mutex)
 {
-    mutex->locked = 0;
-    xnsynch_init(&mutex->synch_base, XNSYNCH_PRIO|XNSYNCH_PIP);
+    xnsynch_init(mutex, XNSYNCH_PRIO|XNSYNCH_PIP);
 }
 
 static inline void rtdm_mutex_destroy(rtdm_mutex_t *mutex)
 {
-    _rtdm_synch_flush(&mutex->synch_base, XNRMID);
+    _rtdm_synch_flush(mutex, XNRMID);
 }
 
 int rtdm_mutex_lock(rtdm_mutex_t *mutex);
@@ -1043,7 +1039,7 @@ static inline int rtdm_strncpy_from_user(rtdm_user_info_t *user_info,
                                          const char __user *src,
                                          size_t count)
 {
-    if (unlikely(__xn_access_ok(user_info, VERIFY_READ, src, 1)))
+    if (unlikely(!__xn_access_ok(user_info, VERIFY_READ, src, 1)))
         return -EFAULT;
     return __xn_strncpy_from_user(user_info, dst, src, count);
 }
