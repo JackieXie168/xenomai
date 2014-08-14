@@ -215,9 +215,9 @@ static void xnpipe_wakeup_proc(void *cookie)
 	xnlock_put_irqrestore(&nklock, s);
 }
 
-static inline void xnpipe_schedule_request(void)
+static inline void xnpipe_schedule_request(void) /* hw IRQs off */
 {
-	rthal_apc_schedule(xnpipe_wakeup_apc);
+	__rthal_apc_schedule(xnpipe_wakeup_apc);
 }
 
 static inline ssize_t xnpipe_flush_bufq(void (*fn)(void *buf, void *xstate),
@@ -347,10 +347,10 @@ int xnpipe_connect(int minor, struct xnpipe_operations *ops, void *xstate)
 		}
 	}
 
-	xnlock_put_irqrestore(&nklock, s);
-
 	if (need_sched)
 		xnpipe_schedule_request();
+
+	xnlock_put_irqrestore(&nklock, s);
 
 	return minor;
 }
@@ -416,10 +416,10 @@ cleanup:
 		xnpipe_minor_free(minor);
 	}
 
-	xnlock_put_irqrestore(&nklock, s);
-
 	if (need_sched)
 		xnpipe_schedule_request();
+
+	xnlock_put_irqrestore(&nklock, s);
 
 	return 0;
 }
@@ -475,10 +475,10 @@ ssize_t xnpipe_send(int minor, struct xnpipe_mh *mh, size_t size, int flags)
 		need_sched = 1;
 	}
 
-	xnlock_put_irqrestore(&nklock, s);
-
 	if (need_sched)
 		xnpipe_schedule_request();
+
+	xnlock_put_irqrestore(&nklock, s);
 
 	return (ssize_t) size;
 }
@@ -923,8 +923,7 @@ static ssize_t xnpipe_write(struct file *file,
 	return (ssize_t)count;
 }
 
-static int xnpipe_ioctl(struct inode *inode,
-			struct file *file, unsigned int cmd, unsigned long arg)
+static long xnpipe_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 {
 	struct xnpipe_state *state = file->private_data;
 	int ret = 0;
@@ -1068,7 +1067,7 @@ static struct file_operations xnpipe_fops = {
 	.read = xnpipe_read,
 	.write = xnpipe_write,
 	.poll = xnpipe_poll,
-	.ioctl = xnpipe_ioctl,
+	.unlocked_ioctl = xnpipe_ioctl,
 	.open = xnpipe_open,
 	.release = xnpipe_release,
 	.fasync = xnpipe_fasync

@@ -3,10 +3,11 @@
 #include <string.h>
 #include <pthread.h>
 
-#include <asm/xenomai/syscall.h>
 #include <nucleus/types.h>
 #include <nucleus/thread.h>
 #include <nucleus/vdso.h>
+#include <asm/xenomai/syscall.h>
+#include <asm-generic/bits/current.h>
 
 pthread_key_t xeno_current_mode_key;
 
@@ -46,6 +47,7 @@ static inline int create_current_key(void)
 
 static inline void __xeno_set_current(xnhandle_t current)
 {
+	current = (current != XN_NO_HANDLE ? current : (xnhandle_t)(0));
 	pthread_setspecific(xeno_current_key, (void *)current);
 }
 
@@ -84,12 +86,19 @@ static void cleanup_current_mode(void *key)
 	}
 }
 
+static void xeno_current_fork_handler(void)
+{
+	if (xeno_get_current() != XN_NO_HANDLE)
+		__xeno_set_current(XN_NO_HANDLE);
+}
+
 static void init_current_keys(void)
 {
 	int err = create_current_key();
-
 	if (err)
 		goto error_exit;
+
+	pthread_atfork(NULL, NULL, &xeno_current_fork_handler);
 
 	err = pthread_key_create(&xeno_current_mode_key, cleanup_current_mode);
 	if (err) {

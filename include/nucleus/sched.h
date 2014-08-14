@@ -166,25 +166,27 @@ struct xnsched_class {
 /* Test all resched flags from the given scheduler mask. */
 static inline int xnsched_resched_p(struct xnsched *sched)
 {
-	return !xnarch_cpus_empty(sched->resched);
+	return testbits(sched->status, XNRESCHED);
 }
 
 static inline int xnsched_self_resched_p(struct xnsched *sched)
 {
-	return xnarch_cpu_isset(xnsched_cpu(sched), sched->resched);
+	return testbits(sched->status, XNRESCHED);
 }
 
 /* Set self resched flag for the given scheduler. */
 #define xnsched_set_self_resched(__sched__) do {		\
-  xnarch_cpu_set(xnsched_cpu(__sched__), (__sched__)->resched); \
   setbits((__sched__)->status, XNRESCHED);			\
 } while (0)
 
 /* Set specific resched flag into the local scheduler mask. */
 #define xnsched_set_resched(__sched__) do {				\
   xnsched_t *current_sched = xnpod_current_sched();			\
-  xnarch_cpu_set(xnsched_cpu(__sched__), current_sched->resched);	\
   setbits(current_sched->status, XNRESCHED);				\
+  if (current_sched != (__sched__))	{				\
+      xnarch_cpu_set(xnsched_cpu(__sched__), current_sched->resched);	\
+      setbits((__sched__)->status, XNRESCHED);				\
+  }									\
 } while (0)
 
 void xnsched_zombie_hooks(struct xnthread *thread);

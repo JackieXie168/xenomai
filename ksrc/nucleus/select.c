@@ -405,9 +405,8 @@ void xnselector_destroy(struct xnselector *selector)
 	inith(&selector->destroy_link);
 	xnlock_get_irqsave(&nklock, s);
 	appendq(&xnselectors, &selector->destroy_link);
+	__rthal_apc_schedule(xnselect_apc);
 	xnlock_put_irqrestore(&nklock, s);
-
-	rthal_apc_schedule(xnselect_apc);
 }
 EXPORT_SYMBOL_GPL(xnselector_destroy);
 
@@ -460,7 +459,8 @@ int xnselect_mount(void)
 
 int xnselect_umount(void)
 {
-	return rthal_apc_free(xnselect_apc);
+	rthal_apc_free(xnselect_apc);
+	return 0;
 }
 
 /*@}*/

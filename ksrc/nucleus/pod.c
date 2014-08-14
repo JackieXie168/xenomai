@@ -276,16 +276,18 @@ EXPORT_SYMBOL_GPL(xnpod_fatal_helper);
 
 void xnpod_schedule_handler(void) /* Called with hw interrupts off. */
 {
-	xnsched_t *sched = xnpod_current_sched();
+	xnsched_t *sched;
 
 	trace_mark(xn_nucleus, sched_remote, MARK_NOARGS);
 #if defined(CONFIG_SMP) && defined(CONFIG_XENO_OPT_PRIOCPL)
+	sched = xnpod_current_sched();
 	if (testbits(sched->status, XNRPICK)) {
 		clrbits(sched->status, XNRPICK);
 		xnshadow_rpi_check();
 	}
+#else
+	(void)sched;
 #endif /* CONFIG_SMP && CONFIG_XENO_OPT_PRIOCPL */
-	xnsched_set_self_resched(sched);
 	xnpod_schedule();
 }
 
@@ -1456,12 +1458,27 @@ void xnpod_suspend_thread(xnthread_t *thread, xnflags_t mask,
 		nkpod->schedhook(thread, mask);
 #endif /* __XENO_SIM__ */
 
-	if (thread == sched->curr)
+	if (thread == sched->curr) {
+		/*
+		 * If the current thread is being relaxed, we must
+		 * have been called from xnshadow_relax(), in which
+		 * case we introduce an opportunity for interrupt
+		 * delivery right before switching context, which
+		 * shortens the uninterruptible code path.  This
+		 * particular caller expects us to always return with
+		 * interrupts enabled.
+		 */
+		if (mask & XNRELAX) {
+			xnlock_clear_irqon(&nklock);
+			xnpod_schedule();
+			return;
+		}
 		/*
 		 * If the thread is runnning on another CPU,
-		 * xnpod_schedule will just trigger the IPI.
+		 * xnpod_schedule will trigger the IPI as needed.
 		 */
 		xnpod_schedule();
+	}
 #ifdef CONFIG_XENO_OPT_PERVASIVE
 	/*
 	 * Ok, this one is an interesting corner case, which requires
@@ -2144,10 +2161,7 @@ static inline void xnpod_switch_to(xnsched_t *sched,
 
 static inline int __xnpod_test_resched(struct xnsched *sched)
 {
-	int cpu = xnsched_cpu(sched), resched;
-
-	resched = xnarch_cpu_isset(cpu, sched->resched);
-	xnarch_cpu_clear(cpu, sched->resched);
+	int resched = testbits(sched->status, XNRESCHED);
 #ifdef CONFIG_SMP
 	/* Send resched IPI to remote CPU(s). */
 	if (unlikely(xnsched_resched_p(sched))) {
@@ -2161,8 +2175,8 @@ static inline int __xnpod_test_resched(struct xnsched *sched)
 
 void __xnpod_schedule(struct xnsched *sched)
 {
-	struct xnthread *prev, *next, *curr = sched->curr;
 	int zombie, switched, need_resched, shadow;
+	struct xnthread *prev, *next, *curr;
 	spl_t s;
 
 	if (xnarch_escalate())
@@ -2171,6 +2185,8 @@ void __xnpod_schedule(struct xnsched *sched)
 	trace_mark(xn_nucleus, sched, MARK_NOARGS);
 
 	xnlock_get_irqsave(&nklock, s);
+
+	curr = sched->curr;
 
 	xnarch_trace_pid(xnthread_user_task(curr) ?
 			 xnarch_user_pid(xnthread_archtcb(curr)) : -1,
@@ -2345,7 +2361,7 @@ void xnpod_unlock_sched(void)
 
 	if (--xnthread_lock_count(curr) == 0) {
 		xnthread_clear_state(curr, XNLOCK);
-		xnsched_set_resched(curr->sched);
+		xnsched_set_self_resched(curr->sched);
 		xnpod_schedule();
 	}
 
@@ -3148,7 +3164,7 @@ static int latency_read_proc(char *page,
 {
 	int len;
 
-	len = sprintf(page, "%Lu\n", xnarch_tsc_to_ns(nklatency));
+	len = sprintf(page, "%Lu\n", xnarch_tsc_to_ns(nklatency - nktimerlat));
 	len -= off;
 	if (len <= off + count)
 		*eof = 1;
@@ -3180,7 +3196,7 @@ static int latency_write_proc(struct file *file,
 	if ((*end != '\0' && !isspace(*end)) || ns < 0)
 		return -EINVAL;
 
-	nklatency = xnarch_ns_to_tsc(ns);
+	nklatency = xnarch_ns_to_tsc(ns) + nktimerlat;
 
 	return count;
 }

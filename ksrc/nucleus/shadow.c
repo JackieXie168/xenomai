@@ -339,18 +339,16 @@ static void rpi_clear_remote(struct xnthread *thread)
 
 static void rpi_migrate(struct xnsched *sched, struct xnthread *thread)
 {
-	spl_t s;
-
 	rpi_clear_remote(thread);
 	rpi_push(sched, thread);
 	/*
 	 * The remote CPU already ran rpi_switch() for the leaving
 	 * thread, so there is no point in calling
-	 * xnsched_suspend_rpi() for the latter anew.
+	 * xnsched_suspend_rpi() for the latter anew.  Proper locking
+	 * is left to the resume_rpi() callback, so that we don't grab
+	 * the nklock uselessly for nop calls.
 	 */
-	xnlock_get_irqsave(&nklock, s);
 	xnsched_resume_rpi(thread);
-	xnlock_put_irqrestore(&nklock, s);
 }
 
 #else  /* !CONFIG_SMP */
@@ -392,10 +390,13 @@ static inline void rpi_switch(struct task_struct *next_task)
 			xnsched_pop_rpi(prev);
 			prev->rpi = NULL;
 			xnlock_put_irqrestore(&sched->rpilock, s);
-			/* Do NOT nest the rpilock and nklock locks. */
-			xnlock_get_irqsave(&nklock, s);
+			/*
+			 * Do NOT nest the rpilock and nklock locks.
+			 * Proper locking is left to the suspend_rpi()
+			 * callback, so that we don't grab the nklock
+			 * uselessly for nop calls.
+			 */
 		  	xnsched_suspend_rpi(prev);
-			xnlock_put_irqrestore(&nklock, s);
 		} else
 		  	xnlock_put_irqrestore(&sched->rpilock, s);
 	}
@@ -449,9 +450,7 @@ static inline void rpi_switch(struct task_struct *next_task)
 			xnsched_push_rpi(sched, next);
 			next->rpi = sched;
 			xnlock_put_irqrestore(&sched->rpilock, s);
-			xnlock_get_irqsave(&nklock, s);
 			xnsched_resume_rpi(next);
-			xnlock_put_irqrestore(&nklock, s);
 		}
 	} else if (unlikely(next->rpi != sched))
 		/* We hold no lock here. */
@@ -896,9 +895,9 @@ static void schedule_linux_call(int type, struct task_struct *p, int arg)
 	rq->req[reqnum].task = p;
 	rq->req[reqnum].arg = arg;
 
-	splexit(s);
+	__rthal_apc_schedule(lostage_apc);
 
-	rthal_apc_schedule(lostage_apc);
+	splexit(s);
 }
 
 static inline int normalize_priority(int prio)
@@ -1139,7 +1138,6 @@ void xnshadow_relax(int notify, int reason)
 	xnthread_t *thread = xnpod_current_thread();
 	siginfo_t si;
 	int prio;
-	spl_t s;
 
 	XENO_BUGON(NUCLEUS, xnthread_test_state(thread, XNROOT));
 
@@ -1151,13 +1149,30 @@ void xnshadow_relax(int notify, int reason)
 	trace_mark(xn_nucleus, shadow_gorelax, "thread %p thread_name %s",
 		  thread, xnthread_name(thread));
 
-	splhigh(s);
+	/*
+	 * If you intend to change the following interrupt-free
+	 * sequence, /first/ make sure to:
+	 *
+	 * - read commit #d3242401b8
+	 *
+	 * - check the special handling of XNRELAX in
+	 * xnpod_suspend_thread() when switching out the current
+	 * thread, not to break basic assumptions we do there.
+	 *
+	 * We disable interrupts here to initiate the migration
+	 * sequence, and let xnpod_suspend_thread() enable them back
+	 * before returning to us.
+	 */
+	splmax();
 	rpi_push(thread->sched, thread);
 	schedule_linux_call(LO_WAKEUP_REQ, current, 0);
 	clear_task_nowakeup(current);
 	xnpod_suspend_thread(thread, XNRELAX, XN_INFINITE, XN_RELATIVE, NULL);
-	splexit(s);
-
+	/*
+	 * As a special case when switching out a relaxed thread,
+	 * interrupts have been re-enabled before returning to us. See
+	 * xnpod_suspend_thread().
+	 */
 	if (XENO_DEBUG(NUCLEUS) && rthal_current_domain != rthal_root_domain)
 		xnpod_fatal("xnshadow_relax() failed for thread %s[%d]",
 			    thread->name, xnthread_user_pid(thread));
@@ -2199,10 +2214,12 @@ static void handle_shadow_exit(void)
 	 */
 	if (thread->u_mode && !warned) {
 		warned = 1;
+#ifndef CONFIG_MMU
 		printk(KERN_WARNING
 		       "Xenomai: User-space support anterior to 2.5.2"
 		       " detected, may corrupt memory upon\n"
 		       "thread termination. Upgrade is recommended\n");
+#endif
 	}
 	thread->u_mode = NULL;
 }
@@ -2641,7 +2658,7 @@ static inline void do_sigwake_event(struct task_struct *p)
 	struct xnthread *thread = xnshadow_thread(p);
 	spl_t s;
 
-	if (!thread)
+	if (thread == NULL)
 		return;
 
 	xnlock_get_irqsave(&nklock, s);
@@ -2660,8 +2677,25 @@ static inline void do_sigwake_event(struct task_struct *p)
 		}
 	}
 
-	if (xnthread_test_state(thread, XNRELAX))
-		goto unlock_and_exit;
+	/*
+	 * If a relaxed thread is getting a signal while running, we
+	 * force it out of RPI, so that it won't keep a boosted
+	 * priority to process asynchronous linux-originated events,
+	 * such as termination signals. RPI is mainly for preventing
+	 * priority inversion during normal operations in secondary
+	 * mode, handling signals should not apply there, since this
+	 * would also boost low-priority cleanup work, which is
+	 * unwanted. The thread may get RPI-boosted again the next
+	 * time it resumes for suspension, linux-wise (if ever it
+	 * does).
+	 */
+	if (xnthread_test_state(thread, XNRELAX)) {
+		xnlock_put_irqrestore(&nklock, s);
+		rpi_pop(thread);
+		xnpod_schedule();
+		return;
+	}
+
 	/*
 	 * If we are kicking a shadow thread in primary mode, make
 	 * sure Linux won't schedule in its mate under our feet as a
