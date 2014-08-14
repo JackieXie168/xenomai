@@ -486,7 +486,7 @@ typedef struct can_frame {
 
     /** CAN ID of the frame
      *
-     *  See @ref CAN_xxx_FLAG "CAN ID flags" for special bits. 
+     *  See @ref CAN_xxx_FLAG "CAN ID flags" for special bits.
      */
     can_id_t     can_id;
 
@@ -494,7 +494,7 @@ typedef struct can_frame {
     uint8_t      can_dlc;
 
     /** Payload data bytes */
-    uint8_t      data[8];
+    uint8_t      data[8] __attribute__ ((aligned(8)));
 } can_frame_t;
 
 

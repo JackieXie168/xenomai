@@ -12,7 +12,7 @@ comment "(menu Device Drivers/Input device support/Miscellaneous devices)"
 	depends on !X86_TSC && X86 && INPUT_PCSPKR
 
 config XENOMAI
-	depends on X86_TSC || !X86 || !INPUT_PCSPKR
+ 	depends on (X86_TSC || !X86 || !INPUT_PCSPKR)
 	bool "Xenomai"
 	default y
         select IPIPE

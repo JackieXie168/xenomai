@@ -80,9 +80,10 @@ u_long ev_receive(u_long events, u_long flags, u_long timeout, u_long *events_r)
 	if (xnthread_test_info(&task->threadbase, XNBREAK))
 		err = -EINTR;
 	else if (xnthread_test_info(&task->threadbase, XNTIMEO)) {
-		*events_r = task->waitargs.evgroup.events;
 		err = ERR_TIMEOUT;
-	}
+		*events_r = evgroup->events;
+	} else
+		*events_r = task->waitargs.evgroup.events;
 
       unlock_and_exit:
 

@@ -36,8 +36,14 @@ struct psos_task_iargs {
 	xncompletion_t *completionp;
 };
 
+static void (*old_sigharden_handler)(int sig);
+
 static void psos_task_sigharden(int sig)
 {
+	if (old_sigharden_handler &&
+	    old_sigharden_handler != &psos_task_sigharden)
+		old_sigharden_handler(sig);
+
 	XENOMAI_SYSCALL1(__xn_sys_migrate, XENOMAI_XENO_DOMAIN);
 }
 
@@ -55,7 +61,7 @@ static void *psos_task_trampoline(void *cookie)
 
 	pthread_setcanceltype(PTHREAD_CANCEL_ASYNCHRONOUS, NULL);
 
-	signal(SIGCHLD, &psos_task_sigharden);
+	old_sigharden_handler = signal(SIGHARDEN, &psos_task_sigharden);
 
 	err = XENOMAI_SKINCALL5(__psos_muxid,
 				__psos_t_create,
@@ -85,7 +91,7 @@ static void *psos_task_trampoline(void *cookie)
 
 u_long t_create(char name[4],
 		u_long prio,
-		u_long sstack,	/* Ignored. */
+		u_long sstack,
 		u_long ustack,
 		u_long flags,
 		u_long *tid_r)
@@ -114,6 +120,8 @@ u_long t_create(char name[4],
 	iargs.completionp = &completion;
 
 	pthread_attr_init(&thattr);
+
+	ustack += sstack;
 
 	if (ustack == 0)
 		ustack = PTHREAD_STACK_MIN * 4;

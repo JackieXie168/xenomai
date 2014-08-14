@@ -81,8 +81,8 @@
 	'S', 'W', 'D', 'R', 'U',	\
 	'.', '.', '.', '.', 'X',	\
 	'H', 'b', 'T', 'l', 'r',	\
-	'.', 's', 't', 'o', 'f',	\
-	'.', '.', '.',			\
+	'.', 's', 't', 'o', '.',	\
+	'f', '.', '.', '.',		\
 }
 
 #define XNTHREAD_BLOCK_BITS   (XNSUSP|XNPEND|XNDELAY|XNDORMANT|XNRELAX|XNHELD)
@@ -97,7 +97,7 @@
 
 /*! @ingroup nucleus 
   @defgroup nucleus_info_flags Thread information flags.
-  @brief Bits reporting events notified to thread.
+  @brief Bits reporting events notified to the thread.
   @{
 */
 
@@ -109,6 +109,7 @@
 #define XNKICKED  0x00000008 /**< Kicked upon Linux signal (shadow only) */
 #define XNWAKEN   0x00000010 /**< Thread waken up upon resource availability */
 #define XNROBBED  0x00000020 /**< Robbed from resource ownership */
+#define XNATOMIC  0x00000040 /**< In atomic switch from secondary to primary mode */
 
 /* These information flags are available to the real-time interfaces */
 #define XNTHREAD_INFO_SPARE0  0x10000000
@@ -133,6 +134,7 @@
 
 struct xnsched;
 struct xnsynch;
+struct xnrpi;
 
 typedef void (*xnasr_t)(xnsigmask_t sigs);
 
@@ -152,9 +154,17 @@ typedef struct xnthread {
 
     int cprio;			/* Current priority */
 
+    u_long schedlck;		/*!< Scheduler lock count. */
+
     xnpholder_t rlink;		/* Thread holder in ready queue */
 
     xnpholder_t plink;		/* Thread holder in synchronization queue(s) */
+
+#if !defined(CONFIG_XENO_OPT_RPIDISABLE) && defined(CONFIG_XENO_OPT_PERVASIVE)
+    xnpholder_t xlink;		/* Thread holder in the RPI queue (shadow only) */
+
+    struct xnrpi *rpi;		/* Backlink pointer to the RPI slot (shadow only) */
+#endif /* !CONFIG_XENO_OPT_RPIDISABLE && CONFIG_XENO_OPT_PERVASIVE */
 
     xnholder_t glink;		/* Thread holder in global queue */
 
@@ -248,6 +258,7 @@ typedef struct xnhook {
 #define xnthread_test_info(thread,flags)   testbits((thread)->info,flags)
 #define xnthread_set_info(thread,flags)    __setbits((thread)->info,flags)
 #define xnthread_clear_info(thread,flags)  __clrbits((thread)->info,flags)
+#define xnthread_lock_count(thread)        ((thread)->schedlck)
 #define xnthread_initial_priority(thread) ((thread)->iprio)
 #define xnthread_base_priority(thread)     ((thread)->bprio)
 #define xnthread_current_priority(thread) ((thread)->cprio)

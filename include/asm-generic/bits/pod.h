@@ -27,11 +27,6 @@
 
 #ifdef CONFIG_SMP
 
-static inline int xnarch_send_ipi (xnarch_cpumask_t cpumask)
-{
-    return rthal_send_ipi(RTHAL_SERVICE_IPI0, cpumask);
-}
-
 static inline int xnarch_hook_ipi (void (*handler)(void))
 {
     return rthal_virtualize_irq(&rthal_domain,
@@ -99,11 +94,6 @@ static inline void xnarch_notify_halt(void)
 
 #else /* !CONFIG_SMP */
 
-static inline int xnarch_send_ipi (xnarch_cpumask_t cpumask)
-{
-    return 0;
-}
-
 static inline int xnarch_hook_ipi (void (*handler)(void))
 {
     return 0;
@@ -120,11 +110,11 @@ static inline int xnarch_release_ipi (void)
 
 static inline void xnarch_notify_shutdown(void)
 {
-#ifdef CONFIG_SMP
+#if defined(CONFIG_SMP) && defined(MODULE)
     /* Make sure the shutdown sequence is kept on the same CPU when
        running as a module. */
     set_cpus_allowed(current,cpumask_of_cpu(0));
-#endif /* CONFIG_SMP */
+#endif /* CONFIG_SMP && MODULE */
 #ifdef CONFIG_XENO_OPT_PERVASIVE
     xnshadow_release_events();
 #endif /* CONFIG_XENO_OPT_PERVASIVE */

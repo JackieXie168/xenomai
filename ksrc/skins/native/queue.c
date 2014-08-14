@@ -313,6 +313,9 @@ int rt_queue_create(RT_QUEUE *q,
  * - -EPERM is returned if this service was called from an
  * asynchronous context.
  *
+ * - -EBUSY is returned if an attempt is made to delete a shared queue
+ * which is still bound to a process.
+ *
  * Environments:
  *
  * This service can be called from:
@@ -325,7 +328,7 @@ int rt_queue_create(RT_QUEUE *q,
 
 int rt_queue_delete(RT_QUEUE *q)
 {
-	int err = 0, rc;
+	int err = 0;
 	spl_t s;
 
 	if (xnpod_asynch_p())
@@ -340,13 +343,6 @@ int rt_queue_delete(RT_QUEUE *q)
 		xnlock_put_irqrestore(&nklock, s);
 		return err;
 	}
-
-	rc = xnsynch_destroy(&q->synch_base);
-
-#ifdef CONFIG_XENO_OPT_REGISTRY
-	if (q->handle)
-		xnregistry_remove(q->handle);
-#endif /* CONFIG_XENO_OPT_REGISTRY */
 
 	xeno_mark_deleted(q);
 
@@ -367,10 +363,25 @@ int rt_queue_delete(RT_QUEUE *q)
 #endif /* __KERNEL__ && CONFIG_XENO_OPT_PERVASIVE */
 		err = xnheap_destroy(&q->bufpool, &__queue_flush_private, NULL);
 
-	if (rc == XNSYNCH_RESCHED)
-		/* Some task has been woken up as a result of the deletion:
-		   reschedule now. */
-		xnpod_schedule();
+	xnlock_get_irqsave(&nklock, s);
+
+	if (!err) {
+#ifdef CONFIG_XENO_OPT_REGISTRY
+		if (q->handle)
+			xnregistry_remove(q->handle);
+#endif /* CONFIG_XENO_OPT_REGISTRY */
+
+		if (xnsynch_destroy(&q->synch_base) == XNSYNCH_RESCHED)
+			/* Some task has been woken up as a result of
+			   the deletion: reschedule now. */
+			xnpod_schedule();
+	} else
+		/* Deletion failed, likely due to a busy state;
+		 * restore the magic word, to re-enable the
+		 * descriptor. */
+		q->magic = XENO_QUEUE_MAGIC;
+
+	xnlock_put_irqrestore(&nklock, s);
 
 	return err;
 }
@@ -928,7 +939,8 @@ ssize_t rt_queue_read(RT_QUEUE *q, void *buf, size_t size, RTIME timeout)
 	if (rsize < 0)
 		return rsize;
 
-	size = size < rsize ? size : rsize;
+	if (size > rsize)
+		size = rsize;
 
 	if (size > 0)
 		memcpy(buf, mbuf, size);
@@ -1077,7 +1089,9 @@ int rt_queue_inquire(RT_QUEUE *q, RT_QUEUE_INFO *info)
  *
  * @param q The address of a queue descriptor to unbind from.
  *
- * @return 0 is always returned.
+ * @return 0 is returned upon success. Otherwise:
+ *
+ * - -EINVAL is returned if @a q is invalid or not bound.
  *
  * This service can be called from:
  *

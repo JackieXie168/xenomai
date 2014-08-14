@@ -71,8 +71,8 @@ static inline int rtcan_accept_msg(uint32_t can_id, can_filter_t *filter)
 }
 
 
-static void rtcan_rcv_deliver(struct rtcan_recv *recv_listener, 
-				     struct rtcan_skb *skb)
+static void rtcan_rcv_deliver(struct rtcan_recv *recv_listener,
+			      struct rtcan_skb *skb)
 {
     int size_free;
     size_t cpy_size, first_part_size;
@@ -83,26 +83,24 @@ static void rtcan_rcv_deliver(struct rtcan_recv *recv_listener,
     cpy_size = skb->rb_frame_size;
     /* Check if socket wants to receive a timestamp */
     if (test_bit(RTCAN_GET_TIMESTAMP, &context->context_flags)) {
-	cpy_size += TIMESTAMP_SIZE;
-	frame->can_dlc |= HAS_TIMESTAMP;
+	cpy_size += RTCAN_TIMESTAMP_SIZE;
+	frame->can_dlc |= RTCAN_HAS_TIMESTAMP;
     } else
-	frame->can_dlc &= HAS_NO_TIMESTAMP;
-    
+	frame->can_dlc &= RTCAN_HAS_NO_TIMESTAMP;
+
     /* Calculate free size in the ring buffer */
     size_free = sock->recv_head - sock->recv_tail;
     if (size_free <= 0)
 	size_free += RTCAN_RXBUF_SIZE;
-    
-    
+
     /* Test if ring buffer has enough space. */
     if (size_free > cpy_size) {
-	
 	/* Check if we must wrap around the end of buffer */
 	if ((sock->recv_tail + cpy_size) > RTCAN_RXBUF_SIZE) {
 	    /* Wrap around: Two memcpy operations */
-	    
+
 	    first_part_size = RTCAN_RXBUF_SIZE - sock->recv_tail;
-	    
+
 	    memcpy(&sock->recv_buf[sock->recv_tail], (void *)frame,
 		   first_part_size);
 	    memcpy(&sock->recv_buf[0], (void *)frame +
@@ -110,12 +108,11 @@ static void rtcan_rcv_deliver(struct rtcan_recv *recv_listener,
 	} else
 	    memcpy(&sock->recv_buf[sock->recv_tail], (void *)frame,
 		   cpy_size);
-	
+
 	/* Adjust tail */
 	sock->recv_tail = (sock->recv_tail + cpy_size) &
 	    (RTCAN_RXBUF_SIZE - 1);
-	
-	
+
 	/*Notify the delivery of the message */
 	rtdm_sem_up(&sock->recv_sem);
 	
@@ -137,7 +134,7 @@ void rtcan_rcv(struct rtcan_device *dev, struct rtcan_skb *skb)
 
     /* Copy timestamp to skb */
     memcpy((void *)&skb->rb_frame + skb->rb_frame_size,
-	   &timestamp, TIMESTAMP_SIZE);
+	   &timestamp, RTCAN_TIMESTAMP_SIZE);
 
     if ((frame->can_id & CAN_ERR_FLAG)) {
 	dev->err_count++;
@@ -189,7 +186,7 @@ void rtcan_tx_loopback(struct rtcan_device *dev)
     struct rtcan_rb_frame *frame = &dev->tx_skb.rb_frame;
 
     memcpy((void *)&dev->tx_skb.rb_frame + dev->tx_skb.rb_frame_size,
-	   &timestamp, TIMESTAMP_SIZE);
+	   &timestamp, RTCAN_TIMESTAMP_SIZE);
 
     while (recv_listener != NULL) {
 	dev->rx_count++;
@@ -214,7 +211,7 @@ int rtcan_raw_socket(struct rtdm_dev_context *context,
     /* Only CAN_PROTO_RAW is supported */
     if (protocol != CAN_PROTO_RAW && protocol != 0)
         return -EPROTONOSUPPORT;
-    
+
     rtcan_socket_init(context);
 
     return 0;
@@ -224,7 +221,7 @@ int rtcan_raw_socket(struct rtdm_dev_context *context,
 static inline void rtcan_raw_unbind(struct rtcan_socket *sock)
 {
     rtcan_raw_remove_filter(sock);
-    if (!rtcan_flist_no_filter(sock) && sock->flist)
+    if (!rtcan_flist_no_filter(sock->flist) && sock->flist)
 	rtdm_free(sock->flist);
     sock->flist = NULL;
     sock->flistlen = RTCAN_SOCK_UNBOUND;
@@ -430,7 +427,7 @@ int rtcan_raw_ioctl(struct rtdm_dev_context *context,
 		return -EFAULT;
 
 	    setaddr = &setaddr_buf;
-	    
+
 	    /* Check size */
 	    if (setaddr->addrlen != sizeof(struct sockaddr_can))
 		return -EINVAL;
@@ -472,7 +469,7 @@ int rtcan_raw_ioctl(struct rtdm_dev_context *context,
     }
 
     case RTCAN_RTIOC_TAKE_TIMESTAMP: {
-	int timestamp_switch = (int)arg;
+	long timestamp_switch = (long)arg;
 	
 	if (timestamp_switch == RTCAN_TAKE_TIMESTAMPS)
 	    set_bit(RTCAN_GET_TIMESTAMP, &context->context_flags);
@@ -671,7 +668,7 @@ ssize_t rtcan_raw_recvmsg(struct rtdm_dev_context *context,
     can_dlc = recv_buf[recv_buf_index];
     recv_buf_index = (recv_buf_index + 1) & (RTCAN_RXBUF_SIZE - 1);
 
-    frame.can_dlc = can_dlc & HAS_NO_TIMESTAMP;
+    frame.can_dlc = can_dlc & RTCAN_HAS_NO_TIMESTAMP;
     payload_size = (frame.can_dlc > 8) ? 8 : frame.can_dlc;
 
 
@@ -684,9 +681,9 @@ ssize_t rtcan_raw_recvmsg(struct rtdm_dev_context *context,
 
 
     /* Is a timestamp available and is the caller actually interested? */
-    if (msg->msg_controllen && (can_dlc & HAS_TIMESTAMP)) {
+    if (msg->msg_controllen && (can_dlc & RTCAN_HAS_TIMESTAMP)) {
         /* Copy timestamp */
-        MEMCPY_FROM_RING_BUF(&timestamp, TIMESTAMP_SIZE);
+        MEMCPY_FROM_RING_BUF(&timestamp, RTCAN_TIMESTAMP_SIZE);
     }
 
 
@@ -740,12 +737,12 @@ ssize_t rtcan_raw_recvmsg(struct rtdm_dev_context *context,
 
         /* Copy timestamp if existent and wanted */
         if (msg->msg_controllen) {
-            if (can_dlc & HAS_TIMESTAMP) {
+            if (can_dlc & RTCAN_HAS_TIMESTAMP) {
                 if (rtdm_copy_to_user(user_info, msg->msg_control,
-                                      &timestamp, TIMESTAMP_SIZE))
+                                      &timestamp, RTCAN_TIMESTAMP_SIZE))
                     return -EFAULT;
 
-                msg->msg_controllen = TIMESTAMP_SIZE;
+                msg->msg_controllen = RTCAN_TIMESTAMP_SIZE;
             } else
                 msg->msg_controllen = 0;
         }
@@ -767,9 +764,9 @@ ssize_t rtcan_raw_recvmsg(struct rtdm_dev_context *context,
 
         /* Copy timestamp if existent and wanted */
         if (msg->msg_controllen) {
-            if (can_dlc & HAS_TIMESTAMP) {
-                memcpy(msg->msg_control, &timestamp, TIMESTAMP_SIZE);
-                msg->msg_controllen = TIMESTAMP_SIZE;
+            if (can_dlc & RTCAN_HAS_TIMESTAMP) {
+                memcpy(msg->msg_control, &timestamp, RTCAN_TIMESTAMP_SIZE);
+                msg->msg_controllen = RTCAN_TIMESTAMP_SIZE;
             } else
                 msg->msg_controllen = 0;
         }
@@ -963,20 +960,22 @@ ssize_t rtcan_raw_sendmsg(struct rtdm_dev_context *context,
 
     /* Controller should be operating */
     if (!CAN_STATE_OPERATING(dev->state)) {
+	if (dev->state == CAN_STATE_SLEEPING) {
+	    ret = -ECOMM;
+	    rtdm_lock_put_irqrestore(&dev->device_lock, lock_ctx);
+	    rtdm_sem_up(&dev->tx_sem);
+	    goto send_out1;
+	}
         ret = -ENETDOWN;
-        goto send_out2;
-    } else if (dev->state == CAN_STATE_SLEEPING) {
-        ret = -ECOMM;
-        rtdm_sem_up(&dev->tx_sem);
         goto send_out2;
     }
 
     dev->tx_count++;
-    if ((ret = dev->hard_start_xmit(dev, frame)) != 0)
-	goto send_out2;
+    ret = dev->hard_start_xmit(dev, frame);
 
     /* Return number of bytes sent upon successful completion */
-    ret = sizeof(can_frame_t);
+    if (ret == 0)
+	ret = sizeof(can_frame_t);
 
  send_out2:
     rtdm_lock_put_irqrestore(&dev->device_lock, lock_ctx);

@@ -49,6 +49,7 @@
 /* Sched status flags */
 #define XNKCOUT  0x80000000	/* Sched callout context */
 #define XNHTICK  0x40000000	/* Host tick pending  */
+#define XNRPICK  0x20000000	/* Check RPI state */
 
 /* These flags are available to the real-time interfaces */
 #define XNPOD_SPARE0  0x01000000
@@ -157,7 +158,7 @@ typedef struct xnsched {
 #define xnsched_cpu(__sched__)                  \
     ((__sched__) - &nkpod->sched[0])
 #else /* !CONFIG_SMP */
-#define xnsched_cpu(__sched__) (0)
+#define xnsched_cpu(__sched__) ({ (void)__sched__; 0; })
 #endif /* CONFIG_SMP */
 
 #define xnsched_resched_mask() \
@@ -202,8 +203,6 @@ struct xnpod {
 
 	xnqueue_t threadq;	/*!< All existing threads. */
 	int threadq_rev;	/*!< Modification counter of threadq. */
-
-	volatile u_long schedlck;	/*!< Scheduler lock count. */
 
 	xnqueue_t tstartq,	/*!< Thread start hook queue. */
 	 tswitchq,		/*!< Thread switch hook queue. */
@@ -274,49 +273,6 @@ static inline void xnpod_reset_watchdog(xnsched_t *sched)
 {
 }
 #endif /* CONFIG_XENO_OPT_WATCHDOG */
-static inline int xnpod_get_qdir(xnpod_t *pod)
-{
-	/* Returns the queuing direction of threads for a given pod */
-	return testbits(pod->status, XNRPRIO) ? xnqueue_up : xnqueue_down;
-}
-
-static inline int xnpod_get_minprio(xnpod_t *pod, int incr)
-{
-	return xnpod_get_qdir(pod) == xnqueue_up ?
-	    pod->minpri + incr : pod->minpri - incr;
-}
-
-static inline int xnpod_get_maxprio(xnpod_t *pod, int incr)
-{
-	return xnpod_get_qdir(pod) == xnqueue_up ?
-	    pod->maxpri - incr : pod->maxpri + incr;
-}
-
-static inline int xnpod_compare_prio(int inprio, int outprio)
-{
-	/* Returns a negative, null or positive value whether inprio is
-	   lower than, equal to or greater than outprio. */
-	int delta = inprio - outprio;
-	return testbits(nkpod->status, XNRPRIO) ? -delta : delta;
-}
-
-static inline int xnpod_rescale_prio(int prio)
-{
-	return xnpod_get_qdir(nkpod) == xnqueue_up ?
-	    nkpod->minpri - prio : nkpod->maxpri - prio - 1;
-}
-
-static inline void xnpod_renice_root(int prio)
-{
-	xnthread_t *rootcb;
-	spl_t s;
-
-	xnlock_get_irqsave(&nklock, s);
-	rootcb = &nkpod->sched[xnarch_current_cpu()].rootcb;
-	rootcb->cprio = prio;
-	xnpod_schedule_runnable(rootcb, XNPOD_SCHEDLIFO | XNPOD_NOSWITCH);
-	xnlock_put_irqrestore(&nklock, s);
-}
 
 	/* -- Beginning of the exported interface */
 
@@ -348,7 +304,7 @@ static inline void xnpod_renice_root(int prio)
     (!!xnthread_test_state(xnpod_current_thread(),XNLOCK))
 
 #define xnpod_unblockable_p() \
-    (xnpod_asynch_p() || xnthread_test_state(xnpod_current_thread(),XNLOCK|XNROOT))
+    (xnpod_asynch_p() || xnthread_test_state(xnpod_current_thread(),XNROOT))
 
 #define xnpod_root_p() \
     (!!xnthread_test_state(xnpod_current_thread(),XNROOT))
@@ -367,6 +323,50 @@ static inline void xnpod_renice_root(int prio)
 #define xnpod_idle_p()	xnpod_root_p()
 
 #define xnpod_timeset_p()	(!!testbits(nkpod->status,XNTMSET))
+
+static inline void xnpod_renice_root(int prio)
+{
+	xnthread_t *rootcb;
+	spl_t s;
+
+	xnlock_get_irqsave(&nklock, s);
+	rootcb = xnpod_current_root();
+	rootcb->cprio = prio;
+	xnpod_schedule_runnable(rootcb, XNPOD_SCHEDLIFO | XNPOD_NOSWITCH);
+	xnlock_put_irqrestore(&nklock, s);
+}
+
+static inline int xnpod_get_qdir(xnpod_t *pod)
+{
+	/* Returns the queuing direction of threads for a given pod */
+	return testbits(pod->status, XNRPRIO) ? xnqueue_up : xnqueue_down;
+}
+
+static inline int xnpod_get_minprio(xnpod_t *pod, int incr)
+{
+	return xnpod_get_qdir(pod) == xnqueue_up ?
+	    pod->minpri + incr : pod->minpri - incr;
+}
+
+static inline int xnpod_get_maxprio(xnpod_t *pod, int incr)
+{
+	return xnpod_get_qdir(pod) == xnqueue_up ?
+	    pod->maxpri - incr : pod->maxpri + incr;
+}
+
+static inline int xnpod_compare_prio(int inprio, int outprio)
+{
+	/* Returns a negative, null or positive value whether inprio is
+	   lower than, equal to or greater than outprio. */
+	int delta = inprio - outprio;
+	return testbits(nkpod->status, XNRPRIO) ? -delta : delta;
+}
+
+static inline int xnpod_rescale_prio(int prio)
+{
+	return xnpod_get_qdir(nkpod) == xnqueue_up ?
+	    nkpod->minpri - prio : nkpod->maxpri - prio - 1;
+}
 
 static inline u_long xnpod_get_ticks2sec(void)
 {
@@ -445,24 +445,26 @@ void xnpod_dispatch_signals(void);
 
 static inline void xnpod_lock_sched(void)
 {
+	xnthread_t *runthread = xnpod_current_sched()->runthread;
 	spl_t s;
 
 	xnlock_get_irqsave(&nklock, s);
 
-	if (nkpod->schedlck++ == 0)
-		xnthread_set_state(xnpod_current_sched()->runthread, XNLOCK);
+	if (xnthread_lock_count(runthread)++ == 0)
+		xnthread_set_state(runthread, XNLOCK);
 
 	xnlock_put_irqrestore(&nklock, s);
 }
 
 static inline void xnpod_unlock_sched(void)
 {
+	xnthread_t *runthread = xnpod_current_sched()->runthread;
 	spl_t s;
 
 	xnlock_get_irqsave(&nklock, s);
 
-	if (--nkpod->schedlck == 0) {
-		xnthread_clear_state(xnpod_current_sched()->runthread, XNLOCK);
+	if (--xnthread_lock_count(runthread) == 0) {
+		xnthread_clear_state(runthread, XNLOCK);
 		xnpod_schedule();
 	}
 

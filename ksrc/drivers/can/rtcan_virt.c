@@ -102,8 +102,7 @@ static int rtcan_virt_set_mode(struct rtcan_device *dev, can_mode_t mode,
 		break;
 
 	case CAN_MODE_START:
-		if (dev->state == CAN_STATE_STOPPED)
-			rtdm_sem_init(&dev->tx_sem, VIRT_TX_BUFS);
+		rtdm_sem_init(&dev->tx_sem, VIRT_TX_BUFS);
 		dev->state = CAN_STATE_ACTIVE;
 		break;
 
@@ -126,7 +125,7 @@ static int __init rtcan_virt_init_one(int idx)
 	dev->ctrl_name = virt_ctlr_name;
 	dev->board_name = virt_board_name;
 
-	dev->state = CAN_STATE_STOPPED;
+	rtcan_virt_set_mode(dev, CAN_MODE_STOP, NULL);
 
 	strncpy(dev->name, RTCAN_DEV_NAME, IFNAMSIZ);
 
@@ -186,6 +185,7 @@ static void __exit rtcan_virt_exit(void)
 
 		printk("Unloading %s device %s\n", RTCAN_DRV_NAME, dev->name);
 
+		rtcan_virt_set_mode(dev, CAN_MODE_STOP, NULL);
 		rtcan_dev_unregister(dev);
 		rtcan_dev_free(dev);
 	}

@@ -44,8 +44,14 @@ struct vrtx_task_iargs {
 	xncompletion_t *completionp;
 };
 
+static void (*old_sigharden_handler)(int sig);
+
 static void vrtx_task_sigharden(int sig)
 {
+	if (old_sigharden_handler &&
+	    old_sigharden_handler != &vrtx_task_sigharden)
+		old_sigharden_handler(sig);
+
 	XENOMAI_SYSCALL1(__xn_sys_migrate, XENOMAI_XENO_DOMAIN);
 }
 
@@ -67,7 +73,7 @@ static void *vrtx_task_trampoline(void *cookie)
 	/* vrtx_task_delete requires asynchronous cancellation */
 	pthread_setcanceltype(PTHREAD_CANCEL_ASYNCHRONOUS, NULL);
 
-	signal(SIGCHLD, &vrtx_task_sigharden);
+	old_sigharden_handler = signal(SIGHARDEN, &vrtx_task_sigharden);
 
 	bulk.a1 = (u_long)iargs->tid;
 	bulk.a2 = (u_long)iargs->prio;

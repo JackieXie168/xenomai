@@ -69,6 +69,7 @@ int xnthread_init(xnthread_t *thread,
 
 	thread->state = flags;
 	thread->info = 0;
+	thread->schedlck = 0;
 	thread->signals = 0;
 	thread->asrmode = 0;
 	thread->asrimask = 0;
@@ -104,6 +105,10 @@ int xnthread_init(xnthread_t *thread,
 	inith(&thread->glink);
 	initph(&thread->rlink);
 	initph(&thread->plink);
+#if !defined(CONFIG_XENO_OPT_RPIDISABLE) && defined(CONFIG_XENO_OPT_PERVASIVE)
+	initph(&thread->xlink);
+	thread->rpi = NULL;
+#endif /* !CONFIG_XENO_OPT_RPIDISABLE && CONFIG_XENO_OPT_PERVASIVE */
 	initpq(&thread->claimq, xnpod_get_qdir(nkpod),
 	       xnpod_get_maxprio(nkpod, 0));
 
