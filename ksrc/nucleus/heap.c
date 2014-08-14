@@ -67,18 +67,106 @@ HEAP {
 #include <nucleus/pod.h>
 #include <nucleus/thread.h>
 #include <nucleus/heap.h>
+#include <nucleus/vfile.h>
 #include <nucleus/assert.h>
 #include <asm/xenomai/bits/heap.h>
 
-xnheap_t kheap;		/* System heap */
+struct xnheap kheap;		/* System heap */
 EXPORT_SYMBOL_GPL(kheap);
 
 #if CONFIG_XENO_OPT_SYS_STACKPOOLSZ > 0
-xnheap_t kstacks;	/* Private stack pool */
+struct xnheap kstacks;		/* Private stack pool */
 #endif
 
-static DEFINE_XNQUEUE(heapq);	/* Heap list for /proc reporting */
-static unsigned long heapq_rev;
+static DEFINE_XNQUEUE(heapq);	/* Heap list for v-file dump */
+
+#ifdef CONFIG_XENO_OPT_VFILE
+
+static struct xnvfile_rev_tag vfile_tag;
+
+static struct xnvfile_snapshot_ops vfile_ops;
+
+struct vfile_priv {
+	struct xnholder *curr;
+};
+
+struct vfile_data {
+	size_t usable_mem;
+	size_t used_mem;
+	size_t page_size;
+	char label[XNOBJECT_NAME_LEN+16];
+};
+
+static struct xnvfile_snapshot vfile = {
+	.privsz = sizeof(struct vfile_priv),
+	.datasz = sizeof(struct vfile_data),
+	.tag = &vfile_tag,
+	.ops = &vfile_ops,
+};
+
+static int vfile_rewind(struct xnvfile_snapshot_iterator *it)
+{
+	struct vfile_priv *priv = xnvfile_iterator_priv(it);
+
+	priv->curr = getheadq(&heapq);
+
+	return countq(&heapq);
+}
+
+static int vfile_next(struct xnvfile_snapshot_iterator *it, void *data)
+{
+	struct vfile_priv *priv = xnvfile_iterator_priv(it);
+	struct vfile_data *p = data;
+	struct xnheap *heap;
+
+	if (priv->curr == NULL)
+		return 0;	/* We are done. */
+
+	heap = container_of(priv->curr, struct xnheap, stat_link);
+	priv->curr = nextq(&heapq, priv->curr);
+
+	p->usable_mem = xnheap_usable_mem(heap);
+	p->used_mem = xnheap_used_mem(heap);
+	p->page_size = xnheap_page_size(heap);
+	strncpy(p->label, heap->label, sizeof(p->label));
+
+	return 1;
+}
+
+static int vfile_show(struct xnvfile_snapshot_iterator *it, void *data)
+{
+	struct vfile_data *p = data;
+
+	if (p == NULL)
+		xnvfile_printf(it, "%9s %9s  %6s  %s\n",
+			       "TOTAL", "USED", "PAGESZ", "NAME");
+	else
+		xnvfile_printf(it, "%9Zu %9Zu  %6Zu  %.*s\n",
+			       p->usable_mem,
+			       p->used_mem,
+			       p->page_size,
+			       (int)sizeof(p->label),
+			       p->label);
+	return 0;
+}
+
+static struct xnvfile_snapshot_ops vfile_ops = {
+	.rewind = vfile_rewind,
+	.next = vfile_next,
+	.show = vfile_show,
+};
+
+void xnheap_init_proc(void)
+{
+	xnvfile_init_snapshot("heap", &vfile, &nkvfroot);
+}
+
+void xnheap_cleanup_proc(void)
+{
+	xnvfile_destroy_snapshot(&vfile);
+}
+
+#endif /* CONFIG_XENO_OPT_VFILE */
 
 static void init_extent(xnheap_t *heap, xnextent_t *extent)
 {
@@ -242,7 +330,7 @@ int xnheap_init(xnheap_t *heap,
 
 	xnlock_get_irqsave(&nklock, s);
 	appendq(&heapq, &heap->stat_link);
-	heapq_rev++;
+	xnvfile_touch_tag(&vfile_tag);
 	xnlock_put_irqrestore(&nklock, s);
 
 	xnarch_init_display_context(heap);
@@ -326,7 +414,7 @@ void xnheap_destroy(xnheap_t *heap,
 
 	xnlock_get_irqsave(&nklock, s);
 	removeq(&heapq, &heap->stat_link);
-	heapq_rev++;
+	xnvfile_touch_tag(&vfile_tag);
 	xnlock_put_irqrestore(&nklock, s);
 
 	if (!flushfn)
@@ -1127,7 +1215,7 @@ static inline struct xnheap *__validate_heap_addr(void *addr)
 	return NULL;
 }
 
-static long xnheap_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
+static DECLARE_IOCTL_HANDLER(xnheap_ioctl, file, cmd, arg)
 {
 	file->private_data = (void *)arg;
 	return 0;
@@ -1135,9 +1223,9 @@ static long xnheap_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 
 static int xnheap_mmap(struct file *file, struct vm_area_struct *vma)
 {
-	unsigned long offset, size, vaddr;
+	unsigned long size, vaddr;
 	struct xnheap *heap;
-	int ret;
+	int kmflags, ret;
 
 	if (vma->vm_ops != NULL || file->private_data == NULL)
 		/* Caller should mmap() once for a given file instance, after
@@ -1162,30 +1250,38 @@ static int xnheap_mmap(struct file *file, struct vm_area_struct *vma)
 	vma->vm_private_data = file->private_data;
 	vma->vm_ops = &xnheap_vmops;
 	size = vma->vm_end - vma->vm_start;
+	kmflags = heap->archdep.kmflags;
 	ret = -ENXIO;
 
+	/*
+	 * Cannot map multi-extent heaps, we need the memory area we
+	 * map from to be contiguous.
+	 */
 	if (countq(&heap->extents) > 1)
-		/* Cannot map multi-extent heaps, we need the memory
-		   area we map from to be contiguous. */
 		goto deref_out;
 
-	offset = vma->vm_pgoff << PAGE_SHIFT;
-	vaddr = (unsigned long)xnheap_base_memory(heap);
+	vaddr = vma->vm_pgoff << PAGE_SHIFT;
+
+	/*
+	 * Despite the kernel sees a single backing device with direct
+	 * mapping capabilities (/dev/rtheap), we do map different
+	 * heaps through it, so we want a brand new mapping region for
+	 * each of them in the nommu case. To this end, userland
+	 * always requests mappings on non-overlapping areas for
+	 * different heaps, by passing offset values which are actual
+	 * RAM addresses. We do the same in the MMU case as well, to
+	 * keep a single implementation for both.
+	 */
+	if (vaddr + size >
+	    xnheap_base_memory(heap) + xnheap_extentsize(heap))
+		goto deref_out;
 
 #ifdef CONFIG_MMU
-	/*
-	 * offset is actually an offset from the start of the heap
-	 * memory.
-	 */
-	if (offset + size > xnheap_extentsize(heap))
-		goto deref_out;
-
-	vaddr += offset;
 	ret = -EAGAIN;
-	if ((heap->archdep.kmflags & ~XNHEAP_GFP_NONCACHED) == 0) {
+	if ((kmflags & ~XNHEAP_GFP_NONCACHED) == 0) {
 		unsigned long maddr = vma->vm_start;
 
-		if (heap->archdep.kmflags == XNHEAP_GFP_NONCACHED)
+		if (kmflags == XNHEAP_GFP_NONCACHED)
 			vma->vm_page_prot = pgprot_noncached(vma->vm_page_prot);
 
 		while (size > 0) {
@@ -1198,26 +1294,14 @@ static int xnheap_mmap(struct file *file, struct vm_area_struct *vma)
 		}
 	} else if (xnarch_remap_io_page_range(file,vma,
 					      vma->vm_start,
-					      virt_to_phys((void *)vaddr),
+					      __pa(vaddr),
 					      size, vma->vm_page_prot))
 		goto deref_out;
 
 	xnarch_fault_range(vma);
 #else /* !CONFIG_MMU */
-	/*
-	 * Despite the kernel sees a single backing device with direct
-	 * mapping capabilities (/dev/rtheap), we do map different
-	 * heaps through it, so we want a brand new mapping region for
-	 * each of them. To this end, we must request mappings on
-	 * non-overlapping areas. To make sure of this in the nommu
-	 * case, we request mappings from offsets representing the
-	 * start RAM address of the heap memory.
-	 */
-	if (offset + size > vaddr + xnheap_extentsize(heap))
-		goto deref_out;
-
-	if ((heap->archdep.kmflags & ~XNHEAP_GFP_NONCACHED) != 0 ||
-	    heap->archdep.kmflags == XNHEAP_GFP_NONCACHED)
+	if ((kmflags & ~XNHEAP_GFP_NONCACHED) != 0 ||
+	    kmflags == XNHEAP_GFP_NONCACHED)
 		vma->vm_page_prot = pgprot_noncached(vma->vm_page_prot);
 #endif /* !CONFIG_MMU */
 
@@ -1247,7 +1331,7 @@ static unsigned long xnheap_get_unmapped_area(struct file *file,
 	if (heap == NULL)
 		goto fail;
 
-	area = (unsigned long)xnheap_base_memory(heap);
+	area = xnheap_base_memory(heap);
 	offset = pgoff << PAGE_SHIFT;
 	if (offset < area ||
 	    offset + len > area + xnheap_extentsize(heap))
@@ -1311,9 +1395,14 @@ void xnheap_destroy_mapped(xnheap_t *heap,
 	 */
 	XENO_ASSERT(NUCLEUS, mapaddr == NULL || release, /* nop */);
 
+	if (XENO_DEBUG(NUCLEUS) && heap->ubytes != 0)
+		printk(KERN_ERR "xnheap: destroying shared heap '%s' "
+		       "with %lu bytes still in use.\n",
+		       heap->label, heap->ubytes);
+
 	xnlock_get_irqsave(&nklock, s);
 	removeq(&heapq, &heap->stat_link);
-	heapq_rev++;
+	xnvfile_touch_tag(&vfile_tag);
 	xnlock_put_irqrestore(&nklock, s);
 
 	len = xnheap_extentsize(heap);
@@ -1422,75 +1511,6 @@ void xnheap_destroy_mapped(xnheap_t *heap,
 	xnheap_destroy(heap, &xnheap_free_extent, NULL);
 }
 #endif /* !CONFIG_XENO_OPT_PERVASIVE */
-
-#ifdef CONFIG_PROC_FS
-
-#include <linux/proc_fs.h>
-
-static int heap_read_proc(char *page,
-			  char **start,
-			  off_t off, int count, int *eof, void *data)
-{
-	unsigned long rev;
-	xnholder_t *entry;
-	xnheap_t *heap;
-	int len;
-	spl_t s;
-
-	if (!xnpod_active_p())
-		return -ESRCH;
-
-	xnlock_get_irqsave(&nklock, s);
-
-restart:
-	len = 0;
-
-	entry = getheadq(&heapq);
-	while (entry) {
-		heap = container_of(entry, xnheap_t, stat_link);
-		len += sprintf(page + len,
-			       "size=%lu:used=%lu:pagesz=%lu  (%s)\n",
-			       xnheap_usable_mem(heap),
-			       xnheap_used_mem(heap),
-			       xnheap_page_size(heap),
-			       heap->label);
-
-		rev = heapq_rev;
-
-		xnlock_sync_irq(&nklock, s);
-
-		if (heapq_rev != rev)
-			goto restart;
-
-		entry = nextq(&heapq, entry);
-	}
-
-	xnlock_put_irqrestore(&nklock, s);
-
-	len -= off;
-	if (len <= off + count)
-		*eof = 1;
-	*start = page + off;
-	if (len > count)
-		len = count;
-	if (len < 0)
-		len = 0;
-
-	return len;
-}
-
-void xnheap_init_proc(void)
-{
-	rthal_add_proc_leaf("heap", &heap_read_proc, NULL, NULL,
-			    rthal_proc_root);
-}
-
-void xnheap_cleanup_proc(void)
-{
-	remove_proc_entry("heap", rthal_proc_root);
-}
-
-#endif /* CONFIG_PROC_FS */
 
 EXPORT_SYMBOL_GPL(xnheap_init_mapped);
 EXPORT_SYMBOL_GPL(xnheap_destroy_mapped);

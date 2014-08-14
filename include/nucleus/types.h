@@ -22,11 +22,6 @@
 
 #ifdef __KERNEL__
 #include <linux/errno.h>
-#ifdef CONFIG_PREEMPT_RT
-#define linux_semaphore compat_semaphore
-#else /* CONFIG_PREEMPT_RT */
-#define linux_semaphore semaphore
-#endif /* !CONFIG_PREEMPT_RT */
 #else /* !__KERNEL__ */
 #include <stdio.h>
 #include <string.h>
@@ -125,7 +120,7 @@ typedef atomic_flags_t xnflags_t;
 extern "C" {
 #endif
 
-const char *xnpod_fatal_helper(const char *format, ...);
+void xnpod_fatal_helper(const char *format, ...);
 
 int __xeno_user_init(void);
 
@@ -139,13 +134,13 @@ void __xeno_user_exit(void);
 #define xnloginfo(fmt,args...) xnarch_loginfo(fmt , ##args)
 #define xnlogwarn(fmt,args...) xnarch_logwarn(fmt , ##args)
 #define xnlogerr(fmt,args...)  xnarch_logerr(fmt , ##args)
+#define xnlogerr_noprompt(fmt,args...) xnarch_logerr_noprompt(fmt , ##args)
 
 #define xnpod_fatal(format,args...) \
 do { \
-    const char *panic; \
-    xnarch_trace_panic_freeze(); \
-    panic = xnpod_fatal_helper(format,##args); \
-    xnarch_halt(panic); \
+	xnarch_begin_panic(); \
+	xnpod_fatal_helper(format,##args); \
+	xnarch_halt(); \
 } while (0)
 
 #ifdef __XENO_SIM__

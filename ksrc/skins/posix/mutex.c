@@ -219,10 +219,6 @@ void pse51_mutex_destroy_internal(pse51_mutex_t *mutex,
 	xnlock_put_irqrestore(&nklock, s);
 
 #ifdef CONFIG_XENO_FASTSYNCH
-	/* We call xnheap_free even if the mutex is not pshared; when
-	   this function is called from pse51_mutexq_cleanup, the
-	   sem_heap is destroyed, or not the one to which the fastlock
-	   belongs, xnheap will simply return an error. */
 	xnheap_free(&xnsys_ppd_get(mutex->attr.pshared)->sem_heap,
 		    mutex->synchbase.fastlock);
 #endif /* CONFIG_XENO_FASTSYNCH */
@@ -669,9 +665,9 @@ void pse51_mutex_pkg_cleanup(void)
 
 /*@}*/
 
-EXPORT_SYMBOL(pthread_mutex_init);
-EXPORT_SYMBOL(pthread_mutex_destroy);
-EXPORT_SYMBOL(pthread_mutex_trylock);
-EXPORT_SYMBOL(pthread_mutex_lock);
-EXPORT_SYMBOL(pthread_mutex_timedlock);
-EXPORT_SYMBOL(pthread_mutex_unlock);
+EXPORT_SYMBOL_GPL(pthread_mutex_init);
+EXPORT_SYMBOL_GPL(pthread_mutex_destroy);
+EXPORT_SYMBOL_GPL(pthread_mutex_trylock);
+EXPORT_SYMBOL_GPL(pthread_mutex_lock);
+EXPORT_SYMBOL_GPL(pthread_mutex_timedlock);
+EXPORT_SYMBOL_GPL(pthread_mutex_unlock);

@@ -424,6 +424,8 @@ xnflags_t xnsynch_acquire(struct xnsynch *synch, xnticks_t timeout,
 						 XN_NO_HANDLE, threadh);
 
 		if (likely(fastlock == XN_NO_HANDLE)) {
+			if (xnthread_test_state(thread, XNOTHER))
+				xnthread_inc_rescnt(thread);
 			xnthread_clear_info(thread,
 					    XNRMID | XNTIMEO | XNBREAK);
 			return 0;
@@ -474,6 +476,8 @@ xnflags_t xnsynch_acquire(struct xnsynch *synch, xnticks_t timeout,
 
 		if (!owner) {
 			synch->owner = thread;
+			if (xnthread_test_state(thread, XNOTHER))
+				xnthread_inc_rescnt(thread);
 			xnthread_clear_info(thread,
 					    XNRMID | XNTIMEO | XNBREAK);
 			goto unlock_and_exit;
@@ -537,6 +541,9 @@ xnflags_t xnsynch_acquire(struct xnsynch *synch, xnticks_t timeout,
 	} else {
 
 	      grab_and_exit:
+
+		if (xnthread_test_state(thread, XNOTHER))
+			xnthread_inc_rescnt(thread);
 
 		if (use_fastlock) {
 			xnarch_atomic_t *lockp = xnsynch_fastlock(synch);
@@ -666,6 +673,65 @@ void xnsynch_requeue_sleeper(struct xnthread *thread)
 }
 EXPORT_SYMBOL_GPL(xnsynch_requeue_sleeper);
 
+static struct xnthread *
+xnsynch_release_thread(struct xnsynch *synch, struct xnthread *lastowner)
+{
+	const int use_fastlock = xnsynch_fastlock_p(synch);
+	xnhandle_t lastownerh, newownerh;
+	struct xnthread *newowner;
+	struct xnpholder *holder;
+	spl_t s;
+
+	XENO_BUGON(NUCLEUS, !testbits(synch->status, XNSYNCH_OWNER));
+
+	if (xnthread_test_state(lastowner, XNOTHER)) {
+		if (xnthread_get_rescnt(lastowner) == 0)
+			xnshadow_send_sig(lastowner, SIGDEBUG,
+					  SIGDEBUG_MIGRATE_PRIOINV, 1);
+		else
+			xnthread_dec_rescnt(lastowner);
+	}
+	lastownerh = xnthread_handle(lastowner);
+
+	if (use_fastlock &&
+	    likely(xnsynch_fast_release(xnsynch_fastlock(synch), lastownerh)))
+		return NULL;
+
+	xnlock_get_irqsave(&nklock, s);
+
+	trace_mark(xn_nucleus, synch_release, "synch %p", synch);
+
+	holder = getpq(&synch->pendq);
+	if (holder) {
+		newowner = link2thread(holder, plink);
+		newowner->wchan = NULL;
+		newowner->wwake = synch;
+		synch->owner = newowner;
+		xnthread_set_info(newowner, XNWAKEN);
+		xnpod_resume_thread(newowner, XNPEND);
+
+		if (testbits(synch->status, XNSYNCH_CLAIMED))
+			xnsynch_clear_boost(synch, lastowner);
+
+		newownerh = xnsynch_fast_set_claimed(xnthread_handle(newowner),
+						     xnsynch_pended_p(synch));
+	} else {
+		newowner = NULL;
+		synch->owner = NULL;
+		newownerh = XN_NO_HANDLE;
+	}
+	if (use_fastlock) {
+		xnarch_atomic_t *lockp = xnsynch_fastlock(synch);
+		xnarch_atomic_set(lockp, newownerh);
+	}
+
+	xnlock_put_irqrestore(&nklock, s);
+
+	xnarch_post_graph_if(synch, 0, emptypq_p(&synch->pendq));
+
+	return newowner;
+}
+
 /*!
  * \fn struct xnthread *xnsynch_release(struct xnsynch *synch);
  * \brief Give the resource ownership to the next waiting thread.
@@ -703,57 +769,9 @@ EXPORT_SYMBOL_GPL(xnsynch_requeue_sleeper);
  *
  * Rescheduling: never.
  */
-
 struct xnthread *xnsynch_release(struct xnsynch *synch)
 {
-	const int use_fastlock = xnsynch_fastlock_p(synch);
-	struct xnthread *newowner, *lastowner;
-	xnhandle_t lastownerh, newownerh;
-	struct xnpholder *holder;
-	spl_t s;
-
-	XENO_BUGON(NUCLEUS, !testbits(synch->status, XNSYNCH_OWNER));
-
-	lastownerh = xnthread_handle(xnpod_current_thread());
-
-	if (use_fastlock &&
-	    likely(xnsynch_fast_release(xnsynch_fastlock(synch), lastownerh)))
-		return NULL;
-
-	xnlock_get_irqsave(&nklock, s);
-
-	trace_mark(xn_nucleus, synch_release, "synch %p", synch);
-
-	holder = getpq(&synch->pendq);
-	if (holder) {
-		newowner = link2thread(holder, plink);
-		newowner->wchan = NULL;
-		newowner->wwake = synch;
-		lastowner = synch->owner;
-		synch->owner = newowner;
-		xnthread_set_info(newowner, XNWAKEN);
-		xnpod_resume_thread(newowner, XNPEND);
-
-		if (testbits(synch->status, XNSYNCH_CLAIMED))
-			xnsynch_clear_boost(synch, lastowner);
-
-		newownerh = xnsynch_fast_set_claimed(xnthread_handle(newowner),
-						     xnsynch_pended_p(synch));
-	} else {
-		newowner = NULL;
-		synch->owner = NULL;
-		newownerh = XN_NO_HANDLE;
-	}
-	if (use_fastlock) {
-		xnarch_atomic_t *lockp = xnsynch_fastlock(synch);
-		xnarch_atomic_set(lockp, newownerh);
-	}
-
-	xnlock_put_irqrestore(&nklock, s);
-
-	xnarch_post_graph_if(synch, 0, emptypq_p(&synch->pendq));
-
-	return newowner;
+	return xnsynch_release_thread(synch, xnpod_current_thread());
 }
 EXPORT_SYMBOL_GPL(xnsynch_release);
 
@@ -970,7 +988,7 @@ void xnsynch_release_all_ownerships(struct xnthread *thread)
 		 */
 		synch = link2synch(holder);
 		nholder = nextpq(&thread->claimq, holder);
-		xnsynch_release(synch);
+		xnsynch_release_thread(synch, thread);
 		if (synch->cleanup)
 			synch->cleanup(synch);
 	}
@@ -985,13 +1003,14 @@ EXPORT_SYMBOL_GPL(xnsynch_release_all_ownerships);
  */
 void xnsynch_detect_relaxed_owner(struct xnsynch *synch, struct xnthread *sleeper)
 {
-	if (xnthread_test_state(sleeper, XNTRAPSW|XNSWREP) == XNTRAPSW &&
+	if (xnthread_test_state(sleeper, XNTRAPSW) &&
+	    xnthread_test_info(sleeper, XNSWREP) &&
 	    xnthread_test_state(synch->owner, XNRELAX)) {
-		xnthread_set_state(sleeper, XNSWREP);
+		xnthread_set_info(sleeper, XNSWREP);
 		xnshadow_send_sig(sleeper, SIGDEBUG,
 				  SIGDEBUG_MIGRATE_PRIOINV, 1);
 	} else
-		xnthread_clear_state(sleeper,  XNSWREP);
+		xnthread_clear_info(sleeper,  XNSWREP);
 }
 
 /*
@@ -1015,7 +1034,7 @@ void xnsynch_detect_claimed_relax(struct xnthread *owner)
 		     ht = nextpq(&synch->pendq, ht)) {
 			sleeper = link2thread(ht, plink);
 			if (xnthread_test_state(sleeper, XNTRAPSW)) {
-				xnthread_set_state(sleeper, XNSWREP);
+				xnthread_set_info(sleeper, XNSWREP);
 				xnshadow_send_sig(sleeper, SIGDEBUG,
 						  SIGDEBUG_MIGRATE_PRIOINV, 1);
 			}

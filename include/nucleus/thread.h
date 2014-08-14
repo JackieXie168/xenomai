@@ -62,7 +62,7 @@
 #define XNFPU     0x00100000 /**< Thread uses FPU */
 #define XNSHADOW  0x00200000 /**< Shadow thread */
 #define XNROOT    0x00400000 /**< Root thread (that is, Linux/IDLE) */
-#define XNSWREP   0x00800000 /**< Mode switch already reported */
+#define XNOTHER   0x00800000 /**< Non real-time shadow (prio=0) */
 
 /*! @} */ /* Ends doxygen comment group: nucleus_state_flags */
 
@@ -117,6 +117,7 @@
 #define XNABORT   0x00000200 /**< Thread is being aborted */
 #define XNCANPND  0x00000400 /**< Cancellation request is pending */
 #define XNAMOK    0x00000800 /**< Runaway, watchdog signal pending (shadow only) */
+#define XNSWREP   0x00001000 /**< Mode switch already reported */
 
 /* These information flags are available to the real-time interfaces */
 #define XNTHREAD_INFO_SPARE0  0x10000000
@@ -255,6 +256,8 @@ typedef struct xnthread {
 
 	struct xnsynch *wwake;		/* Wait channel the thread was resumed from */
 
+	int hrescnt;			/* Held resources count */
+
 	xntimer_t rtimer;		/* Resource timer */
 
 	xntimer_t ptimer;		/* Periodic timer */
@@ -326,9 +329,7 @@ typedef struct xnthread {
 	void *cookie;		/* Cookie to pass to the entry routine */
 
 #ifdef CONFIG_XENO_OPT_PERVASIVE
-	unsigned long __user *u_mode;	/* Thread mode variable in userland. */
-
-	unsigned u_sigpending;		/* One bit per skin */
+	unsigned long *u_mode;	/* Thread mode variable shared with userland. */
 #endif /* CONFIG_XENO_OPT_PERVASIVE */
 
     XNARCH_DECL_DISPLAY_CONTEXT();
@@ -389,10 +390,13 @@ typedef struct xnhook {
 #define xnthread_get_exectime(thread)      xnstat_exectime_get_total(&(thread)->stat.account)
 #define xnthread_get_lastswitch(thread)    xnstat_exectime_get_last_switch((thread)->sched)
 #ifdef CONFIG_XENO_OPT_PERVASIVE
-#define xnthread_sigpending(thread) ((thread)->u_sigpending)
-#define xnthread_set_sigpending(thread, pending) \
-	((thread)->u_sigpending = (pending))
-#endif /* CONFIG_XENO_OPT_PERVASIVE */
+#define xnthread_inc_rescnt(thread)        ({ (thread)->hrescnt++; })
+#define xnthread_dec_rescnt(thread)        ({ --(thread)->hrescnt; })
+#define xnthread_get_rescnt(thread)        ((thread)->hrescnt)
+#else /* !CONFIG_XENO_OPT_PERVASIVE */
+#define xnthread_inc_rescnt(thread)        do { } while (0)
+#define xnthread_dec_rescnt(thread)        do { } while (0)
+#endif /* !CONFIG_XENO_OPT_PERVASIVE */
 #ifdef CONFIG_XENO_OPT_WATCHDOG
 #define xnthread_amok_p(thread)            xnthread_test_info(thread, XNAMOK)
 #define xnthread_clear_amok(thread)        xnthread_clear_info(thread, XNAMOK)

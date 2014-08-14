@@ -10,13 +10,13 @@ SUBDIRS = \
 	asm-powerpc \
 	asm-arm \
 	asm-nios2 \
+	asm-sh \
 	asm-sim \
 	analogy \
 	native \
 	nucleus \
 	posix \
 	psos+ \
-	rtai \
 	rtdm \
 	uitron \
 	vrtx \

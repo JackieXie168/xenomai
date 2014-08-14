@@ -46,11 +46,13 @@
 #define T_STARTED  XNSTARTED  /**< See #XNSTARTED */
 #define T_BOOST    XNBOOST    /**< See #XNBOOST   */
 #define T_LOCK     XNLOCK     /**< See #XNLOCK    */
-#define T_NOSIG    XNASDI     /**< See #XNASDI    */
-#define T_WARNSW   XNTRAPSW   /**< See #XNTRAPSW  */
-#define T_RPIOFF   XNRPIOFF   /**< See #XNRPIOFF  */
-#define T_PRIMARY  0x00000200	/* Recycle internal bits status which */
-#define T_JOINABLE 0x00000400	/* won't be passed to the nucleus.  */
+#define T_NOSIG    XNASDI     /**< See #XNASDI    */ 
+#define T_WARNSW   XNTRAPSW   /**< See #XNTRAPSW  */ 
+#define T_RPIOFF   XNRPIOFF   /**< See #XNRPIOFF  */ 
+
+/* Pseudo-status bits (no conflict with other T_* bits) */
+#define T_CONFORMING  0x00000200
+#define T_JOINABLE    0x00000400
 /*! @} */ /* Ends doxygen-group native_task_status */
 
 /* Task hook types. */

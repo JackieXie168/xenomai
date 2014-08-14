@@ -154,8 +154,8 @@ static void pse51_shm_put(pse51_shm_t * shm, unsigned dec)
 		pse51_node_put(&shm->nodebase);
 
 	if (pse51_node_removed_p(&shm->nodebase)) {
-		xnlock_put_irqrestore(&nklock, s);
 		pse51_shm_destroy(shm, 0);
+		xnlock_put_irqrestore(&nklock, s);
 		xnfree(shm);
 	} else
 		xnlock_put_irqrestore(&nklock, s);
@@ -942,9 +942,9 @@ void pse51_shm_pkg_cleanup(void)
 
 /*@}*/
 
-EXPORT_SYMBOL(shm_open);
-EXPORT_SYMBOL(shm_unlink);
-EXPORT_SYMBOL(pse51_shm_close);
-EXPORT_SYMBOL(ftruncate);
-EXPORT_SYMBOL(mmap);
-EXPORT_SYMBOL(munmap);
+EXPORT_SYMBOL_GPL(shm_open);
+EXPORT_SYMBOL_GPL(shm_unlink);
+EXPORT_SYMBOL_GPL(pse51_shm_close);
+EXPORT_SYMBOL_GPL(ftruncate);
+EXPORT_SYMBOL_GPL(mmap);
+EXPORT_SYMBOL_GPL(munmap);

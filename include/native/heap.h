@@ -34,6 +34,7 @@
 #define H_SINGLE   0x400	/* Manage as single-block area. */
 #define H_SHARED   (H_MAPPABLE|H_SINGLE) /* I.e. shared memory segment. */
 #define H_NONCACHED 0x800
+#define H_DMA32     0x1000      /* Use memory suitable for DMA32. */
 
 /** Structure containing heap-information useful to users.
  *
@@ -62,7 +63,7 @@ typedef struct rt_heap_placeholder {
 	void *opaque2;
 	caddr_t mapbase;
 	size_t mapsize;
-	xnheap_area_decl();
+	unsigned long area;
 } RT_HEAP_PLACEHOLDER;
 
 #if defined(__KERNEL__) || defined(__XENO_SIM__)

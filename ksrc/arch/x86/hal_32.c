@@ -11,7 +11,7 @@
  *
  *   RTAI/x86 rewrite over Adeos: \n
  *   Copyright &copy; 2002-2007 Philippe Gerum.
- *   NMI watchdog, SMI workaround: \n
+ *   SMI workaround: \n
  *   Copyright &copy; 2004 Gilles Chanteperdrix.
  *
  *   Xenomai is free software; you can redistribute it and/or
@@ -337,16 +337,6 @@ int rthal_arch_init(void)
 		rthal_smi_restore();
 		return -ENODEV;
 	}
-#ifdef CONFIG_GENERIC_CLOCKEVENTS
-	if (nmi_watchdog == NMI_IO_APIC) {
-		printk("Xenomai: NMI kernel watchdog set to NMI_IO_APIC (nmi_watchdog=1).\n"
-		       "         This will disable the LAPIC as a clock device, and\n"
-		       "         cause Xenomai to fail providing any timing service.\n"
-		       "         Use NMI_LOCAL_APIC (nmi_watchdog=2), or disable the\n"
-		       "         NMI support entirely (nmi_watchdog=0).");
-		return -ENODEV;
-	}
-#endif
 #elif LINUX_VERSION_CODE < KERNEL_VERSION(2,6,0) && !defined(CONFIG_X86_TSC) && defined(CONFIG_VT)
 	/* Prevent the speaker code from bugging our TSC emulation, also
 	   based on PIT channel 2. kd_mksound is exported by the Adeos
@@ -382,8 +372,8 @@ void rthal_arch_cleanup(void)
 
 /*@}*/
 
-EXPORT_SYMBOL(rthal_arch_init);
-EXPORT_SYMBOL(rthal_arch_cleanup);
+EXPORT_SYMBOL_GPL(rthal_arch_init);
+EXPORT_SYMBOL_GPL(rthal_arch_cleanup);
 #ifndef CONFIG_X86_TSC
-EXPORT_SYMBOL(rthal_get_8254_tsc);
+EXPORT_SYMBOL_GPL(rthal_get_8254_tsc);
 #endif /* !CONFIG_X86_TSC */

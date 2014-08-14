@@ -26,6 +26,7 @@
 #include <memory.h>
 #include <string.h>
 #include <psos+/psos.h>
+#include <psos+/long_names.h>
 #include <asm-generic/bits/sigshadow.h>
 #include <asm-generic/bits/current.h>
 #include <asm-generic/stack.h>
@@ -62,7 +63,9 @@ static void *psos_task_trampoline(void *cookie)
 {
 	struct psos_task_iargs *iargs = (struct psos_task_iargs *)cookie;
 	void (*entry)(u_long, u_long, u_long, u_long);
+	volatile pthread_t tid = pthread_self();
 	struct psos_arg_bulk bulk;
+	unsigned long mode_offset;
 	u_long handle, targs[4];
 	long err;
 
@@ -72,8 +75,8 @@ static void *psos_task_trampoline(void *cookie)
 	bulk.a1 = (u_long)iargs->name;
 	bulk.a2 = (u_long)iargs->prio;
 	bulk.a3 = (u_long)iargs->flags;
-	bulk.a4 = (u_long)xeno_init_current_mode();
-	bulk.a5 = (u_long)pthread_self();
+	bulk.a4 = (u_long)&mode_offset;
+	bulk.a5 = (u_long)tid;
 
 	if (!bulk.a4) {
 		err = -ENOMEM;
@@ -87,6 +90,7 @@ static void *psos_task_trampoline(void *cookie)
 		goto fail;
 
 	xeno_set_current();
+	xeno_set_current_mode(mode_offset);
 
 	/* Wait on the barrier for the task to be started. The barrier
 	   could be released in order to process Linux signals while the
@@ -107,7 +111,7 @@ static void *psos_task_trampoline(void *cookie)
 
       fail:
 
-	pthread_exit((void *)err);
+	return (void *)err;
 }
 
 u_long t_create(const char *name,
@@ -121,9 +125,12 @@ u_long t_create(const char *name,
 	xncompletion_t completion;
 	struct sched_param param;
 	pthread_attr_t thattr;
+	char short_name[5];
 	pthread_t thid;
 	int policy;
 	long err;
+
+	name = __psos_maybe_short_name(short_name, name);
 
 	/* Migrate this thread to the Linux domain since we are about
 	   to issue a series of regular kernel syscalls in order to
@@ -173,6 +180,7 @@ u_long t_shadow(const char *name, /* Xenomai extension. */
 		u_long *tid_r)
 {
 	struct psos_arg_bulk bulk;
+	unsigned long mode_offset;
 	int ret;
 
 	xeno_fault_stack();
@@ -183,12 +191,14 @@ u_long t_shadow(const char *name, /* Xenomai extension. */
 	bulk.a1 = (u_long)name;
 	bulk.a2 = (u_long)prio;
 	bulk.a3 = (u_long)flags;
-	bulk.a4 = (u_long)xeno_init_current_mode();
+	bulk.a4 = (u_long)&mode_offset;
 	bulk.a5 = (u_long)pthread_self();
 
 	ret = XENOMAI_SKINCALL3(__psos_muxid, __psos_t_create, &bulk, tid_r, NULL);
-	if (!ret)
+	if (!ret) {
 		xeno_set_current();
+		xeno_set_current_mode(mode_offset);
+	}
 
 	return ret;
 }
@@ -263,6 +273,10 @@ u_long t_getreg(u_long tid, u_long regnum, u_long *regvalue_r)
 
 u_long t_ident(const char *name, u_long nodeno, u_long *tid_r)
 {
+	char short_name[5];
+
+	name = __psos_maybe_short_name(short_name, name);
+
 	return XENOMAI_SKINCALL2(__psos_muxid, __psos_t_ident, name, tid_r);
 }
 

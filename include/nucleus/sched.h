@@ -35,6 +35,7 @@
 #include <nucleus/schedqueue.h>
 #include <nucleus/sched-tp.h>
 #include <nucleus/sched-sporadic.h>
+#include <nucleus/vfile.h>
 
 /* Sched status flags */
 #define XNKCOUT		0x80000000	/* Sched callout context */
@@ -110,8 +111,7 @@ typedef struct xnsched {
 
 #ifdef CONFIG_XENO_OPT_PERVASIVE
 	struct task_struct *gatekeeper;
-	wait_queue_head_t gkwaitq;
-	struct linux_semaphore gksync;
+	struct semaphore gksync;
 	struct xnthread *gktarget;
 #endif
 
@@ -148,10 +148,10 @@ struct xnsched_class {
 	void (*sched_suspend_rpi)(struct xnthread *thread);
 	void (*sched_resume_rpi)(struct xnthread *thread);
 #endif
-#ifdef CONFIG_PROC_FS
-	void (*sched_init_proc)(struct proc_dir_entry *root);
-	void (*sched_cleanup_proc)(struct proc_dir_entry *root);
-	struct proc_dir_entry *proc;
+#ifdef CONFIG_XENO_OPT_VFILE
+	int (*sched_init_vfile)(struct xnsched_class *schedclass,
+				struct xnvfile_directory *vfroot);
+	void (*sched_cleanup_vfile)(struct xnsched_class *schedclass);
 #endif
 	int nthreads;
 	struct xnsched_class *next;
@@ -254,7 +254,7 @@ static inline void xnsched_reset_watchdog(struct xnsched *sched)
 #include <nucleus/sched-idle.h>
 #include <nucleus/sched-rt.h>
 
-void xnsched_init_proc(void);
+int xnsched_init_proc(void);
 
 void xnsched_cleanup_proc(void);
 

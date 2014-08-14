@@ -197,7 +197,7 @@ static int __pthread_create(struct pt_regs *regs)
 
 static pthread_t __pthread_shadow(struct task_struct *p,
 				  struct pse51_hkey *hkey,
-				  unsigned long __user *u_mode)
+				  unsigned long __user *u_mode_offset)
 {
 	pthread_attr_t attr;
 	pthread_t k_tid;
@@ -212,7 +212,7 @@ static pthread_t __pthread_shadow(struct task_struct *p,
 	if (err)
 		return ERR_PTR(-err);
 
-	err = xnshadow_map(&k_tid->threadbase, NULL, u_mode);
+	err = xnshadow_map(&k_tid->threadbase, NULL, u_mode_offset);
 
 	if (!err && !__pthread_hash(hkey, k_tid))
 		err = -EAGAIN;
@@ -228,13 +228,13 @@ static pthread_t __pthread_shadow(struct task_struct *p,
 static int __pthread_setschedparam(struct pt_regs *regs)
 {
 	int policy, err, promoted = 0;
-	unsigned long __user *u_mode;
+	unsigned long __user *u_mode_offset;
 	struct sched_param param;
 	struct pse51_hkey hkey;
 	pthread_t k_tid;
 
 	policy = __xn_reg_arg2(regs);
-	u_mode = (unsigned long __user *)__xn_reg_arg4(regs);
+	u_mode_offset = (unsigned long __user *)__xn_reg_arg4(regs);
 
 	if (__xn_safe_copy_from_user(&param,
 				     (void __user *)__xn_reg_arg3(regs), sizeof(param)))
@@ -244,10 +244,10 @@ static int __pthread_setschedparam(struct pt_regs *regs)
 	hkey.mm = current->mm;
 	k_tid = __pthread_find(&hkey);
 
-	if (!k_tid && u_mode) {
+	if (!k_tid && u_mode_offset) {
 		/* If the syscall applies to "current", and the latter is not
 		   a Xenomai thread already, then shadow it. */
-		k_tid = __pthread_shadow(current, &hkey, u_mode);
+		k_tid = __pthread_shadow(current, &hkey, u_mode_offset);
 		if (IS_ERR(k_tid))
 			return PTR_ERR(k_tid);
 
@@ -271,13 +271,13 @@ static int __pthread_setschedparam(struct pt_regs *regs)
 static int __pthread_setschedparam_ex(struct pt_regs *regs)
 {
 	int policy, err, promoted = 0;
-	unsigned long __user *u_mode;
+	unsigned long __user *u_mode_offset;
 	struct sched_param_ex param;
 	struct pse51_hkey hkey;
 	pthread_t k_tid;
 
 	policy = __xn_reg_arg2(regs);
-	u_mode = (unsigned long __user *)__xn_reg_arg4(regs);
+	u_mode_offset = (unsigned long __user *)__xn_reg_arg4(regs);
 
 	if (__xn_safe_copy_from_user(&param,
 				     (void __user *)__xn_reg_arg3(regs), sizeof(param)))
@@ -287,8 +287,8 @@ static int __pthread_setschedparam_ex(struct pt_regs *regs)
 	hkey.mm = current->mm;
 	k_tid = __pthread_find(&hkey);
 
-	if (!k_tid && u_mode) {
-		k_tid = __pthread_shadow(current, &hkey, u_mode);
+	if (!k_tid && u_mode_offset) {
+		k_tid = __pthread_shadow(current, &hkey, u_mode_offset);
 		if (IS_ERR(k_tid))
 			return PTR_ERR(k_tid);
 
@@ -442,6 +442,7 @@ static int __pthread_kill(struct pt_regs *regs)
 {
 	struct pse51_hkey hkey;
 	pthread_t k_tid;
+	int sig, ret;
 
 	hkey.u_tid = __xn_reg_arg1(regs);
 	hkey.mm = current->mm;
@@ -449,8 +450,25 @@ static int __pthread_kill(struct pt_regs *regs)
 
 	if (!k_tid)
 		return -ESRCH;
+	/*
+	 * We have to take care of self-suspension, when the
+	 * underlying shadow thread is currently relaxed. In that
+	 * case, we must switch back to primary before issuing the
+	 * suspend call to the nucleus in pthread_kill(). Marking the
+	 * __pthread_kill syscall as __xn_exec_primary would be
+	 * overkill, since no other signal would require this, so we
+	 * handle that case locally here.
+	 */
+	sig = __xn_reg_arg2(regs);
+	if (sig == SIGSUSP && xnpod_current_p(&k_tid->threadbase)) {
+		if (!xnpod_shadow_p()) {
+			ret = xnshadow_harden();
+			if (ret)
+				return ret;
+		}
+	}
 
-	return -pthread_kill(k_tid, __xn_reg_arg2(regs));
+	return -pthread_kill(k_tid, sig);
 }
 
 static int __sem_init(struct pt_regs *regs)
@@ -677,8 +695,8 @@ static int __sem_close(struct pt_regs *regs)
 	pse51_assoc_t *assoc;
 	union __xeno_sem sm;
 	unsigned long uaddr;
+	int closed = 0, err;
 	pse51_usem_t *usm;
-	int closed, err;
 	spl_t s;
 
 	uaddr = (unsigned long)__xn_reg_arg1(regs);
@@ -700,16 +718,19 @@ static int __sem_close(struct pt_regs *regs)
 
 	usm = assoc2usem(assoc);
 
-	if ((closed = (--usm->refcnt == 0)))
+	err = sem_close(&sm.native_sem);
+
+	if (!err && (closed = (--usm->refcnt == 0)))
 		pse51_assoc_remove(&pse51_queues()->usems,
 				   (u_long)sm.shadow_sem.sem);
-
-	err = sem_close(&sm.native_sem);
 
 	xnlock_put_irqrestore(&pse51_assoc_lock, s);
 
 	if (err)
 		return -thread_get_errno();
+
+	if (closed)
+		xnfree(usm);
 
 	return __xn_safe_copy_to_user((void __user *)__xn_reg_arg2(regs),
 				      &closed, sizeof(int));
@@ -1513,15 +1534,21 @@ static int __pthread_cond_destroy(struct pt_regs *regs)
 				      &cnd.shadow_cond, sizeof(ucnd->shadow_cond));
 }
 
+struct us_cond_data {
+	unsigned count;
+	int err;
+};
+
 /* pthread_cond_wait_prologue(cond, mutex, count_ptr, timed, timeout) */
 static int __pthread_cond_wait_prologue(struct pt_regs *regs)
 {
 	xnthread_t *cur = xnshadow_thread(current);
 	union __xeno_cond cnd, *ucnd;
 	union __xeno_mutex mx, *umx;
-	unsigned timed, count;
+	struct us_cond_data d;
 	struct timespec ts;
 	int err, perr = 0;
+	unsigned timed;
 
 	ucnd = (union __xeno_cond *)__xn_reg_arg1(regs);
 	umx = (union __xeno_mutex *)__xn_reg_arg2(regs);
@@ -1552,21 +1579,22 @@ static int __pthread_cond_wait_prologue(struct pt_regs *regs)
 		err = pse51_cond_timedwait_prologue(cur,
 						    &cnd.shadow_cond,
 						    &mx.shadow_mutex,
-						    &count,
+						    &d.count,
 						    timed,
 						    ts2ticks_ceil(&ts) + 1);
 	} else
 		err = pse51_cond_timedwait_prologue(cur,
 						    &cnd.shadow_cond,
 						    &mx.shadow_mutex,
-						    &count, timed, XN_INFINITE);
+						    &d.count,
+						    timed, XN_INFINITE);
 
 	switch(err) {
 	case 0:
 	case ETIMEDOUT:
-		perr = errno = err;
+		perr = d.err = err;
 		err = -pse51_cond_timedwait_epilogue(cur, &cnd.shadow_cond,
-					    	    &mx.shadow_mutex, count);
+					    	    &mx.shadow_mutex, d.count);
 		if (err == 0 &&
 		    __xn_safe_copy_to_user((void __user *)
 					   &umx->shadow_mutex.lockcnt,
@@ -1577,13 +1605,12 @@ static int __pthread_cond_wait_prologue(struct pt_regs *regs)
 
 	case EINTR:
 		perr = err;
-		errno = 0;	/* epilogue should return 0. */
+		d.err = 0;	/* epilogue should return 0. */
 		break;
 	}
 
-	if (err == EINTR
-	    &&__xn_safe_copy_to_user((void __user *)__xn_reg_arg3(regs),
-				     &count, sizeof(count)))
+	if (__xn_safe_copy_to_user((void __user *)__xn_reg_arg3(regs),
+				   &d, sizeof(d)))
 			return -EFAULT;
 
 	return err == 0 ? -perr : -err;
@@ -1628,7 +1655,7 @@ static int __pthread_cond_wait_epilogue(struct pt_regs *regs)
 				      sizeof(umx->shadow_mutex.lockcnt)))
 		return -EFAULT;
 
-	return err == 0 ? -errno : err;
+	return err;
 }
 
 static int __pthread_cond_signal(struct pt_regs *regs)
@@ -2597,7 +2624,7 @@ static int __mmap_prologue(struct pt_regs *regs)
 	   placeholder. */
 	mmap_param.kaddr = mmap(NULL,
 				len,
-				PROT_READ | PROT_WRITE,
+				PROT_READ,
 				MAP_SHARED, ufd->kfd, off);
 
 	if (mmap_param.kaddr == MAP_FAILED)
@@ -2613,9 +2640,7 @@ static int __mmap_prologue(struct pt_regs *regs)
 	mmap_param.len = len;
 	mmap_param.heapsize = xnheap_extentsize(heap);
 	mmap_param.offset = xnheap_mapped_offset(heap, mmap_param.kaddr);
-#ifndef CONFIG_MMU
-	mmap_param.offset += (unsigned long)xnheap_base_memory(heap);
-#endif
+	mmap_param.offset += xnheap_base_memory(heap);
 
 	return __xn_safe_copy_to_user((void __user *)__xn_reg_arg4(regs),
 				      &mmap_param, sizeof(mmap_param));
@@ -2908,7 +2933,6 @@ static void *pse51_eventcb(int event, void *data)
 		pse51_sem_usems_cleanup(q);
 		pse51_mq_uqds_cleanup(q);
 		pse51_timerq_cleanup(&q->kqueues);
-		pse51_threadq_cleanup(&q->kqueues);
 		pse51_semq_cleanup(&q->kqueues);
 		pse51_mutexq_cleanup(&q->kqueues);
 #ifdef CONFIG_XENO_OPT_POSIX_INTR
@@ -2932,7 +2956,6 @@ static struct xnskin_props __props = {
 	.nrcalls = sizeof(__systab) / sizeof(__systab[0]),
 	.systab = __systab,
 	.eventcb = &pse51_eventcb,
-	.sig_unqueue = NULL,
 	.timebasep = &pse51_tbase,
 	.module = THIS_MODULE
 };

@@ -89,3 +89,13 @@
 --wrap mmap64
 --wrap munmap
 --wrap select
+--wrap vfprintf
+--wrap vprintf
+--wrap fprintf
+--wrap printf
+--wrap puts
+--wrap syslog
+--wrap vsyslog
+--wrap malloc
+--wrap free
+--wrap gettimeofday

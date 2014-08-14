@@ -66,7 +66,7 @@ static WIND_TCB *__wind_task_current(struct task_struct *p)
  * a2: int prio;
  * a3: int flags;
  * a4: pthread_self();
- * a5: unsigned long *mode;
+ * a5: unsigned long *mode_offset;
  * }
  */
 
@@ -341,12 +341,31 @@ static int __wind_task_unlock(struct pt_regs *regs)
 }
 
 /*
- * int __wind_task_safe(void)
+ * int __wind_task_safe(TASK_ID task_id)
  */
 
 static int __wind_task_safe(struct pt_regs *regs)
 {
-	taskSafe();
+	xnhandle_t handle = __xn_reg_arg1(regs);
+	xnthread_t *thread;
+	WIND_TCB *pTcb;
+	spl_t s;
+
+	xnlock_get_irqsave(&nklock, s);
+
+	if (handle) {
+		pTcb = __wind_lookup_task(handle);
+		if (pTcb == NULL) {
+			xnlock_put_irqrestore(&nklock, s);
+			return S_objLib_OBJ_ID_ERROR;
+		}
+		thread = &pTcb->threadbase;
+	} else
+		thread = xnpod_current_thread();
+
+	taskSafeInner(thread);
+	xnlock_put_irqrestore(&nklock, s);
+
 	return 0;
 }
 
@@ -1264,7 +1283,6 @@ static struct xnskin_props __props = {
 	.nrcalls = sizeof(__systab) / sizeof(__systab[0]),
 	.systab = __systab,
 	.eventcb = __wind_shadow_eventcb,
-	.sig_unqueue = NULL,
 	.timebasep = &wind_tbase,
 	.module = THIS_MODULE
 };

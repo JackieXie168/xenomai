@@ -1,14 +1,5 @@
 menu "Testing drivers"
 
-config XENO_DRIVERS_TESTING_LEGACY_NAMES
-	depends on XENO_SKIN_RTDM
-	bool "Use legacy names for testing drivers"
-	help
-	This lets the testing drivers register under legacy names
-	("rttest<N>") instead of the new scheme ("rttest-<subclass><N>").
-	Only enable this if you plan to use old userspace tools with the
-	drivers.
-
 config XENO_DRIVERS_TIMERBENCH
 	depends on XENO_SKIN_RTDM
 	tristate "Timer benchmark driver"
@@ -38,12 +29,6 @@ config XENO_DRIVERS_SWITCHTEST
 	help
 	Kernel-based driver for unit testing context switches and
 	FPU switches.
-
-config XENO_DRIVERS_SIGTEST
-	depends on m
-	tristate "User-space real-time signals testing module"
-	help
-	Elementary skin for unit testing user-space real-time signals.
 
 config XENO_DRIVERS_RTDMTEST
 	depends on XENO_SKIN_RTDM && m

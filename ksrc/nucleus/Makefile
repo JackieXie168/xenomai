@@ -1,6 +1,6 @@
-ifeq ($(PATCHLEVEL),6)
+ifneq ($(VERSION).$(PATCHLEVEL),2.4)
 
-# Makefile frag for Linux v2.6
+# Makefile frag for Linux v2.6 and v3.x
 
 obj-$(CONFIG_XENO_OPT_NUCLEUS) += xeno_nucleus.o
 
@@ -16,6 +16,7 @@ xeno_nucleus-$(CONFIG_XENO_OPT_PERVASIVE) += shadow.o
 xeno_nucleus-$(CONFIG_XENO_OPT_PIPE) += pipe.o
 xeno_nucleus-$(CONFIG_XENO_OPT_MAP) += map.o
 xeno_nucleus-$(CONFIG_XENO_OPT_SELECT) += select.o
+xeno_nucleus-$(CONFIG_PROC_FS) += vfile.o
 
 # CAUTION: this module shall appear last, so that dependencies may
 # exist on initcalls defined by other object files.
@@ -45,6 +46,7 @@ opt_objs-$(CONFIG_XENO_OPT_PERVASIVE) += shadow.o
 opt_objs-$(CONFIG_XENO_OPT_PIPE) += pipe.o
 opt_objs-$(CONFIG_XENO_OPT_MAP) += map.o
 opt_objs-$(CONFIG_XENO_OPT_SELECT) += select.o
+opt_objs-$(CONFIG_PROC_FS) += vfile.o
 
 xeno_nucleus-objs += $(opt_objs-y)
 

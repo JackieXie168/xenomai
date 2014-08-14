@@ -126,10 +126,10 @@ static void *rtdm_skin_callback(int event, void *data)
 		if (!process)
 			return ERR_PTR(-ENOSPC);
 
-#ifdef CONFIG_PROC_FS
+#ifdef CONFIG_XENO_OPT_VFILE
 		memcpy(process->name, current->comm, sizeof(process->name));
 		process->pid = current->pid;
-#endif /* CONFIG_PROC_FS */
+#endif /* CONFIG_XENO_OPT_VFILE */
 
 		return &process->ppd;
 
@@ -170,7 +170,6 @@ static struct xnskin_props __props = {
 	.nrcalls = sizeof(__systab) / sizeof(__systab[0]),
 	.systab = __systab,
 	.eventcb = &rtdm_skin_callback,
-	.sig_unqueue = NULL,
 	.timebasep = NULL,
 	.module = THIS_MODULE
 };

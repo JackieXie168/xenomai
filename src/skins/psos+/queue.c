@@ -17,11 +17,16 @@
  */
 
 #include <psos+/psos.h>
+#include <psos+/long_names.h>
 
 extern int __psos_muxid;
 
 u_long q_create(const char *name, u_long maxnum, u_long flags, u_long *qid_r)
 {
+	char short_name[5];
+
+	name = __psos_maybe_short_name(short_name, name);
+
 	return XENOMAI_SKINCALL4(__psos_muxid, __psos_q_create,
 				 name, maxnum, flags, qid_r);
 }
@@ -33,6 +38,10 @@ u_long q_delete(u_long qid)
 
 u_long q_ident(const char *name, u_long nodeno, u_long *qid_r)
 {
+	char short_name[5];
+
+	name = __psos_maybe_short_name(short_name, name);
+
 	return XENOMAI_SKINCALL2(__psos_muxid, __psos_q_ident, name, qid_r);
 }
 

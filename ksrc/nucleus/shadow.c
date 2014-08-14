@@ -65,8 +65,19 @@ int nkthrptd;
 EXPORT_SYMBOL_GPL(nkthrptd);
 int nkerrptd;
 EXPORT_SYMBOL_GPL(nkerrptd);
+int nkmmptd;
+EXPORT_SYMBOL_GPL(nkmmptd);
 
-struct xnskin_slot muxtable[XENOMAI_MUX_NR];
+#define xnshadow_mmptd(t) ((t)->ptd[nkmmptd])
+#define xnshadow_mm(t) ((struct mm_struct *)xnshadow_mmptd(t))
+
+struct xnskin_slot {
+	struct xnskin_props *props;
+	atomic_counter_t refcnt;
+#ifdef CONFIG_XENO_OPT_VFILE
+	struct xnvfile_regular vfile;
+#endif
+} muxtable[XENOMAI_MUX_NR];
 
 static int lostage_apc;
 
@@ -100,7 +111,9 @@ static struct task_struct *switch_lock_owner[XNARCH_NR_CPUS];
 
 static int nucleus_muxid = -1;
 
-static DEFINE_SEMAPHORE(completion_mutex);
+static struct semaphore completion_mutex;
+
+static DEFINE_SEMAPHORE(registration_mutex);
 
 static inline struct task_struct *get_switch_lock_owner(void)
 {
@@ -554,7 +567,7 @@ static unsigned ppd_lookup_inner(xnqueue_t **pq,
 	}
 	while (holder &&
 	       (ppd->key.mm < pkey->mm ||
-		(ppd->key.mm == pkey->mm && ppd->key.muxid < pkey->muxid)));
+		(ppd->key.mm == pkey->mm && ppd->key.muxid > pkey->muxid)));
 
 	if (ppd->key.mm == pkey->mm && ppd->key.muxid == pkey->muxid) {
 		/* found it, return it. */
@@ -564,7 +577,7 @@ static unsigned ppd_lookup_inner(xnqueue_t **pq,
 
 	/* not found, return successor for insertion. */
 	if (ppd->key.mm < pkey->mm ||
-	    (ppd->key.mm == pkey->mm && ppd->key.muxid < pkey->muxid))
+	    (ppd->key.mm == pkey->mm && ppd->key.muxid > pkey->muxid))
 		*pholder = holder ? link2ppd(holder) : NULL;
 	else
 		*pholder = ppd;
@@ -587,10 +600,11 @@ static int ppd_insert(xnshadow_ppd_t * holder)
 	}
 
 	inith(&holder->link);
-	if (next)
+	if (next) {
 		insertq(q, &next->link, &holder->link);
-	else
+	} else {
 		appendq(q, &holder->link);
+	}
 	xnlock_put_irqrestore(&nklock, s);
 
 	return 0;
@@ -638,7 +652,7 @@ static inline void ppd_remove_mm(struct mm_struct *mm,
 	xnqueue_t *q;
 	spl_t s;
 
-	key.muxid = 0;
+	key.muxid = ~0UL;
 	key.mm = mm;
 	xnlock_get_irqsave(&nklock, s);
 	ppd_lookup_inner(&q, &ppd, &key);
@@ -658,46 +672,13 @@ static inline void ppd_remove_mm(struct mm_struct *mm,
 	xnlock_put_irqrestore(&nklock, s);
 }
 
-/**
- * Mark the per-thread per-skin signal condition for the skin whose
- * muxid is @a muxid.
- *
- * @param thread the target thread;
- * @param muxid the muxid of the skin for which the signal is marked
- * pending.
- *
- * @return whether rescheduling is needed.
- */
-int xnshadow_mark_sig(xnthread_t *thread, unsigned muxid)
+static void detach_ppd(xnshadow_ppd_t * ppd)
 {
-	int need_resched = 0;
-
-	if (xnthread_test_state(thread, XNMAPPED)) {
-		spl_t s;
-
-		xnlock_get_irqsave(&nklock, s);
-		thread->u_sigpending |= (1 << muxid);
-		need_resched = xnpod_unblock_thread(thread);
-		xnlock_put_irqrestore(&nklock, s);
-	}
-
-	return need_resched;
+	unsigned muxid = xnshadow_ppd_muxid(ppd);
+	muxtable[muxid].props->eventcb(XNSHADOW_CLIENT_DETACH, ppd);
+	if (muxtable[muxid].props->module)
+		module_put(muxtable[muxid].props->module);
 }
-EXPORT_SYMBOL_GPL(xnshadow_mark_sig);
-
-/**
- * Clear the per-thrad per-skin signal condition.
- *
- * Called with nklock locked irqs off.
- *
- * @param thread the target thrad
- * @param muxid
- */
-void xnshadow_clear_sig(xnthread_t *thread, unsigned muxid)
-{
-	thread->u_sigpending &= ~(1 << muxid);
-}
-EXPORT_SYMBOL_GPL(xnshadow_clear_sig);
 
 struct xnvdso *nkvdso;
 EXPORT_SYMBOL_GPL(nkvdso);
@@ -714,50 +695,6 @@ void __init xnheap_init_vdso(void)
 		xnpod_fatal("Xenomai: cannot allocate memory for xnvdso!\n");
 
 	nkvdso->features = XNVDSO_FEATURES;
-}
-
-static inline void handle_rt_signals(xnthread_t *thread,
-				     struct pt_regs *regs,
-				     int sysflags)
-{
-	int (*sig_unqueue)(xnthread_t *thread, union xnsiginfo __user *si);
-	struct xnsig __user *u_sigs;
-	const unsigned max_sigs = ARRAY_SIZE(u_sigs->pending);
-	unsigned int muxid, i, pending;
-	int rc, res = -ERESTART;
-
-	u_sigs = (struct xnsig __user *)__xn_reg_sigp(regs);
-	if (u_sigs == NULL)
-		goto out;
-
-	i = 0;
-	pending = xnthread_sigpending(thread);
-	do {
-		muxid = ffnz(pending);
-		sig_unqueue = muxtable[muxid].props->sig_unqueue;
-
-		do {
-			__xn_put_user(muxid, &u_sigs->pending[i].muxid);
-			rc = sig_unqueue(thread, &u_sigs->pending[i].si);
-			if (res == -ERESTART)
-				res = rc;
-			++i;
-			pending = xnthread_sigpending(thread);
-		} while ((pending & (1 << muxid)) && i < max_sigs);
-
-	} while (pending && i < max_sigs);
-	__xn_put_user(i, &u_sigs->nsigs);
-	__xn_put_user(pending != 0, &u_sigs->remaining);
-
-out:
-/* In the case when we are going to handle linux signals, do not let
-   the kernel handle the syscall restart to give a chance to the
-   xenomai handlers to be executed. */
-	if (__xn_interrupted_p(regs)
-	    || __xn_reg_rval(regs) == -ERESTARTSYS
-	    || __xn_reg_rval(regs) == -ERESTARTNOHAND)
-		__xn_error_return(regs, ((sysflags & __xn_exec_norestart)
-					 ? -EINTR : res));
 }
 
 static inline void request_syscall_restart(xnthread_t *thread,
@@ -817,9 +754,12 @@ static void xnshadow_dereference_skin(unsigned magic)
 
 static void lostage_handler(void *cookie)
 {
-	struct __lostagerq *rq = &lostagerq[smp_processor_id()];
-	int reqnum, type, arg, sig, sigarg;
+	int cpu, reqnum, type, arg, sig, sigarg;
+	struct __lostagerq *rq;
 	struct task_struct *p;
+
+	cpu = smp_processor_id();
+	rq = &lostagerq[cpu];
 
 	while ((reqnum = rq->out) != rq->in) {
 		type = rq->req[reqnum].type;
@@ -915,7 +855,6 @@ static inline int normalize_priority(int prio)
 static int gatekeeper_thread(void *data)
 {
 	struct task_struct *this_task = current;
-	DECLARE_WAITQUEUE(wait, this_task);
 	int cpu = (long)data;
 	struct xnsched *sched = xnpod_sched_slot(cpu);
 	struct xnthread *target;
@@ -928,12 +867,10 @@ static int gatekeeper_thread(void *data)
 	set_cpus_allowed(this_task, cpumask);
 	set_linux_task_priority(this_task, MAX_RT_PRIO - 1);
 
-	init_waitqueue_head(&sched->gkwaitq);
-	add_wait_queue_exclusive(&sched->gkwaitq, &wait);
+	set_current_state(TASK_INTERRUPTIBLE);
 	up(&sched->gksync);	/* Sync with xnshadow_mount(). */
 
 	for (;;) {
-		set_current_state(TASK_INTERRUPTIBLE);
 		up(&sched->gksync); /* Make the request token available. */
 		schedule();
 
@@ -952,8 +889,7 @@ static int gatekeeper_thread(void *data)
 		 * process the pending request, just ignore the
 		 * latter.
 		 */
-		if ((xnthread_user_task(target)->state & ~TASK_ATOMICSWITCH)
-		    == TASK_INTERRUPTIBLE) {
+		if ((xnthread_user_task(target)->state & ~TASK_ATOMICSWITCH) == TASK_INTERRUPTIBLE) {
 			rpi_pop(target);
 			xnlock_get_irqsave(&nklock, s);
 #ifdef CONFIG_SMP
@@ -973,6 +909,7 @@ static int gatekeeper_thread(void *data)
 			xnlock_put_irqrestore(&nklock, s);
 			xnpod_schedule();
 		}
+		set_current_state(TASK_INTERRUPTIBLE);
 	}
 
 	return 0;
@@ -1003,7 +940,7 @@ int xnshadow_harden(void)
 	struct task_struct *this_task = current;
 	struct xnthread *thread;
 	struct xnsched *sched;
-	int cpu;
+	int cpu, err;
 
 redo:
 	thread = xnshadow_thread(this_task);
@@ -1013,12 +950,14 @@ redo:
 	cpu = task_cpu(this_task);
 	sched = xnpod_sched_slot(cpu);
 
-	if (signal_pending(this_task) || down_interruptible(&sched->gksync))
-		/* Grab the request token. */
-		return -ERESTARTSYS;
+	/* Grab the request token. */
+	if (down_interruptible(&sched->gksync)) {
+		err = -ERESTARTSYS;
+		goto failed;
+	}
 
 	if (thread->u_mode)
-		__xn_put_user(0, thread->u_mode);
+		*(thread->u_mode) = thread->state & ~XNRELAX;
 
 	preempt_disable();
 
@@ -1041,10 +980,7 @@ redo:
 	 * task. For this to happen, we set up the migration data,
 	 * prepare to suspend the current task, wake up the gatekeeper
 	 * which will perform the actual transition, then schedule
-	 * out. Most of this sequence must be atomic, and we get this
-	 * guarantee by disabling preemption and using the
-	 * TASK_ATOMICSWITCH cumulative state provided by Adeos to
-	 * Linux tasks.
+	 * out.
 	 */
 
 	trace_mark(xn_nucleus, shadow_gohard,
@@ -1054,17 +990,18 @@ redo:
 	sched->gktarget = thread;
 	xnthread_set_info(thread, XNATOMIC);
 	set_current_state(TASK_INTERRUPTIBLE | TASK_ATOMICSWITCH);
-	wake_up_interruptible_sync(&sched->gkwaitq);
-	schedule();	/* Will preempt_enable() thanks to TASK_ATOMICSWITCH */
+
+	wake_up_process(sched->gatekeeper);
+
+	schedule();
 	xnthread_clear_info(thread, XNATOMIC);
 
 	/*
-	 * Rare case: we might have been awaken by a signal before the
-	 * gatekeeper sent us to primary mode. Since
-	 * TASK_UNINTERRUPTIBLE is unavailable to us without wrecking
-	 * the runqueue's count of uniniterruptible tasks, we just
-	 * notice the issue and gracefully fail; the caller will have
-	 * to process this signal anyway.
+	 * Rare case: we might have received a signal before entering
+	 * schedule() and returned early from it. Since TASK_UNINTERRUPTIBLE
+	 * is unavailable to us without wrecking the runqueue's count of
+	 * uniniterruptible tasks, we just notice the issue and gracefully
+	 * fail; the caller will have to process this signal anyway.
 	 */
 	if (rthal_current_domain == rthal_root_domain) {
 		if (XENO_DEBUG(NUCLEUS) && (!signal_pending(this_task)
@@ -1072,6 +1009,16 @@ redo:
 			xnpod_fatal
 			    ("xnshadow_harden() failed for thread %s[%d]",
 			     thread->name, xnthread_user_pid(thread));
+
+		/*
+		 * Synchronize with the chosen gatekeeper so that it no longer
+		 * holds any reference to this thread and does not develop the
+		 * idea to resume it for the Xenomai domain if, later on, we
+		 * may happen to reenter TASK_INTERRUPTIBLE state.
+		 */
+		down(&sched->gksync);
+		up(&sched->gksync);
+
 		return -ERESTARTSYS;
 	}
 
@@ -1104,9 +1051,27 @@ redo:
 	trace_mark(xn_nucleus, shadow_hardened, "thread %p thread_name %s",
 		   thread, xnthread_name(thread));
 
+	/*
+	 * Recheck pending signals once again. As we block task wakeups during
+	 * the migration and do_sigwake_event ignores signals until XNRELAX is
+	 * left, any signal between entering TASK_ATOMICSWITCH and starting
+	 * the migration in the gatekeeker thread is just silently queued up
+	 * to here.
+	 */
+	if (signal_pending(this_task)) {
+		xnshadow_relax(!xnthread_test_state(thread, XNDEBUG),
+			       SIGDEBUG_MIGRATE_SIGNAL);
+		return -ERESTARTSYS;
+	}
+
 	xnsched_resched_after_unlocked_switch();
 
 	return 0;
+
+      failed:
+	if (thread->u_mode)
+		*(thread->u_mode) = thread->state;
+	return err;
 }
 EXPORT_SYMBOL_GPL(xnshadow_harden);
 
@@ -1166,20 +1131,22 @@ void xnshadow_relax(int notify, int reason)
 	 * xnpod_suspend_thread() when switching out the current
 	 * thread, not to break basic assumptions we do there.
 	 *
-	 * We disable interrupts here to initiate the migration
-	 * sequence, and let xnpod_suspend_thread() enable them back
-	 * before returning to us.
+	 * We disable interrupts during the migration sequence, but
+	 * xnpod_suspend_thread() has an interrupts-on section built in.
 	 */
 	splmax();
 	rpi_push(thread->sched, thread);
 	schedule_linux_call(LO_WAKEUP_REQ, current, 0);
+
+	/*
+	 * Task nklock to synchronize the Linux task state manipulation with
+	 * do_sigwake_event. nklock will be released by xnpod_suspend_thread.
+	 */
+	xnlock_get(&nklock);
 	clear_task_nowakeup(current);
 	xnpod_suspend_thread(thread, XNRELAX, XN_INFINITE, XN_RELATIVE, NULL);
-	/*
-	 * As a special case when switching out a relaxed thread,
-	 * interrupts have been re-enabled before returning to us. See
-	 * xnpod_suspend_thread().
-	 */
+
+	splnone();
 	if (XENO_DEBUG(NUCLEUS) && rthal_current_domain != rthal_root_domain)
 		xnpod_fatal("xnshadow_relax() failed for thread %s[%d]",
 			    thread->name, xnthread_user_pid(thread));
@@ -1225,7 +1192,7 @@ void xnshadow_relax(int notify, int reason)
 	   root thread. */
 
 	if (thread->u_mode)
-		__xn_put_user(XNRELAX, thread->u_mode);
+		*(thread->u_mode) = thread->state;
 
 	trace_mark(xn_nucleus, shadow_relaxed,
 		  "thread %p thread_name %s comm %s",
@@ -1244,7 +1211,7 @@ void xnshadow_exit(void)
 /*!
  * \fn int xnshadow_map(xnthread_t *thread,
  *                      xncompletion_t __user *u_completion,
- *                      unsigned long __user *u_mode)
+ *                      unsigned long __user *u_mode_offset)
  * @internal
  * \brief Create a shadow thread context.
  *
@@ -1268,10 +1235,12 @@ void xnshadow_exit(void)
  * immediately started and "current" immediately resumes in the Xenomai
  * domain from this service.
  *
- * @param: u_mode is the address of a mode variable in user space that
- * will reflect the current thread mode (primary or secondary). The
- * nucleus will try to update the variable before switching to secondary
- * or after switching from primary mode.
+ * @param: u_mode_offset is the address of a user space address where
+ * we will store the offset of the "u_mode" thread variable in the
+ * process shared heap. This thread variable reflects the current
+ * thread mode (primary or secondary). The nucleus will try to update
+ * the variable before switching to secondary  or after switching from
+ * primary mode.
  *
  * @return 0 is returned on success. Otherwise:
  *
@@ -1302,11 +1271,15 @@ void xnshadow_exit(void)
  */
 
 int xnshadow_map(xnthread_t *thread, xncompletion_t __user *u_completion,
-		 unsigned long __user *u_mode)
+		 unsigned long __user *u_mode_offset)
 {
 	struct xnthread_start_attr attr;
 	xnarch_cpumask_t affinity;
+	struct xnsys_ppd *sys_ppd;
 	unsigned int muxid, magic;
+	unsigned long *u_mode;
+	xnheap_t *sem_heap;
+	spl_t s;
 	int ret;
 
 	if (!xnthread_test_state(thread, XNSHADOW))
@@ -1315,7 +1288,7 @@ int xnshadow_map(xnthread_t *thread, xncompletion_t __user *u_completion,
 	if (xnshadow_thread(current) || xnthread_test_state(thread, XNMAPPED))
 		return -EBUSY;
 
-	if (!access_wok(u_mode, sizeof(*u_mode)))
+	if (!access_wok(u_mode_offset, sizeof(*u_mode_offset)))
 		return -EFAULT;
 
 #ifdef CONFIG_MMU
@@ -1345,6 +1318,15 @@ int xnshadow_map(xnthread_t *thread, xncompletion_t __user *u_completion,
 		}
 	}
 
+	xnlock_get_irqsave(&nklock, s);
+	sys_ppd = xnsys_ppd_get(0);
+	xnlock_put_irqrestore(&nklock, s);
+
+	sem_heap = &sys_ppd->sem_heap;
+	u_mode = xnheap_alloc(sem_heap, sizeof(*u_mode));
+	if (!u_mode)
+		return -ENOMEM;
+
 	/* Restrict affinity to a single CPU of nkaffinity & current set. */
 	xnarch_cpus_and(affinity, current->cpus_allowed, nkaffinity);
 	affinity = xnarch_cpumask_of_cpu(xnarch_first_cpu(affinity));
@@ -1357,7 +1339,10 @@ int xnshadow_map(xnthread_t *thread, xncompletion_t __user *u_completion,
 
 	xnarch_init_shadow_tcb(xnthread_archtcb(thread), thread,
 			       xnthread_name(thread));
+
 	thread->u_mode = u_mode;
+	__xn_put_user(xnheap_mapped_offset(sem_heap, u_mode), u_mode_offset);
+
 	xnthread_set_state(thread, XNMAPPED);
 	xnpod_suspend_thread(thread, XNRELAX, XN_INFINITE, XN_RELATIVE, NULL);
 
@@ -1375,7 +1360,15 @@ int xnshadow_map(xnthread_t *thread, xncompletion_t __user *u_completion,
 	 * friends.
 	 */
 	xnshadow_thrptd(current) = thread;
+	xnshadow_mmptd(current) = current->mm;
+	xnarch_atomic_inc(&sys_ppd->refcnt);
+
 	rthal_enable_notifier(current);
+
+	if (xnthread_base_priority(thread) == 0 &&
+	    current->policy == SCHED_NORMAL)
+		/* Non real-time shadow. */
+		xnthread_set_state(thread, XNOTHER);
 
 	if (u_completion) {
 		/*
@@ -1404,7 +1397,7 @@ int xnshadow_map(xnthread_t *thread, xncompletion_t __user *u_completion,
 		return ret;
 
 	if (thread->u_mode)
-		__xn_put_user(XNRELAX, u_mode);
+		*(thread->u_mode) = thread->state;
 
 	ret = xnshadow_harden();
 
@@ -1414,7 +1407,7 @@ int xnshadow_map(xnthread_t *thread, xncompletion_t __user *u_completion,
 	 */
 	xnthread_set_info(thread, XNPRIOSET);
 
-	xnarch_trace_pid(xnarch_user_pid(xnthread_archtcb(thread)),
+	xnarch_trace_pid(xnthread_user_pid(thread),
 			 xnthread_current_priority(thread));
 
 	return ret;
@@ -1423,6 +1416,7 @@ EXPORT_SYMBOL_GPL(xnshadow_map);
 
 void xnshadow_unmap(xnthread_t *thread)
 {
+	struct xnsys_ppd *sys_ppd;
 	struct task_struct *p;
 
 	if (XENO_DEBUG(NUCLEUS) &&
@@ -1432,9 +1426,13 @@ void xnshadow_unmap(xnthread_t *thread)
 	p = xnthread_archtcb(thread)->user_task;
 
 	xnthread_clear_state(thread, XNMAPPED);
-	xnthread_set_sigpending(thread, 0); /* thread->sipending must be 0 for
-				     non mapped threads. */
 	rpi_pop(thread);
+
+	sys_ppd = xnsys_ppd_get(0);
+	xnheap_free(&sys_ppd->sem_heap, thread->u_mode);
+	thread->u_mode = NULL;
+
+	xnarch_atomic_dec(&sys_ppd->refcnt);
 
 	trace_mark(xn_nucleus, shadow_unmap,
 		   "thread %p thread_name %s pid %d",
@@ -1698,11 +1696,11 @@ static inline void do_mayday_event(struct pt_regs *regs)
 {
 	struct xnthread *thread = xnshadow_thread(current);
 	struct xnarchtcb *tcb = xnthread_archtcb(thread);
-	struct xnshadow_ppd_t *sys_ppd;
+	struct xnsys_ppd *sys_ppd;
 
 	/* We enter the event handler with hw IRQs off. */
 	xnlock_get(&nklock);
-	sys_ppd = xnshadow_ppd_get(0);
+	sys_ppd = xnsys_ppd_get(0);
 	xnlock_put(&nklock);
 	XENO_BUGON(NUCLEUS, sys_ppd == NULL);
 
@@ -1820,16 +1818,6 @@ static int xnshadow_sys_bind(struct pt_regs *regs)
 
 	sys_ppd->key.muxid = 0;
 	sys_ppd->key.mm = current->mm;
-#ifdef XNARCH_HAVE_MAYDAY
-	sys_ppd->mayday_addr = map_mayday_page(current);
-	if (sys_ppd->mayday_addr == 0) {
-		printk(KERN_WARNING
-		       "Xenomai: %s[%d] cannot map MAYDAY page\n",
-		       current->comm, current->pid);
-		err = -ENOMEM;
-		goto fail_destroy_sys_ppd;
-	}
-#endif /* XNARCH_HAVE_MAYDAY */
 
 	if (ppd_insert(sys_ppd) == -EBUSY) {
 		/* In case of concurrent binding (which can not happen with
@@ -2064,18 +2052,39 @@ static int xnshadow_sys_trace(struct pt_regs *regs)
 	return err;
 }
 
-static int xnshadow_sys_sem_heap(struct pt_regs *regs)
+static int xnshadow_sys_heap_info(struct pt_regs *regs)
 {
 	struct xnheap_desc hd, __user *u_hd;
 	struct xnheap *heap;
-	unsigned global;
+	unsigned heap_nr;
 
-	global = __xn_reg_arg2(regs);
+	heap_nr = __xn_reg_arg2(regs);
 	u_hd = (struct xnheap_desc __user *)__xn_reg_arg1(regs);
-	heap = &xnsys_ppd_get(global)->sem_heap;
+
+	switch(heap_nr) {
+	case XNHEAP_PROC_PRIVATE_HEAP:
+	case XNHEAP_PROC_SHARED_HEAP:
+		heap = &xnsys_ppd_get(heap_nr)->sem_heap;
+		break;
+
+	case XNHEAP_SYS_HEAP:
+		heap = &kheap;
+		break;
+
+#if CONFIG_XENO_OPT_SYS_STACKPOOLSZ > 0
+	case XNHEAP_SYS_STACKPOOL:
+		heap = &kstacks;
+		break;
+#endif
+
+	default:
+		return -EINVAL;
+	}
+
 	hd.handle = (unsigned long)heap;
 	hd.size = xnheap_extentsize(heap);
-	xnheap_area_set(&hd, xnheap_base_memory(heap));
+	hd.area = xnheap_base_memory(heap);
+	hd.used = xnheap_used_mem(heap);
 
 	return __xn_safe_copy_to_user(u_hd, &hd, sizeof(*u_hd));
 }
@@ -2126,23 +2135,6 @@ static int xnshadow_sys_current_info(struct pt_regs *regs)
 	return __xn_safe_copy_to_user(us_info, &info, sizeof(*us_info));
 }
 
-static int xnshadow_sys_get_next_sigs(struct pt_regs *regs)
-{
-	return -EINTR;
-}
-
-static int xnshadow_sys_drop_u_mode(struct pt_regs *regs)
-{
-	xnthread_t *cur = xnshadow_thread(current);
-
-	if (!cur)
-		return -EPERM;
-
-	cur->u_mode = NULL;
-
-	return 0;
-}
-
 static xnsysent_t __systab[] = {
 	[__xn_sys_migrate] = {&xnshadow_sys_migrate, __xn_exec_current},
 	[__xn_sys_arch] = {&xnshadow_sys_arch, __xn_exec_any},
@@ -2151,14 +2143,10 @@ static xnsysent_t __systab[] = {
 	[__xn_sys_completion] = {&xnshadow_sys_completion, __xn_exec_lostage},
 	[__xn_sys_barrier] = {&xnshadow_sys_barrier, __xn_exec_lostage},
 	[__xn_sys_trace] = {&xnshadow_sys_trace, __xn_exec_any},
-	[__xn_sys_sem_heap] = {&xnshadow_sys_sem_heap, __xn_exec_any},
+	[__xn_sys_heap_info] = {&xnshadow_sys_heap_info, __xn_exec_lostage},
 	[__xn_sys_current] = {&xnshadow_sys_current, __xn_exec_any},
 	[__xn_sys_current_info] =
 		{&xnshadow_sys_current_info, __xn_exec_shadow},
-	[__xn_sys_get_next_sigs] =
-		{&xnshadow_sys_get_next_sigs, __xn_exec_conforming},
-	[__xn_sys_drop_u_mode] =
-		{&xnshadow_sys_drop_u_mode, __xn_exec_shadow},
 	[__xn_sys_mayday] = {&xnshadow_sys_mayday, __xn_exec_any|__xn_exec_norestart},
 };
 
@@ -2186,8 +2174,21 @@ static void *xnshadow_sys_event(int event, void *data)
 			xnarch_free_host_mem(p, sizeof(*p));
 			return ERR_PTR(err);
 		}
+
 		xnheap_set_label(&p->sem_heap,
 				 "private sem heap [%d]", current->pid);
+
+#ifdef XNARCH_HAVE_MAYDAY
+		p->mayday_addr = map_mayday_page(current);
+		if (p->mayday_addr == 0) {
+			printk(KERN_WARNING
+			       "Xenomai: %s[%d] cannot map MAYDAY page\n",
+			       current->comm, current->pid);
+			xnarch_free_host_mem(p, sizeof(*p));
+			return ERR_PTR(-ENOMEM);
+		}
+#endif /* XNARCH_HAVE_MAYDAY */
+		xnarch_atomic_set(&p->refcnt, 1);
 		xnarch_atomic_inc(&muxtable[0].refcnt);
 		return &p->ppd;
 
@@ -2208,39 +2209,13 @@ static struct xnskin_props __props = {
 	.nrcalls = sizeof(__systab) / sizeof(__systab[0]),
 	.systab = __systab,
 	.eventcb = xnshadow_sys_event,
-	.sig_unqueue = NULL,
 	.timebasep = NULL,
 	.module = NULL
 };
 
-static void handle_shadow_exit(void)
-{
-	xnthread_t *thread = xnshadow_thread(current);
-	static int warned;
-
-	/*
-	 * If user space did not deregister u_mode at this point, we
-	 * are confronted with old libraries and should warn about
-	 * potential instabilities.
-	 */
-	if (thread->u_mode && !warned) {
-		warned = 1;
-#ifdef CONFIG_MMU
-		printk(KERN_WARNING
-		       "Xenomai: User-space support anterior to 2.5.2"
-		       " detected, may corrupt memory upon\n"
-		       "thread termination. Upgrade is recommended\n");
-#endif
-	}
-	thread->u_mode = NULL;
-}
-
 static inline int
 substitute_linux_syscall(struct pt_regs *regs)
 {
-	if (unlikely(__xn_linux_mux_p(regs, __NR_exit)))
-		handle_shadow_exit();
-
 	/* No real-time replacement for now -- let Linux handle this call. */
 	return 0;
 }
@@ -2378,20 +2353,27 @@ static inline int do_hisyscall_event(unsigned event, unsigned domid, void *data)
 	__xn_status_return(regs, err);
 
 	sigs = 0;
-	if (xnpod_shadow_p() &&
-	    (signal_pending(p) || xnthread_amok_p(thread))) {
-		sigs = 1;
-		xnthread_clear_amok(thread);
-		request_syscall_restart(thread, regs, sysflags);
-	}
-	if (thread && xnthread_sigpending(thread)) {
-		sigs = 1;
-		handle_rt_signals(thread, regs, sysflags);
+	if (xnpod_shadow_p()) {
+		if (signal_pending(p) || xnthread_amok_p(thread)) {
+			sigs = 1;
+			xnthread_clear_amok(thread);
+			request_syscall_restart(thread, regs, sysflags);
+		} else if (xnthread_test_state(thread, XNOTHER) &&
+			   xnthread_get_rescnt(thread) == 0) {
+			if (switched)
+				switched = 0;
+			else
+				xnshadow_relax(0, 0);
+		}
 	}
 	if (!sigs && (sysflags & __xn_exec_switchback) != 0 && switched)
 		xnshadow_harden();	/* -EPERM will be trapped later if needed. */
 
       ret_handled:
+
+	/* Update the userland-visible state. */
+	if (thread)
+		*thread->u_mode = thread->state;
 
 	trace_mark(xn_nucleus, syscall_histage_exit,
 		   "ret %ld", __xn_reg_rval(regs));
@@ -2420,7 +2402,7 @@ static inline int do_hisyscall_event(unsigned event, unsigned domid, void *data)
 		 * nucleus and a Xenomai replacement has been
 		 * substituted for it.
 		 */
-		return RTHAL_EVENT_STOP;
+		goto ret_handled;
 
 	/*
 	 * This syscall has not been substituted, let Linux handle
@@ -2538,18 +2520,28 @@ static inline int do_losyscall_event(unsigned event, unsigned domid, void *data)
 	__xn_status_return(regs, err);
 
 	sigs = 0;
-	if (xnpod_active_p() && xnpod_shadow_p() && signal_pending(current)) {
-		sigs = 1;
-		request_syscall_restart(xnshadow_thread(current), regs, sysflags);
-	}
-	if (thread && xnthread_sigpending(thread)) {
-		sigs = 1;
-		handle_rt_signals(thread, regs, sysflags);
+	if (xnpod_active_p() && xnpod_shadow_p()) {
+		/*
+		 * We may have gained a shadow TCB from the syscall we
+		 * just invoked, so make sure to fetch it.
+		 */
+		thread = xnshadow_thread(current);
+		if (signal_pending(current)) {
+			sigs = 1;
+			request_syscall_restart(thread, regs, sysflags);
+		} else if (xnthread_test_state(thread, XNOTHER) &&
+			   xnthread_get_rescnt(thread) == 0)
+			sysflags |= __xn_exec_switchback;
 	}
 	if (!sigs && (sysflags & __xn_exec_switchback) != 0 && switched)
 		xnshadow_relax(0, 0);
 
       ret_handled:
+
+	/* Update the userland-visible state. */
+	if (thread)
+		*thread->u_mode = thread->state;
+
 	trace_mark(xn_nucleus, syscall_lostage_exit,
 		   "ret %ld", __xn_reg_rval(regs));
 	return RTHAL_EVENT_STOP;
@@ -2560,6 +2552,7 @@ RTHAL_DECLARE_EVENT(losyscall_event);
 static inline void do_taskexit_event(struct task_struct *p)
 {
 	xnthread_t *thread = xnshadow_thread(p); /* p == current */
+	struct xnsys_ppd *sys_ppd;
 	unsigned magic;
 	spl_t s;
 
@@ -2580,8 +2573,12 @@ static inline void do_taskexit_event(struct task_struct *p)
 	/* xnpod_delete_thread() -> hook -> xnshadow_unmap(). */
 	xnsched_set_resched(thread->sched);
 	xnpod_delete_thread(thread);
+	sys_ppd = xnsys_ppd_get(0);
 	xnlock_put_irqrestore(&nklock, s);
 	xnpod_schedule();
+
+	if (!xnarch_atomic_get(&sys_ppd->refcnt))
+		ppd_remove_mm(xnshadow_mm(p), &detach_ppd);
 
 	xnshadow_dereference_skin(magic);
 	trace_mark(xn_nucleus, shadow_exit, "thread %p thread_name %s",
@@ -2593,12 +2590,13 @@ RTHAL_DECLARE_EXIT_EVENT(taskexit_event);
 static inline void do_schedule_event(struct task_struct *next_task)
 {
 	struct task_struct *prev_task;
-	struct xnthread *next;
+	struct xnthread *prev, *next;
 
 	if (!xnpod_active_p())
 		return;
 
 	prev_task = current;
+	prev = xnshadow_thread(prev_task);
 	next = xnshadow_thread(next_task);
 	set_switch_lock_owner(prev_task);
 
@@ -2767,8 +2765,11 @@ static inline void do_setsched_event(struct task_struct *p, int priority)
 	union xnsched_policy_param param;
 	struct xnsched *sched;
 
-	if (!thread || p->policy != SCHED_FIFO)
+	if (!thread || (p->policy != SCHED_FIFO && p->policy != SCHED_NORMAL))
 		return;
+
+	if (p->policy == SCHED_NORMAL)
+		priority = 0;
 
 	/*
 	 * Linux's priority scale is a subset of the core pod's
@@ -2813,20 +2814,65 @@ static inline void do_setsched_event(struct task_struct *p, int priority)
 
 RTHAL_DECLARE_SETSCHED_EVENT(setsched_event);
 
-static void detach_ppd(xnshadow_ppd_t * ppd)
-{
-	unsigned muxid = xnshadow_ppd_muxid(ppd);
-	muxtable[muxid].props->eventcb(XNSHADOW_CLIENT_DETACH, ppd);
-	if (muxtable[muxid].props->module)
-		module_put(muxtable[muxid].props->module);
-}
-
 static inline void do_cleanup_event(struct mm_struct *mm)
 {
-	ppd_remove_mm(mm, &detach_ppd);
+	struct task_struct *p = current;
+	struct xnsys_ppd *sys_ppd;
+	struct mm_struct *old;
+
+	old = xnshadow_mm(p);
+	xnshadow_mmptd(p) = mm;
+
+	sys_ppd = xnsys_ppd_get(0);
+	if (sys_ppd == &__xnsys_global_ppd)
+		goto done;
+
+	if (xnarch_atomic_dec_and_test(&sys_ppd->refcnt))
+		ppd_remove_mm(mm, &detach_ppd);
+
+  done:
+	xnshadow_mmptd(p) = old;
 }
 
 RTHAL_DECLARE_CLEANUP_EVENT(cleanup_event);
+
+#ifdef CONFIG_XENO_OPT_VFILE
+
+static struct xnvfile_directory iface_vfroot;
+
+static int iface_vfile_show(struct xnvfile_regular_iterator *it, void *data)
+{
+	struct xnskin_slot *iface;
+	int refcnt;
+
+	iface = container_of(it->vfile, struct xnskin_slot, vfile);
+	refcnt = xnarch_atomic_get(&iface->refcnt);
+	xnvfile_printf(it, "%d\n", refcnt);
+
+	return 0;
+}
+
+static struct xnvfile_regular_ops iface_vfile_ops = {
+	.show = iface_vfile_show,
+};
+
+void xnshadow_init_proc(void)
+{
+	xnvfile_init_dir("interfaces", &iface_vfroot, &nkvfroot);
+}
+
+void xnshadow_cleanup_proc(void)
+{
+	int muxid;
+
+	for (muxid = 0; muxid < XENOMAI_MUX_NR; muxid++)
+		if (muxtable[muxid].props && muxtable[muxid].props->name)
+			xnvfile_destroy_regular(&muxtable[muxid].vfile);
+
+	xnvfile_destroy_dir(&iface_vfroot);
+}
+
+#endif /* CONFIG_XENO_OPT_VFILE */
 
 /*
  * xnshadow_register_interface() -- Register a new skin/interface.
@@ -2852,6 +2898,7 @@ RTHAL_DECLARE_CLEANUP_EVENT(cleanup_event);
 
 int xnshadow_register_interface(struct xnskin_props *props)
 {
+	struct xnskin_slot *iface;
 	int muxid;
 	spl_t s;
 
@@ -2862,22 +2909,34 @@ int xnshadow_register_interface(struct xnskin_props *props)
 	if (XENOMAI_MAX_SYSENT < props->nrcalls || 0 > props->nrcalls)
 		return -EINVAL;
 
+	down(&registration_mutex);
+
 	xnlock_get_irqsave(&nklock, s);
 
 	for (muxid = 0; muxid < XENOMAI_MUX_NR; muxid++) {
-		if (muxtable[muxid].props == NULL) {
-			muxtable[muxid].props = props;
-			xnarch_atomic_set(&muxtable[muxid].refcnt, 0);
+		iface = muxtable + muxid;
+		if (iface->props == NULL) {
+			iface->props = props;
+			xnarch_atomic_set(&iface->refcnt, 0);
 			break;
 		}
 	}
 
 	xnlock_put_irqrestore(&nklock, s);
 
-	if (muxid >= XENOMAI_MUX_NR)
+	if (muxid >= XENOMAI_MUX_NR) {
+		up(&registration_mutex);
 		return -ENOBUFS;
+	}
 
-	xnshadow_declare_proc(muxtable + muxid);
+#ifdef CONFIG_XENO_OPT_VFILE
+	memset(&iface->vfile, 0, sizeof(iface->vfile));
+	iface->vfile.ops = &iface_vfile_ops;
+	xnvfile_init_regular(props->name, &iface->vfile,
+			     &iface_vfroot);
+#endif
+
+	up(&registration_mutex);
 
 	return muxid;
 
@@ -2891,25 +2950,29 @@ EXPORT_SYMBOL_GPL(xnshadow_register_interface);
  */
 int xnshadow_unregister_interface(int muxid)
 {
-	const char *name;
+	struct xnskin_slot *iface;
 	spl_t s;
 
 	if (muxid < 0 || muxid >= XENOMAI_MUX_NR)
 		return -EINVAL;
 
-	xnlock_get_irqsave(&nklock, s);
+	down(&registration_mutex);
 
-	if (xnarch_atomic_get(&muxtable[muxid].refcnt) > 0) {
+	xnlock_get_irqsave(&nklock, s);
+	iface = muxtable + muxid;
+	if (xnarch_atomic_get(&iface->refcnt) > 0) {
 		xnlock_put_irqrestore(&nklock, s);
+		up(&registration_mutex);
 		return -EBUSY;
 	}
-
-	name = muxtable[muxid].props->name;
-	muxtable[muxid].props = NULL;
-
+	iface->props = NULL;
 	xnlock_put_irqrestore(&nklock, s);
 
-	xnshadow_remove_proc(name);
+#ifdef CONFIG_XENO_OPT_VFILE
+	xnvfile_destroy_regular(&iface->vfile);
+#endif
+
+	up(&registration_mutex);
 
 	return 0;
 }
@@ -2934,7 +2997,7 @@ EXPORT_SYMBOL_GPL(xnshadow_unregister_interface);
 xnshadow_ppd_t *xnshadow_ppd_get(unsigned muxid)
 {
 	if (xnpod_userspace_p())
-		return ppd_lookup(muxid, current->mm);
+		return ppd_lookup(muxid, xnshadow_mm(current) ?: current->mm);
 
 	return NULL;
 }
@@ -2966,12 +3029,12 @@ int xnshadow_mount(void)
 	unsigned i, size;
 	int cpu, ret;
 
-	nucleus_muxid = -1;
-
+	sema_init(&completion_mutex, 1);
 	nkthrptd = rthal_alloc_ptdkey();
 	nkerrptd = rthal_alloc_ptdkey();
+	nkmmptd = rthal_alloc_ptdkey();
 
-	if (nkthrptd < 0 || nkerrptd < 0) {
+	if (nkthrptd < 0 || nkerrptd < 0 || nkmmptd < 0) {
 		printk(KERN_ERR "Xenomai: cannot allocate PTD slots\n");
 		return -ENOMEM;
 	}
@@ -3071,65 +3134,5 @@ void xnshadow_cleanup(void)
 
 	mayday_cleanup_page();
 }
-
-#ifdef CONFIG_PROC_FS
-
-#include <linux/proc_fs.h>
-
-static struct proc_dir_entry *iface_proc_root;
-
-static int iface_read_proc(char *page,
-			   char **start,
-			   off_t off, int count, int *eof, void *data)
-{
-	struct xnskin_slot *iface = data;
-	int len, refcnt;
-
-	refcnt = xnarch_atomic_get(&iface->refcnt);
-	len = sprintf(page, "%d\n", refcnt);
-
-	len -= off;
-	if (len <= off + count)
-		*eof = 1;
-	*start = page + off;
-	if (len > count)
-		len = count;
-	if (len < 0)
-		len = 0;
-
-	return len;
-}
-
-void xnshadow_declare_proc(struct xnskin_slot *iface)
-{
-	rthal_add_proc_leaf(iface->props->name,
-			    &iface_read_proc, NULL, iface,
-			    iface_proc_root);
-}
-
-void xnshadow_remove_proc(const char *iface_name)
-{
-	remove_proc_entry(iface_name, iface_proc_root);
-}
-
-void xnshadow_init_proc(void)
-{
-	iface_proc_root =
-	    create_proc_entry("interfaces", S_IFDIR, rthal_proc_root);
-}
-
-void xnshadow_cleanup_proc(void)
-{
-	int muxid;
-
-	for (muxid = 0; muxid < XENOMAI_MUX_NR; muxid++)
-		if (muxtable[muxid].props && muxtable[muxid].props->name)
-			remove_proc_entry(muxtable[muxid].props->name,
-					  iface_proc_root);
-
-	remove_proc_entry("interfaces", rthal_proc_root);
-}
-
-#endif /* CONFIG_PROC_FS */
 
 /*@}*/

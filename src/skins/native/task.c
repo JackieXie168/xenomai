@@ -56,7 +56,9 @@ struct rt_task_iargs {
 static void *rt_task_trampoline(void *cookie)
 {
 	struct rt_task_iargs *iargs = (struct rt_task_iargs *)cookie;
+	volatile pthread_t tid = pthread_self();
 	void (*entry) (void *cookie);
+	unsigned long mode_offset;
 	struct rt_arg_bulk bulk;
 	RT_TASK *task, *self;
 	long err;
@@ -78,11 +80,12 @@ static void *rt_task_trampoline(void *cookie)
 	bulk.a2 = (u_long)iargs->name;
 	bulk.a3 = (u_long)iargs->prio;
 	bulk.a4 = (u_long)iargs->mode;
-	bulk.a5 = (u_long)pthread_self();
+	bulk.a5 = (u_long)tid;
 	/* Signal allocation failures by setting bulk.a6 to 0, they will be
 	   propagated to the thread waiting in xn_sys_completion. */
-	bulk.a6 = !self ? 0UL : (u_long)xeno_init_current_mode();
+	bulk.a6 = !self ? 0UL : (u_long)&mode_offset;
 
+	asm volatile("nop;nop;nop");
 	err = XENOMAI_SKINCALL2(__native_muxid,
 				__native_task_create, &bulk,
 				iargs->completionp);
@@ -96,6 +99,7 @@ static void *rt_task_trampoline(void *cookie)
 	*self = *task;
 
 	xeno_set_current();
+	xeno_set_current_mode(mode_offset);
 
 	/* Wait on the barrier for the task to be started. The barrier
 	   could be released in order to process Linux signals while the
@@ -113,7 +117,7 @@ static void *rt_task_trampoline(void *cookie)
 
       fail:
 
-	pthread_exit((void *)err);
+	return (void *)err;
 }
 
 int rt_task_create(RT_TASK *task,
@@ -179,6 +183,7 @@ int rt_task_start(RT_TASK *task, void (*entry) (void *cookie), void *cookie)
 
 int rt_task_shadow(RT_TASK *task, const char *name, int prio, int mode)
 {
+	unsigned long mode_offset;
 	struct rt_arg_bulk bulk;
 	RT_TASK task_desc;
 	RT_TASK *self;
@@ -212,12 +217,7 @@ int rt_task_shadow(RT_TASK *task, const char *name, int prio, int mode)
 	bulk.a3 = (u_long)prio;
 	bulk.a4 = (u_long)mode;
 	bulk.a5 = (u_long)pthread_self();
-	bulk.a6 = (u_long)xeno_init_current_mode();
-
-	if (!bulk.a6) {
-		err = -ENOMEM;
-		goto fail;
-	}
+	bulk.a6 = (u_long)&mode_offset;
 
 	err = XENOMAI_SKINCALL2(__native_muxid, __native_task_create, &bulk,
 				NULL);
@@ -227,6 +227,7 @@ int rt_task_shadow(RT_TASK *task, const char *name, int prio, int mode)
 	*self = *task;
 
 	xeno_set_current();
+	xeno_set_current_mode(mode_offset);
 
 	return 0;
 

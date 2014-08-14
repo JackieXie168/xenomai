@@ -6,6 +6,7 @@ includesub_HEADERS = \
 	bufd.h \
 	compiler.h \
 	heap.h \
+	hostrt.h \
 	intr.h \
 	jhash.h \
 	map.h \
@@ -34,5 +35,7 @@ includesub_HEADERS = \
 	trace.h \
 	types.h \
 	vdso.h \
+	seqlock.h \
 	version.h \
-	xenomai.h
+	xenomai.h \
+	vfile.h

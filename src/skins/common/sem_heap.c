@@ -28,7 +28,6 @@ static struct xnheap_desc private_hdesc;
 
 void *xeno_map_heap(struct xnheap_desc *hd)
 {
-	unsigned long area;
 	int fd, ret;
 	void *addr;
 
@@ -44,14 +43,8 @@ void *xeno_map_heap(struct xnheap_desc *hd)
 		return MAP_FAILED;
 	}
 
-#ifdef CONFIG_MMU
-	/* XXX: 2.5.x ABI preserved for MMU-enabled only. */
-	area = 0;
-#else
-	area = hd->area;
-#endif
 	addr = mmap(NULL, hd->size, PROT_READ|PROT_WRITE,
-		    MAP_SHARED, fd, area);
+		    MAP_SHARED, fd, hd->area);
 
 	close(fd);
 
@@ -64,10 +57,10 @@ static void *map_sem_heap(unsigned int shared)
 	int ret;
 
 	hdesc = shared ? &global_hdesc : &private_hdesc;
-	ret = XENOMAI_SYSCALL2(__xn_sys_sem_heap, hdesc, shared);
+	ret = XENOMAI_SYSCALL2(__xn_sys_heap_info, hdesc, shared);
 	if (ret < 0) {
 		errno = -ret;
-		perror("Xenomai: sys_sem_heap");
+		perror("Xenomai: sys_heap_info");
 		return MAP_FAILED;
 	}
 
@@ -113,8 +106,6 @@ static void xeno_init_vdso(void)
 	}
 
 	nkvdso = (struct xnvdso *)(xeno_sem_heap[SHARED] + sysinfo.vdso);
-	if (!xnvdso_test_feature(XNVDSO_FEAT_DROP_U_MODE))
-		xeno_current_warn_old();
 }
 
 /* Will be called once at library loading time, and when re-binding

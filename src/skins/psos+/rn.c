@@ -24,6 +24,7 @@
 #include <stdio.h>
 #include <nucleus/heap.h>
 #include <psos+/psos.h>
+#include <psos+/long_names.h>
 
 extern int __psos_muxid;
 
@@ -32,7 +33,7 @@ struct rninfo {
 	u_long allocsz;
 	void *rncb;
 	u_long mapsize;
-	xnheap_area_decl();
+	u_long area;
 };
 
 void *xeno_map_heap(struct xnheap_desc *hd);
@@ -44,7 +45,7 @@ static int __map_heap_memory(const struct rninfo *rnip)
 
 	hd.handle = (unsigned long)rnip->rncb;
 	hd.size = rnip->mapsize;
-	xnheap_area_set(&hd, rnip->area);
+	hd.area = rnip->area;
 	mapbase = xeno_map_heap(&hd);
 	if (mapbase == MAP_FAILED)
 		return -errno;
@@ -59,12 +60,15 @@ u_long rn_create(const char name[4],
 		 u_long usize, u_long flags, u_long *rnid, u_long *allocsz)
 {
 	struct rninfo rninfo;
+	char short_name[5];
 	struct {
 		u_long rnsize;
 		u_long usize;
 		u_long flags;
 	} sizeopt;
 	u_long err;
+
+	name = __psos_maybe_short_name(short_name, name);
 
 	if (rnaddr)
 		fprintf(stderr,
@@ -114,5 +118,9 @@ u_long rn_retseg(u_long rnid, void *chunk)
 
 u_long rn_ident(const char name[4], u_long *rnid_r)
 {
+	char short_name[5];
+
+	name = __psos_maybe_short_name(short_name, name);
+
 	return XENOMAI_SKINCALL2(__psos_muxid, __psos_rn_ident, name, rnid_r);
 }

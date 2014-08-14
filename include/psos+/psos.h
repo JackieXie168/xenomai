@@ -58,7 +58,7 @@
 #define T_FPU         0x0002
 
 /* Those bits are Xenomai-specific. */
-#define T_SHADOW      0x8000
+#define T_SHADOW      XNSHADOW
 #define T_TRAPSW      XNTRAPSW
 #define T_RPIOFF      XNRPIOFF
 
@@ -196,6 +196,8 @@ u_long t_restart(u_long tid,
 #else /* !(__KERNEL__ || __XENO_SIM__) */
 
 #include <psos+/syscall.h>
+
+extern unsigned psos_long_names;
 
 #endif /* __KERNEL__ || __XENO_SIM__ */
 

@@ -126,6 +126,7 @@ int xnthread_init(struct xnthread *thread,
 	thread->wchan = NULL;
 	thread->wwake = NULL;
 	thread->wcontext = NULL;
+	thread->hrescnt = 0;
 	thread->errcode = 0;
 	thread->registry.handle = XN_NO_HANDLE;
 	thread->registry.waitkey = NULL;
@@ -148,10 +149,6 @@ int xnthread_init(struct xnthread *thread,
 	thread->selector = NULL;
 #endif /* CONFIG_XENO_OPT_SELECT */
 	initpq(&thread->claimq);
-
-#ifdef CONFIG_XENO_OPT_PERVASIVE
-	xnthread_set_sigpending(thread, 0);
-#endif /* CONFIG_XENO_OPT_PERVASIVE */
 
 	thread->sched = sched;
 	thread->init_class = sched_class;

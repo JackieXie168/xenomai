@@ -47,9 +47,6 @@
 #include <asm/uaccess.h>
 #include <asm/unistd.h>
 #include <asm/xenomai/hal.h>
-#ifdef CONFIG_PROC_FS
-#include <linux/proc_fs.h>
-#endif /* CONFIG_PROC_FS */
 #include <stdarg.h>
 
 #ifdef DEBUG
@@ -261,7 +258,7 @@ void rthal_timer_notify_switch(enum clock_event_mode mode,
 	rthal_ktimer_saved_mode = mode;
 }
 
-EXPORT_SYMBOL(rthal_timer_notify_switch);
+EXPORT_SYMBOL_GPL(rthal_timer_notify_switch);
 
 #else /* !CONFIG_GENERIC_CLOCKEVENTS */
 
@@ -380,8 +377,6 @@ int rthal_irq_enable(unsigned irq)
 	if (irq >= NR_IRQS || rthal_irq_descp(irq) == NULL)
 		return -EINVAL;
 
-	rthal_irq_desc_status(irq) &= ~IRQ_DISABLED;
-
 	return rthal_irq_chip_enable(irq);
 }
 
@@ -389,8 +384,6 @@ int rthal_irq_disable(unsigned irq)
 {
 	if (irq >= NR_IRQS || rthal_irq_descp(irq) == NULL)
 		return -EINVAL;
-
-	rthal_irq_desc_status(irq) |= IRQ_DISABLED;
 
 	return rthal_irq_chip_disable(irq);
 }
@@ -462,13 +455,13 @@ void rthal_arch_cleanup(void)
 
 /*@}*/
 
-EXPORT_SYMBOL(rthal_arch_init);
-EXPORT_SYMBOL(rthal_arch_cleanup);
-EXPORT_SYMBOL(rthal_thread_switch);
-EXPORT_SYMBOL(rthal_thread_trampoline);
+EXPORT_SYMBOL_GPL(rthal_arch_init);
+EXPORT_SYMBOL_GPL(rthal_arch_cleanup);
+EXPORT_SYMBOL_GPL(rthal_thread_switch);
+EXPORT_SYMBOL_GPL(rthal_thread_trampoline);
 
 #ifdef CONFIG_XENO_HW_FPU
-EXPORT_SYMBOL(rthal_init_fpu);
-EXPORT_SYMBOL(rthal_save_fpu);
-EXPORT_SYMBOL(rthal_restore_fpu);
+EXPORT_SYMBOL_GPL(rthal_init_fpu);
+EXPORT_SYMBOL_GPL(rthal_save_fpu);
+EXPORT_SYMBOL_GPL(rthal_restore_fpu);
 #endif /* CONFIG_XENO_HW_FPU */

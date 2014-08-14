@@ -7,7 +7,10 @@
 struct xnsys_ppd {
 	xnshadow_ppd_t ppd;
 	xnheap_t sem_heap;
-
+#ifdef XNARCH_HAVE_MAYDAY
+	unsigned long mayday_addr;
+#endif
+	xnarch_atomic_t refcnt;
 #define ppd2sys(addr) container_of(addr, struct xnsys_ppd, ppd)
 };
 

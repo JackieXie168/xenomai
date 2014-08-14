@@ -527,31 +527,70 @@ int sigaction(int sig, const struct sigaction *act, struct sigaction *oact)
 int pthread_kill(pthread_t thread, int sig)
 {
 	pse51_siginfo_t *si = NULL;
+	int ret = 0;
 	spl_t s;
-
-	if ((unsigned)sig > SIGRTMAX)
-		return EINVAL;
-
-	if (sig) {
-		si = pse51_new_siginfo(sig, SI_USER, (union sigval)0);
-
-		if (!si)
-			return EAGAIN;
-	}
 
 	xnlock_get_irqsave(&nklock, s);
 
 	if (!pse51_obj_active(thread, PSE51_THREAD_MAGIC, struct pse51_thread)) {
-		xnlock_put_irqrestore(&nklock, s);
-		return ESRCH;
+		ret = ESRCH;
+		goto unlock_and_exit;
 	}
 
-	if (sig && pse51_sigqueue_inner(thread, si))
-		xnpod_schedule();
+	if (sig == 0)
+		/* Test for existence -- take fast path. */
+		goto unlock_and_exit;
+
+	/*
+	 * Undocumented pseudo-signals to suspend/resume/unblock
+	 * threads via the low-level nucleus services. Process them
+	 * early, before anyone can notice...
+	 */
+	if (sig == SIGSUSP) {
+		/*
+		 * The self-suspension case for shadows was handled at
+		 * call site: we must be in primary mode already.
+		 */
+		xnpod_suspend_thread(&thread->threadbase, XNSUSP,
+				     XN_INFINITE, XN_RELATIVE, NULL);
+		if (&thread->threadbase == xnpod_current_thread() &&
+		    xnthread_test_info(&thread->threadbase, XNBREAK))
+			ret = EINTR;
+		goto unlock_and_exit;
+	}
+
+	if (sig == SIGRESM) {
+		xnpod_resume_thread(&thread->threadbase, XNSUSP);
+		goto resched;
+	}
+
+	if (sig == SIGRELS) {
+		xnpod_unblock_thread(&thread->threadbase);
+		goto resched;
+	}
+
+	if ((unsigned)sig > SIGRTMAX) {
+		ret = EINVAL;
+		goto unlock_and_exit;
+	}
+
+	si = pse51_new_siginfo(sig, SI_USER, (union sigval)0);
+	if (si == NULL) {
+		ret = EAGAIN;
+		goto unlock_and_exit;
+	}
+
+	if (!pse51_sigqueue_inner(thread, si))
+		goto unlock_and_exit;
+
+resched:
+	xnpod_schedule();
+
+unlock_and_exit:
 
 	xnlock_put_irqrestore(&nklock, s);
 
-	return 0;
+	return ret;
 }
 
 /**
@@ -1187,17 +1226,17 @@ static void pse51_default_handler(int sig)
 
 /*@}*/
 
-EXPORT_SYMBOL(sigemptyset);
-EXPORT_SYMBOL(sigfillset);
-EXPORT_SYMBOL(sigaddset);
-EXPORT_SYMBOL(sigdelset);
-EXPORT_SYMBOL(sigismember);
-EXPORT_SYMBOL(pthread_kill);
-EXPORT_SYMBOL(pthread_sigmask);
-EXPORT_SYMBOL(pthread_sigqueue_np);
-EXPORT_SYMBOL(pse51_sigaction);
+EXPORT_SYMBOL_GPL(sigemptyset);
+EXPORT_SYMBOL_GPL(sigfillset);
+EXPORT_SYMBOL_GPL(sigaddset);
+EXPORT_SYMBOL_GPL(sigdelset);
+EXPORT_SYMBOL_GPL(sigismember);
+EXPORT_SYMBOL_GPL(pthread_kill);
+EXPORT_SYMBOL_GPL(pthread_sigmask);
+EXPORT_SYMBOL_GPL(pthread_sigqueue_np);
+EXPORT_SYMBOL_GPL(pse51_sigaction);
 
-EXPORT_SYMBOL(sigpending);
-EXPORT_SYMBOL(sigwait);
-EXPORT_SYMBOL(sigwaitinfo);
-EXPORT_SYMBOL(sigtimedwait);
+EXPORT_SYMBOL_GPL(sigpending);
+EXPORT_SYMBOL_GPL(sigwait);
+EXPORT_SYMBOL_GPL(sigwaitinfo);
+EXPORT_SYMBOL_GPL(sigtimedwait);

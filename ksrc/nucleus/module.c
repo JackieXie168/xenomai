@@ -35,11 +35,66 @@
 #endif /* CONFIG_XENO_OPT_PIPE */
 #include <nucleus/select.h>
 #include <asm/xenomai/bits/init.h>
-#ifdef CONFIG_XENO_OPT_PERVASIVE
+#include <asm/xenomai/hal.h>
 #include <nucleus/vdso.h>
+
+#ifndef CONFIG_XENO_OPT_PERVASIVE
+/*
+ * We need an instance of struct xnvdso even in the non-pervasive case,
+ * for example to implement hostrt support.
+ */
+static struct xnvdso static_nkvdso;
+struct xnvdso *nkvdso;
+EXPORT_SYMBOL_GPL(nkvdso);
+
+void __init xnheap_init_vdso(void)
+{
+	static_nkvdso.features = XNVDSO_FEATURES;
+	nkvdso = &static_nkvdso;
+}
+#endif /* !CONFIG_XENO_OPT_PERVASIVE */
+
+#ifdef CONFIG_XENO_OPT_HOSTRT
+static IPIPE_DEFINE_SPINLOCK(__hostrtlock);
+
+static inline void do_hostrt_event(struct xnarch_hostrt_data *hostrt)
+{
+	unsigned long flags;
+
+	/*
+	 * The locking strategy is twofold:
+	 * - The spinlock protects against concurrent updates from within the
+	 *   Linux kernel and against preemption by Xenomai
+	 * - The sequence counter is for lockless read-only access.
+	 */
+
+	spin_lock_irqsave(&__hostrtlock, flags);
+	xnwrite_seqcount_begin(&nkvdso->hostrt_data.seqcount);
+
+	nkvdso->hostrt_data.live = 1;
+	nkvdso->hostrt_data.cycle_last = hostrt->cycle_last;
+	nkvdso->hostrt_data.mask = hostrt->mask;
+	nkvdso->hostrt_data.mult = hostrt->mult;
+	nkvdso->hostrt_data.shift = hostrt->shift;
+	nkvdso->hostrt_data.wall_time_sec = hostrt->wall_time_sec;
+	nkvdso->hostrt_data.wall_time_nsec = hostrt->wall_time_nsec;
+	nkvdso->hostrt_data.wall_to_monotonic = hostrt->wall_to_monotonic;
+
+	xnwrite_seqcount_end(&nkvdso->hostrt_data.seqcount);
+	spin_unlock_irqrestore(&__hostrtlock, flags);
+}
+
+RTHAL_DECLARE_HOSTRT_EVENT(hostrt_event);
+
+static inline void init_hostrt(void)
+{
+	xnseqcount_init(&nkvdso->hostrt_data.seqcount);
+	nkvdso->hostrt_data.live = 0;
+	rthal_catch_hostrt(&hostrt_event);
+}
 #else
-static inline void xnheap_init_vdso(void) { }
-#endif /* CONFIG_XENO_OPT_PERVASIVE */
+static inline void init_hostrt(void) { }
+#endif /* CONFIG_XENO_OPT_HOSTRT */
 
 MODULE_DESCRIPTION("Xenomai nucleus");
 MODULE_AUTHOR("rpm@xenomai.org");
@@ -93,12 +148,6 @@ int __init __xeno_sys_init(void)
 
 	xnmod_sysheap_size = module_param_value(sysheap_size_arg) * 1024;
 
-	nkmsgbuf = xnarch_alloc_host_mem(XNPOD_FATAL_BUFSZ);
-	if (nkmsgbuf == NULL) {
-		ret = -ENOMEM;
-		goto fail;
-	}
-
 	ret = xnarch_init();
 	if (ret)
 		goto fail;
@@ -113,7 +162,8 @@ int __init __xeno_sys_init(void)
 	xnheap_set_label(&__xnsys_global_ppd.sem_heap, "global sem heap");
 
 	xnheap_init_vdso();
-#endif
+	init_hostrt();
+#endif /* !__XENO_SIM__ */
 
 #ifdef __KERNEL__
 	xnpod_mount();
@@ -226,9 +276,6 @@ void __exit __xeno_sys_exit(void)
 #ifndef __XENO_SIM__
 	xnheap_destroy_mapped(&__xnsys_global_ppd.sem_heap, NULL, NULL);
 #endif
-
-	if (nkmsgbuf)
-		xnarch_free_host_mem(nkmsgbuf, XNPOD_FATAL_BUFSZ);
 
 	xnloginfo("real-time nucleus unloaded.\n");
 }

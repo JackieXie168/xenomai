@@ -39,9 +39,6 @@
 #include <asm/byteorder.h>
 #include <asm/xenomai/wrappers.h>
 #include <asm/xenomai/arith.h>
-#ifdef CONFIG_GENERIC_CLOCKEVENTS
-#include <linux/ipipe_tickdev.h>
-#endif
 
 #define RTHAL_DOMAIN_ID		0x58454e4f
 
@@ -192,8 +189,13 @@ typedef spinlock_t rthal_spinlock_t;
 
 #define rthal_setsched_root(t,pol,prio)	ipipe_setscheduler_root(t,pol,prio)
 #define rthal_reenter_root(t,pol,prio)	ipipe_reenter_root(t,pol,prio)
-#define rthal_emergency_console()	ipipe_set_printk_sync(ipipe_current_domain)
 #define rthal_read_tsc(v)		ipipe_read_tsc(v)
+
+#define rthal_emergency_console()				\
+	do {							\
+		ipipe_stall_pipeline_from(ipipe_root_domain);	\
+		ipipe_set_printk_sync(ipipe_current_domain);	\
+	} while (0)
 
 #ifdef __IPIPE_FEATURE_SYSINFO_V2
 
@@ -295,6 +297,14 @@ static int hdlr(unsigned event, struct ipipe_domain *ipd, void *data) \
 	return RTHAL_EVENT_PROPAGATE;				      \
 }
 
+#define RTHAL_DECLARE_HOSTRT_EVENT(hdlr)			      \
+static int hdlr(unsigned event, struct ipipe_domain *ipd, void *data) \
+{								      \
+	struct rthal_hostrt_data *hostrt = data;		      \
+	do_##hdlr(hostrt);					      \
+	return RTHAL_EVENT_PROPAGATE;				      \
+}
+
 #ifndef TASK_ATOMICSWITCH
 #ifdef CONFIG_PREEMPT
 /* We want this feature for preemptible kernels, or the behaviour when
@@ -354,6 +364,8 @@ static inline void rthal_enable_notifier(struct task_struct *p)
     ipipe_catch_event(&rthal_domain,IPIPE_EVENT_SYSCALL,hdlr)
 #define rthal_catch_exception(ex,hdlr)	\
     ipipe_catch_event(&rthal_domain,ex|IPIPE_EVENT_SELF,hdlr)
+#define rthal_catch_hostrt(hdlr)	\
+    ipipe_catch_event(ipipe_root_domain, IPIPE_EVENT_HOSTRT, hdlr)
 
 #ifdef IPIPE_EVENT_RETURN
 #define RTHAL_HAVE_RETURN_EVENT
@@ -420,6 +432,13 @@ struct rthal_calibration_data {
 	unsigned long clock_freq;
 };
 
+struct rthal_apc_desc {
+	void (*handler)(void *cookie);
+	void *cookie;
+	const char *name;
+	unsigned long hits[RTHAL_NR_CPUS];
+};
+
 typedef int (*rthal_trap_handler_t)(unsigned trapno,
 				    unsigned domid,
 				    void *data);
@@ -438,7 +457,15 @@ extern volatile int rthal_sync_op;
 
 extern rthal_trap_handler_t rthal_trap_handler;
 
-extern unsigned rthal_realtime_faults[RTHAL_NR_CPUS][RTHAL_NR_FAULTS];
+extern unsigned int rthal_realtime_faults[RTHAL_NR_CPUS][RTHAL_NR_FAULTS];
+
+extern unsigned long rthal_apc_map;
+
+extern struct rthal_apc_desc rthal_apc_table[RTHAL_NR_APCS];
+
+extern unsigned long rthal_apc_pending[RTHAL_NR_CPUS];
+
+extern unsigned int rthal_apc_virq;
 
 extern unsigned long rthal_apc_pending[RTHAL_NR_CPUS];
 
@@ -453,33 +480,6 @@ extern void rthal_arch_cleanup(void);
 unsigned long rthal_critical_enter(void (*synch)(void));
 
 void rthal_critical_exit(unsigned long flags);
-
-#ifdef CONFIG_XENO_HW_NMI_DEBUG_LATENCY
-
-extern unsigned rthal_maxlat_us;
-
-extern unsigned long rthal_maxlat_tsc;
-
-void rthal_nmi_init(void (*emergency)(struct pt_regs *));
-
-int rthal_nmi_request(void (*emergency)(struct pt_regs *));
-
-void rthal_nmi_release(void);
-
-void rthal_nmi_arm(unsigned long delay);
-
-void rthal_nmi_disarm(void);
-
-void rthal_nmi_proc_register(void);
-
-void rthal_nmi_proc_unregister(void);
-
-#else /* !CONFIG_XENO_HW_NMI_DEBUG_LATENCY */
-#define rthal_nmi_init(efn)		do { } while(0)
-#define rthal_nmi_release()		do { } while(0)
-#define rthal_nmi_proc_register()	do { } while(0)
-#define rthal_nmi_proc_unregister()	do { } while(0)
-#endif /* CONFIG_XENO_HW_NMI_DEBUG_LATENCY */
 
     /* Public interface */
 
@@ -539,10 +539,6 @@ static inline void rthal_apc_schedule(int apc)
 	rthal_local_irq_restore(flags);
 }
 
-int rthal_irq_affinity(unsigned irq,
-		       cpumask_t cpumask,
-		       cpumask_t *oldmask);
-
 rthal_trap_handler_t rthal_trap_catch(rthal_trap_handler_t handler);
 
 unsigned long rthal_timer_calibrate(void);
@@ -579,25 +575,8 @@ static inline int rthal_cpu_supported(int cpu)
 }
 #endif /* !CONFIG_SMP */
 
-#ifdef CONFIG_PROC_FS
-
-#include <linux/proc_fs.h>
-
-extern struct proc_dir_entry *rthal_proc_root;
-
-struct proc_dir_entry *rthal_add_proc_leaf(const char *name,
-					   read_proc_t rdproc,
-					   write_proc_t wrproc,
-					   void *data,
-					   struct proc_dir_entry *parent);
-
-struct proc_dir_entry *rthal_add_proc_seq(const char *name,
-					  struct file_operations *fops,
-					  size_t size,
-					  struct proc_dir_entry *parent);
-#endif /* CONFIG_PROC_FS */
-
 #ifdef CONFIG_IPIPE_TRACE
+
 #include <linux/ipipe_trace.h>
 
 static inline int rthal_trace_max_begin(unsigned long v)
@@ -698,6 +677,7 @@ static inline int rthal_trace_panic_dump(void)
 
 #endif /* CONFIG_IPIPE_TRACE */
 
+#define rthal_hostrt_data	ipipe_hostrt_data
 #ifdef __cplusplus
 }
 #endif /* __cplusplus */

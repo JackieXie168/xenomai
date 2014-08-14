@@ -33,7 +33,13 @@ static inline void xnarch_init_shadow_tcb(xnarchtcb_t * tcb,
 	struct task_struct *task = current;
 
 	tcb->user_task = task;
+	tcb->active_task = NULL;
 	tcb->tsp = &task->thread;
+	tcb->mm = task->mm;
+	tcb->active_mm = NULL;
+#ifdef CONFIG_XENO_HW_UNLOCKED_SWITCH
+	tcb->tip = task_thread_info(task);
+#endif
 	tcb->entry = NULL;
 	tcb->cookie = NULL;
 	tcb->self = thread;
@@ -75,7 +81,6 @@ static inline void xnarch_setup_mayday_page(void *page)
 	 *	00c00334 	movhi	r3,#__xn_sys_mayday
 	 *	18c08ac4 	addi	r3,r3,#__xn_sys_mux
 	 *	00800004 	movi	r2,0
-	 *	02400004 	movi	r9,0
 	 *	003b683a 	trap
 	 *	003fff06 	br	.
 	 */
@@ -83,14 +88,12 @@ static inline void xnarch_setup_mayday_page(void *page)
 		u32 movhi_r3h;
 		u32 addi_r3l;
 		u32 movi_r2;
-		u32 movi_r9;
 		u32 syscall;
 		u32 bug;
 	} code = {
 		.movhi_r3h = 0x00c00334,
 		.addi_r3l = 0x18c08ac4,
 		.movi_r2 = 0x00800004,
-		.movi_r9 = 0x02400004,
 		.syscall = 0x003b683a,
 		.bug = 0x003fff06
 	};
@@ -113,7 +116,6 @@ static inline void xnarch_handle_mayday(struct xnarchtcb *tcb,
 	tcb->mayday.ea = regs->ea;
 	tcb->mayday.r2 = regs->r2;
 	tcb->mayday.r3 = regs->r3;
-	tcb->mayday.r9 = regs->r9;
 	regs->ea = tramp;
 }
 
@@ -123,7 +125,6 @@ static inline void xnarch_fixup_mayday(struct xnarchtcb *tcb,
 	regs->ea = tcb->mayday.ea;
 	regs->r2 = tcb->mayday.r2;
 	regs->r3 = tcb->mayday.r3;
-	regs->r9 = tcb->mayday.r9;
 }
 
 #endif /* XNARCH_HAVE_MAYDAY */

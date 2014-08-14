@@ -126,7 +126,7 @@ static RT_TASK *__rt_task_current(struct task_struct *p)
  * a3: int prio;
  * a4: int mode;
  * a5: pthread_t opaque;
- * a6: thread mode writeback area;
+ * a6: thread mode offset writeback area;
  * }
  */
 
@@ -184,8 +184,10 @@ static int __rt_task_create(struct pt_regs *regs)
 	   the platform does not support it. */
 
 	err = rt_task_create(task, name, 0, prio, XNFPU | XNSHADOW | mode);
-	if (err)
+	if (err) {
+		task = NULL;
 		goto fail;
+	}
 
 	/* Apply CPU affinity */
 	set_cpus_allowed(p, task->affinity);
@@ -589,19 +591,22 @@ static int __rt_task_set_mode(struct pt_regs *regs)
 	int err, setmask, clrmask, mode_r;
 
 	clrmask = __xn_reg_arg1(regs);
-	setmask = __xn_reg_arg2(regs);
+	if (clrmask & T_CONFORMING)
+		return -EINVAL;
 
-	err =
-	    rt_task_set_mode(clrmask & ~T_PRIMARY, setmask & ~T_PRIMARY,
-			     &mode_r);
-
+	/*
+	 * This call already required a primary mode switch, so if
+	 * T_CONFORMING was specified for a real-time shadow, we are
+	 * fine. If it was given from a non real-time shadow, well
+	 * this is silly, and we'll be relaxed soon due to the
+	 * auto-relax feature, leading to a nop.
+	 */
+	setmask = __xn_reg_arg2(regs) & ~T_CONFORMING;
+	err = rt_task_set_mode(clrmask, setmask, &mode_r);
 	if (err)
 		return err;
 
-	if ((clrmask & T_PRIMARY) != 0)
-		xnshadow_relax(0, 0);
-	else
-		mode_r |= T_PRIMARY;
+	mode_r |= T_CONFORMING;
 
 	if (__xn_reg_arg3(regs) &&
 	    __xn_safe_copy_to_user((void __user *)__xn_reg_arg3(regs),
@@ -1819,12 +1824,18 @@ static int __rt_cond_delete(struct pt_regs *regs)
  *		      	       RTIME *timeoutp)
  */
 
+struct us_cond_data {
+	unsigned lockcnt;
+	int err;
+};
+
 static int __rt_cond_wait_prologue(struct pt_regs *regs)
 {
 	RT_COND_PLACEHOLDER cph, mph;
+	unsigned dummy, *plockcnt;
 	xntmode_t timeout_mode;
+	struct us_cond_data d;
 	int err, perr = 0;
-	unsigned lockcnt;
 	RT_MUTEX *mutex;
 	RT_COND *cond;
 	RTIME timeout;
@@ -1853,26 +1864,35 @@ static int __rt_cond_wait_prologue(struct pt_regs *regs)
 				     sizeof(timeout)))
 		return -EFAULT;
 
-	err = rt_cond_wait_prologue(cond, mutex, &lockcnt, timeout_mode, timeout);
+#ifdef CONFIG_XENO_FASTSYNCH
+	if (__xn_safe_copy_from_user(&d, (void __user *)__xn_reg_arg3(regs),
+				     sizeof(d)))
+		return -EFAULT;
+
+	plockcnt = &dummy;
+#else /* !CONFIG_XENO_FASTSYNCH */
+	plockcnt = &d.lockcnt;
+	(void)dummy;
+#endif /* !CONFIG_XENO_FASTSYNCH */
+
+	err = rt_cond_wait_prologue(cond, mutex, plockcnt, timeout_mode, timeout);
 
 	switch(err) {
 	case 0:
 	case -ETIMEDOUT:
 	case -EIDRM:
-		perr = rt_task_errno = err;
-		err = rt_cond_wait_epilogue(mutex, lockcnt);
+		perr = d.err = err;
+		err = rt_cond_wait_epilogue(mutex, *plockcnt);
 		break;
 
 	case -EINTR:
 		perr = err;
-		rt_task_errno = 0; /* epilogue should return 0. */
+		d.err = 0; /* epilogue should return 0. */
 		break;
 	}
 
-	if (err == -EINTR
-	    && __xn_reg_arg3(regs)
-	    && __xn_safe_copy_to_user((void __user *)__xn_reg_arg3(regs),
-				      &lockcnt, sizeof(lockcnt)))
+	if (__xn_safe_copy_to_user((void __user *)__xn_reg_arg3(regs),
+				   &d, sizeof(d)))
 		return -EFAULT;
 
 	return err == 0 ? perr : err;
@@ -1902,7 +1922,7 @@ static int __rt_cond_wait_epilogue(struct pt_regs *regs)
 
 	err = rt_cond_wait_epilogue(mutex, lockcnt);
 
-	return err == 0 ? rt_task_errno : err;
+	return err;
 }
 
 /*
@@ -2044,7 +2064,7 @@ static int __rt_queue_create(struct pt_regs *regs)
 	ph.opaque = q->handle;
 	ph.opaque2 = &q->bufpool;
 	ph.mapsize = xnheap_extentsize(&q->bufpool);
-	xnheap_area_set(&ph, xnheap_base_memory(&q->bufpool));
+	ph.area = xnheap_base_memory(&q->bufpool);
 	if (__xn_safe_copy_to_user((void __user *)__xn_reg_arg1(regs), &ph, sizeof(ph)))
 		return -EFAULT;
 
@@ -2082,7 +2102,7 @@ static int __rt_queue_bind(struct pt_regs *regs)
 
 	ph.opaque2 = &q->bufpool;
 	ph.mapsize = xnheap_extentsize(&q->bufpool);
-	xnheap_area_set(&ph, xnheap_base_memory(&q->bufpool));
+	ph.area = xnheap_base_memory(&q->bufpool);
 	xnlock_put_irqrestore(&nklock, s);
 
 	if (__xn_safe_copy_to_user((void __user *)__xn_reg_arg1(regs), &ph, sizeof(ph)))
@@ -2568,7 +2588,7 @@ static int __rt_heap_create(struct pt_regs *regs)
 	ph.opaque = heap->handle;
 	ph.opaque2 = &heap->heap_base;
 	ph.mapsize = xnheap_extentsize(&heap->heap_base);
-	xnheap_area_set(&ph, xnheap_base_memory(&heap->heap_base));
+	ph.area = xnheap_base_memory(&heap->heap_base);
 	if (__xn_safe_copy_to_user((void __user *)__xn_reg_arg1(regs), &ph, sizeof(ph)))
 		return -EFAULT;
 
@@ -2606,7 +2626,7 @@ static int __rt_heap_bind(struct pt_regs *regs)
 
 	ph.opaque2 = &heap->heap_base;
 	ph.mapsize = xnheap_extentsize(&heap->heap_base);
-	xnheap_area_set(&ph, xnheap_base_memory(&heap->heap_base));
+	ph.area = xnheap_base_memory(&heap->heap_base);
 
 	xnlock_put_irqrestore(&nklock, s);
 
@@ -2804,7 +2824,7 @@ void rt_alarm_handler(RT_ALARM *alarm, void *cookie)
 	xnsynch_flush(&alarm->synch_base, 0);
 }
 
-EXPORT_SYMBOL(rt_alarm_handler);
+EXPORT_SYMBOL_GPL(rt_alarm_handler);
 
 /*
  * int __rt_alarm_create(RT_ALARM_PLACEHOLDER *ph,
@@ -3038,7 +3058,7 @@ int rt_intr_handler(xnintr_t *cookie)
 	return XN_ISR_HANDLED | (intr->mode & XN_ISR_NOENABLE);
 }
 
-EXPORT_SYMBOL(rt_intr_handler);
+EXPORT_SYMBOL_GPL(rt_intr_handler);
 
 /*
  * int __rt_intr_create(RT_INTR_PLACEHOLDER *ph,
@@ -4155,7 +4175,6 @@ static struct xnskin_props __props = {
 	.nrcalls = sizeof(__systab) / sizeof(__systab[0]),
 	.systab = __systab,
 	.eventcb = &__shadow_eventcb,
-	.sig_unqueue = NULL,
 	.timebasep = &__native_tbase,
 	.module = THIS_MODULE
 };

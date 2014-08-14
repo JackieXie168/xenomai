@@ -28,6 +28,9 @@
 #include <linux/version.h>
 #include <linux/module.h>
 #include <linux/slab.h>
+#if defined(CONFIG_XENO_OPT_HOSTRT) || defined(__IPIPE_FEATURE_REQUEST_TICKDEV)
+#include <linux/ipipe_tickdev.h>
+#endif /* CONFIG_XENO_OPT_HOSTRT || __IPIPE_FEATURE_REQUEST_TICKDEV */
 #include <asm/io.h>
 
 #if LINUX_VERSION_CODE < KERNEL_VERSION(2,6,0)
@@ -37,6 +40,9 @@
 #include <linux/sched.h>
 #include <linux/bitops.h>
 #include <linux/delay.h>
+#include <linux/slab.h>
+#include <linux/kernel.h>
+#include <linux/linkage.h>
 #include <linux/moduleparam.h>	/* Use the backport. */
 #include <asm/atomic.h>
 
@@ -86,6 +92,7 @@
 
 /* Seqfiles */
 #define SEQ_START_TOKEN ((void *)1)
+#define SEQ_SKIP 	0	/* not implemented. */
 
 /* Sched and process flags */
 #define MAX_RT_PRIO 100
@@ -291,6 +298,7 @@ void show_stack(struct task_struct *task,
 #define BITOP_WORD(nr)	((nr) / BITS_PER_LONG)
 #endif
 
+#define GFP_DMA32  GFP_DMA
 #define __GFP_BITS_SHIFT 20
 #define pgprot_noncached(p) (p)
 
@@ -334,6 +342,21 @@ unsigned long find_next_bit(const unsigned long *addr,
 			    unsigned long size, unsigned long offset);
 
 #define mmiowb()	barrier()
+
+#define wrap_f_inode(file)	((file)->f_dentry->d_inode)
+
+static inline void *kzalloc(size_t size, int flags)
+{
+	void *ptr;
+
+	ptr = kmalloc(size, flags);
+	if (ptr == NULL)
+		return NULL;
+
+	memset(ptr, 0, size);
+
+	return ptr;
+}
 
 #else /* LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,0) */
 
@@ -456,6 +479,8 @@ unsigned long find_next_bit(const unsigned long *addr,
 #define DECLARE_DELAYED_WORK_NODATA(n, f) DECLARE_DELAYED_WORK(n, f)
 #endif /* >= 2.6.20 */
 
+#define wrap_f_inode(file)	((file)->f_path.dentry->d_inode)
+
 #endif /* LINUX_VERSION_CODE < KERNEL_VERSION(2,6,0) */
 
 #if LINUX_VERSION_CODE < KERNEL_VERSION(2,6,18)
@@ -564,7 +589,7 @@ static inline int wrap_raise_cap(int cap)
 }
 #endif /* LINUX_VERSION_CODE >= 2.6.29 */
 
-#ifdef CONFIG_PROC_FS
+#ifdef CONFIG_XENO_OPT_VFILE
 #if LINUX_VERSION_CODE < KERNEL_VERSION(2,6,30)
 #include <linux/module.h>
 #include <linux/proc_fs.h>
@@ -575,7 +600,7 @@ static inline void wrap_proc_dir_entry_owner(struct proc_dir_entry *entry)
 #else  /* LINUX_VERSION_CODE < KERNEL_VERSION(2,6,30) */
 #define wrap_proc_dir_entry_owner(entry) do { (void)entry; } while(0)
 #endif /* LINUX_VERSION_CODE < KERNEL_VERSION(2,6,30) */
-#endif /* CONFIG_PROC_FS */
+#endif /* CONFIG_XENO_OPT_VFILE */
 
 #ifndef list_first_entry
 #define list_first_entry(ptr, type, member) \
@@ -602,6 +627,12 @@ static inline void wrap_proc_dir_entry_owner(struct proc_dir_entry *entry)
 
 #if LINUX_VERSION_CODE < KERNEL_VERSION(2,6,11)
 #define unlocked_ioctl ioctl
+#define DECLARE_IOCTL_HANDLER(name, filp, cmd, arg)		\
+	int name(struct inode *__inode__, struct file *filp,	\
+	     unsigned int cmd, unsigned long arg)
+#else
+#define DECLARE_IOCTL_HANDLER(name, filp, cmd, arg)		\
+	long name(struct file *filp, unsigned int cmd, unsigned long arg)
 #endif
 
 #ifndef DEFINE_SEMAPHORE
@@ -610,6 +641,11 @@ static inline void wrap_proc_dir_entry_owner(struct proc_dir_entry *entry)
 #endif
 
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,37) && defined(CONFIG_GENERIC_HARDIRQS)
+
+#if LINUX_VERSION_CODE < KERNEL_VERSION(2,6,39)
+#define irq_desc_get_chip(desc)	get_irq_desc_chip(desc)
+#endif
+
 /*
  * The irq chip descriptor has been heavily revamped in
  * 2.6.37. Provide generic accessors to the chip handlers we need for
@@ -618,7 +654,7 @@ static inline void wrap_proc_dir_entry_owner(struct proc_dir_entry *entry)
 #define rthal_irq_chip_enable(irq)					\
 	({								\
 		struct irq_desc *desc = rthal_irq_descp(irq);		\
-		struct irq_chip *chip = get_irq_desc_chip(desc);	\
+		struct irq_chip *chip = irq_desc_get_chip(desc);	\
 		int __ret__ = 0;					\
 		if (unlikely(chip->irq_unmask == NULL))			\
 			__ret__ = -ENODEV;				\
@@ -629,7 +665,7 @@ static inline void wrap_proc_dir_entry_owner(struct proc_dir_entry *entry)
 #define rthal_irq_chip_disable(irq)					\
 	({								\
 		struct irq_desc *desc = rthal_irq_descp(irq);		\
-		struct irq_chip *chip = get_irq_desc_chip(desc);	\
+		struct irq_chip *chip = irq_desc_get_chip(desc);	\
 		int __ret__ = 0;					\
 		if (unlikely(chip->irq_mask == NULL))			\
 			__ret__ = -ENODEV;				\

@@ -50,7 +50,7 @@
 #include <stdarg.h>
 
 rthal_u32frac_t rthal_tsc_to_timer;
-EXPORT_SYMBOL(rthal_tsc_to_timer);
+EXPORT_SYMBOL_GPL(rthal_tsc_to_timer);
 
 #define RTHAL_CALIBRATE_LOOPS 10
 
@@ -100,8 +100,9 @@ unsigned long rthal_timer_calibrate(void)
 {
 	unsigned long long start, end, sum = 0, sum_sq = 0;
 	volatile unsigned const_delay = 0xffffffff;
-	unsigned int delay = const_delay, diff;
 	unsigned long result, flags, tsc_lat;
+	unsigned int delay = const_delay;
+	long long diff;
 	int i, j;
 
 	flags = rthal_critical_enter(NULL);
@@ -131,8 +132,10 @@ unsigned long rthal_timer_calibrate(void)
 			barrier();
 			rthal_read_tsc(end);
 			diff = end - start - tsc_lat;
-			sum += diff;
-			sum_sq += diff * diff;
+			if (diff > 0) {
+				sum += diff;
+				sum_sq += diff * diff;
+			}
 		}
 	}
 
@@ -262,6 +265,14 @@ int rthal_timer_request(
 	if (ret)
 		return ret;
 
+#ifdef CONFIG_SMP
+	ret = rthal_irq_request(RTHAL_TIMER_IPI,
+				(rthal_irq_handler_t)tick_handler,
+				NULL, NULL);
+	if (ret)
+		return ret;
+#endif /* CONFIG_SMP */
+
 	rthal_timer_set_oneshot(1);
 out:
 	return tickval;
@@ -275,6 +286,9 @@ void rthal_timer_release(int cpu)
 		return;
 
 	rthal_irq_release(RTHAL_TIMER_IRQ);
+#ifdef CONFIG_SMP
+	rthal_irq_release(RTHAL_TIMER_IPI);
+#endif /* CONFIG_SMP */
 
 	if (rthal_ktimer_saved_mode == KTIMER_MODE_PERIODIC)
 		rthal_timer_set_periodic();
@@ -294,7 +308,7 @@ void rthal_timer_notify_switch(enum clock_event_mode mode,
 
 	rthal_ktimer_saved_mode = mode;
 }
-EXPORT_SYMBOL(rthal_timer_notify_switch);
+EXPORT_SYMBOL_GPL(rthal_timer_notify_switch);
 
 #else /* !CONFIG_GENERIC_CLOCKEVENTS */
 
@@ -322,7 +336,7 @@ int rthal_timer_request(void (*handler)(void), int cpu)
 
 	rthal_timer_set_oneshot(1);
 
-	return 0;
+	return 1000000000UL / HZ;
 }
 
 void rthal_timer_release(int cpu)
@@ -416,8 +430,12 @@ int rthal_irq_end(unsigned int irq)
 void __rthal_arm_fault_range(struct vm_area_struct *vma)
 {
 	unsigned long addr;
-	for (addr = vma->vm_start; addr != vma->vm_end; addr += PAGE_SIZE)
-		handle_mm_fault(vma->vm_mm, vma, addr, 1);
+
+	if ((vma->vm_flags & VM_MAYREAD))
+		for (addr = vma->vm_start;
+		     addr != vma->vm_end; addr += PAGE_SIZE)
+			handle_mm_fault(vma->vm_mm, vma, addr,
+					vma->vm_flags & VM_MAYWRITE);
 }
 
 static inline int do_exception_event(unsigned event, unsigned domid, void *data)
@@ -473,13 +491,13 @@ void rthal_arch_cleanup(void)
 
 /*@}*/
 
-EXPORT_SYMBOL(rthal_arch_init);
-EXPORT_SYMBOL(rthal_arch_cleanup);
-EXPORT_SYMBOL(rthal_thread_switch);
-EXPORT_SYMBOL(rthal_thread_trampoline);
-EXPORT_SYMBOL(__rthal_arm_fault_range);
+EXPORT_SYMBOL_GPL(rthal_arch_init);
+EXPORT_SYMBOL_GPL(rthal_arch_cleanup);
+EXPORT_SYMBOL_GPL(rthal_thread_switch);
+EXPORT_SYMBOL_GPL(rthal_thread_trampoline);
+EXPORT_SYMBOL_GPL(__rthal_arm_fault_range);
 #if defined(CONFIG_VFP) && defined(CONFIG_XENO_HW_FPU)
-EXPORT_SYMBOL(last_VFP_context);
-EXPORT_SYMBOL(rthal_vfp_save);
-EXPORT_SYMBOL(rthal_vfp_load);
+EXPORT_SYMBOL_GPL(last_VFP_context);
+EXPORT_SYMBOL_GPL(rthal_vfp_save);
+EXPORT_SYMBOL_GPL(rthal_vfp_load);
 #endif /* CONFIG_VFP && CONFIG_XENO_HW_FPU */

@@ -26,13 +26,14 @@ int __psos_muxid = -1;
 
 xnsysinfo_t __psos_sysinfo;
 
+unsigned psos_long_names;
+
 static __attribute__ ((constructor))
 void __init_xeno_interface(void)
 {
 	u_long err, tid;
 
-	__psos_muxid = xeno_bind_skin(PSOS_SKIN_MAGIC,
-				      "psos", "xeno_psos", NULL);
+	__psos_muxid = xeno_bind_skin(PSOS_SKIN_MAGIC, "psos", "xeno_psos");
 
 	err = XENOMAI_SYSCALL2(__xn_sys_info, __psos_muxid, &__psos_sysinfo);
 
@@ -68,4 +69,15 @@ void __init_xeno_interface(void)
 void k_fatal(u_long err_code, u_long flags)
 {
 	exit(1);
+}
+
+const char *__psos_maybe_short_name(char shrt[5], const char *lng)
+{
+	if (psos_long_names)
+		return lng;
+
+	strncpy(shrt, lng, 4);
+	shrt[4] = '\0';
+
+	return (const char *)shrt;
 }

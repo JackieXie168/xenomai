@@ -28,10 +28,7 @@
 #include <rtdm/syscall.h>
 #include <asm-generic/bits/sigshadow.h>
 #include <posix/mutex.h>
-
-/* asm-generic/bits/bind.h uses the following functions, so we redefine them to
-   be the __real variants */
-#define XENO_WRAPPED_OPEN
+#include <rtdk.h>
 
 #include <asm/xenomai/bits/bind.h>
 
@@ -52,7 +49,10 @@ void __init_posix_interface(void)
 #endif /* !CONFIG_XENO_LIBS_DLOPEN */
 	int muxid, err;
 
-	muxid = xeno_bind_skin(PSE51_SKIN_MAGIC, "POSIX", "xeno_posix", NULL);
+	rt_print_auto_init(1);
+
+	muxid =
+	    xeno_bind_skin(PSE51_SKIN_MAGIC, "POSIX", "xeno_posix");
 
 #ifdef XNARCH_HAVE_NONPRIV_TSC
 	pse51_clock_init(muxid);

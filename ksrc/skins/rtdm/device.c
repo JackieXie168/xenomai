@@ -59,9 +59,9 @@ static int name_hashkey_mask;
 static int proto_hashkey_mask;
 
 int rtdm_apc;
-EXPORT_SYMBOL(rtdm_apc);
+EXPORT_SYMBOL_GPL(rtdm_apc);
 
-DEFINE_SEMAPHORE(nrt_dev_lock);
+struct semaphore nrt_dev_lock;
 DEFINE_XNLOCK(rt_dev_lock);
 
 #ifndef MODULE
@@ -213,7 +213,7 @@ int rtdm_dev_register(struct rtdm_device *device)
 
 	/* Sanity check: proc_name specified? */
 	XENO_ASSERT(RTDM, device->proc_name,
-		    xnlogerr("RTDM: no /proc entry name specified\n");
+		    xnlogerr("RTDM: no vfile (/proc) name specified\n");
 		    return -EINVAL;);
 
 	switch (device->device_flags & RTDM_DEVICE_TYPE_MASK) {
@@ -310,10 +310,9 @@ int rtdm_dev_register(struct rtdm_device *device)
 			}
 		}
 
-#ifdef CONFIG_PROC_FS
-		if ((ret = rtdm_proc_register_device(device)) < 0)
+		ret = rtdm_proc_register_device(device);
+		if (ret)
 			goto err;
-#endif /* CONFIG_PROC_FS */
 
 		xnlock_get_irqsave(&rt_dev_lock, s);
 		list_add_tail(&device->reserved.entry,
@@ -350,10 +349,9 @@ int rtdm_dev_register(struct rtdm_device *device)
 			}
 		}
 
-#ifdef CONFIG_PROC_FS
-		if ((ret = rtdm_proc_register_device(device)) < 0)
+		ret = rtdm_proc_register_device(device);
+		if (ret)
 			goto err;
-#endif /* CONFIG_PROC_FS */
 
 		xnlock_get_irqsave(&rt_dev_lock, s);
 		list_add_tail(&device->reserved.entry,
@@ -371,7 +369,7 @@ err:
 	return ret;
 }
 
-EXPORT_SYMBOL(rtdm_dev_register);
+EXPORT_SYMBOL_GPL(rtdm_dev_register);
 
 /**
  * @brief Unregisters a RTDM device
@@ -443,10 +441,7 @@ int rtdm_dev_unregister(struct rtdm_device *device, unsigned int poll_delay)
 
 	xnlock_put_irqrestore(&rt_dev_lock, s);
 
-#ifdef CONFIG_PROC_FS
-	remove_proc_entry("information", device->proc_entry);
-	remove_proc_entry(device->proc_name, rtdm_proc_root);
-#endif /* CONFIG_PROC_FS */
+	rtdm_proc_unregister_device(device);
 
 	up(&nrt_dev_lock);
 
@@ -456,12 +451,14 @@ int rtdm_dev_unregister(struct rtdm_device *device, unsigned int poll_delay)
 	return 0;
 }
 
-EXPORT_SYMBOL(rtdm_dev_unregister);
+EXPORT_SYMBOL_GPL(rtdm_dev_unregister);
 /** @} */
 
 int __init rtdm_dev_init(void)
 {
 	int err, i;
+
+	sema_init(&nrt_dev_lock, 1);
 
 	rtdm_apc = rthal_apc_alloc("deferred RTDM close", rtdm_apc_handler,
 				   NULL);

@@ -67,7 +67,7 @@ static psostask_t *__psos_task_current(struct task_struct *p)
  * a1: const char *name;
  * a2: u_long prio;
  * a3: u_long flags;
- * a4: unsigned long *mode;
+ * a4: unsigned long *mode_offset;
  * a5: unsigned long ptid;
  */
 
@@ -1229,7 +1229,7 @@ static int __rn_create(struct pt_regs *regs)
 		u_long allocsz;
 		void *rncb;
 		u_long mapsize;
-		xnheap_area_decl();
+		u_long area;
 	} rninfo;
 	psosrn_t *rn;
 	u_long err;
@@ -1256,7 +1256,7 @@ static int __rn_create(struct pt_regs *regs)
 		rninfo.rnid = rn->handle;
 		rninfo.rncb = &rn->heapbase;
 		rninfo.mapsize = xnheap_extentsize(&rn->heapbase);
-		xnheap_area_set(&rninfo, xnheap_base_memory(&rn->heapbase));
+		rninfo.area = xnheap_base_memory(&rn->heapbase);
 		if (__xn_safe_copy_to_user((void __user *)__xn_reg_arg3(regs), &rninfo,
 					   sizeof(rninfo)))
 			err = -EFAULT;
@@ -1601,7 +1601,6 @@ static struct xnskin_props __props = {
 	.nrcalls = sizeof(__systab) / sizeof(__systab[0]),
 	.systab = __systab,
 	.eventcb = &psos_shadow_eventcb,
-	.sig_unqueue = NULL,
 	.timebasep = &psos_tbase,
 	.module = THIS_MODULE
 };

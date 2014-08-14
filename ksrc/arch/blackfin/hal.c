@@ -66,34 +66,6 @@ static int rthal_timer_ack(unsigned irq)
 #define rthal_timer_ack NULL
 #endif
 
-#ifdef CONFIG_XENO_HW_NMI_DEBUG_LATENCY
-
-asmlinkage void irq_panic(int reason, struct pt_regs *regs);
-
-static void rthal_latency_above_max(struct pt_regs *regs)
-{
-	unsigned long ilat, ipend, imask, sic_imask;
-
-	ilat = bfin_read_ILAT();
-	ipend = bfin_read_IPEND();
-	imask = bfin_read_IMASK();
-#ifdef CONFIG_BF561
-	sic_imask = bfin_read_SIC_IMASK(0);
-#else
-	sic_imask = bfin_read_SIC_IMASK();
-#endif
-
-	rthal_emergency_console();
-	printk("NMI watchdog detected timer latency above %u us\n",
-	       rthal_maxlat_us);
-	printk("[ILAT=0x%lx, IPEND=0x%lx, IMASK=0x%lx, SIC_IMASK=0x%lx]\n",
-	       ilat, ipend, imask, sic_imask);
-	dump_stack();
-	irq_panic(IRQ_NMI, regs);
-}
-
-#endif /* CONFIG_XENO_HW_NMI_DEBUG_LATENCY_MAX */
-
 static inline void rthal_setup_oneshot_coretmr(void)
 {
 	bfin_write_TCNTL(TMPWR);
@@ -212,10 +184,6 @@ int rthal_timer_request(
 
 	rthal_timer_set_oneshot(1);
 
-#ifdef CONFIG_XENO_HW_NMI_DEBUG_LATENCY
-	rthal_nmi_init(&rthal_latency_above_max);
-#endif /* CONFIG_XENO_HW_NMI_DEBUG_LATENCY */
-
 out:
 	return tickval;
 }
@@ -227,9 +195,6 @@ void rthal_timer_release(int cpu)
 	if (--cpu_timers_requested > 0)
 		return;
 
-#ifdef CONFIG_XENO_HW_NMI_DEBUG_LATENCY
-	rthal_nmi_release();
-#endif /* CONFIG_XENO_HW_NMI_DEBUG_LATENCY */
 	rthal_irq_release(RTHAL_TIMER_IRQ);
 
 	if (rthal_ktimer_saved_mode == KTIMER_MODE_PERIODIC)
@@ -253,7 +218,7 @@ void rthal_timer_notify_switch(enum clock_event_mode mode,
 	rthal_ktimer_saved_mode = mode;
 }
 
-EXPORT_SYMBOL(rthal_timer_notify_switch);
+EXPORT_SYMBOL_GPL(rthal_timer_notify_switch);
 
 #else /* !CONFIG_GENERIC_CLOCKEVENTS */
 /*
@@ -283,10 +248,6 @@ int rthal_timer_request(void (*tick_handler) (void), int cpu)
 	rthal_timer_set_oneshot(1);
 	rthal_irq_enable(RTHAL_TIMER_IRQ);
 
-#ifdef CONFIG_XENO_HW_NMI_DEBUG_LATENCY
-	rthal_nmi_init(&rthal_latency_above_max);
-#endif /* CONFIG_XENO_HW_NMI_DEBUG_LATENCY */
-
 	return 0;
 }
 
@@ -295,9 +256,6 @@ void rthal_timer_release(int cpu)
 	if (--cpu_timers_requested > 0)
 		return;
 
-#ifdef CONFIG_XENO_HW_NMI_DEBUG_LATENCY
-	rthal_nmi_release();
-#endif /* CONFIG_XENO_HW_NMI_DEBUG_LATENCY */
 	rthal_irq_disable(RTHAL_TIMER_IRQ);
 	rthal_irq_release(RTHAL_TIMER_IRQ);
 	rthal_timer_set_periodic();
@@ -315,8 +273,6 @@ int rthal_irq_enable(unsigned irq)
 	if (irq >= IPIPE_NR_XIRQS || rthal_irq_descp(irq) == NULL)
 		return -EINVAL;
 
-	rthal_irq_desc_status(irq) &= ~IRQ_DISABLED;
-
 	return rthal_irq_chip_enable(irq);
 }
 
@@ -325,8 +281,6 @@ int rthal_irq_disable(unsigned irq)
 
 	if (irq >= IPIPE_NR_XIRQS || rthal_irq_descp(irq) == NULL)
 		return -EINVAL;
-
-	rthal_irq_desc_status(irq) |= IRQ_DISABLED;
 
 	return rthal_irq_chip_disable(irq);
 }
@@ -436,12 +390,12 @@ void rthal_arch_cleanup(void)
 
 /*@}*/
 
-EXPORT_SYMBOL(rthal_arch_init);
-EXPORT_SYMBOL(rthal_arch_cleanup);
-EXPORT_SYMBOL(rthal_thread_switch);
-EXPORT_SYMBOL(rthal_thread_trampoline);
-EXPORT_SYMBOL(rthal_defer_switch_p);
+EXPORT_SYMBOL_GPL(rthal_arch_init);
+EXPORT_SYMBOL_GPL(rthal_arch_cleanup);
+EXPORT_SYMBOL_GPL(rthal_thread_switch);
+EXPORT_SYMBOL_GPL(rthal_thread_trampoline);
+EXPORT_SYMBOL_GPL(rthal_defer_switch_p);
 #ifndef CONFIG_SMP
-EXPORT_SYMBOL(rthal_atomic_set_mask);
-EXPORT_SYMBOL(rthal_atomic_clear_mask);
+EXPORT_SYMBOL_GPL(rthal_atomic_set_mask);
+EXPORT_SYMBOL_GPL(rthal_atomic_clear_mask);
 #endif

@@ -25,6 +25,8 @@
 #include <time.h>
 #include <asm/xenomai/arith.h>
 #include <asm-generic/xenomai/timeconv.h>
+#include <sys/types.h>
+#include <nucleus/vdso.h>
 
 extern int __pse51_muxid;
 
@@ -56,25 +58,79 @@ int __wrap_clock_getres(clockid_t clock_id, struct timespec *tp)
 	return -1;
 }
 
+#ifdef XNARCH_HAVE_NONPRIV_TSC
+static int __do_clock_host_realtime(struct timespec *ts, void *tzp)
+{
+	unsigned int seq;
+	unsigned long long now, base, mask, cycle_delta;
+	unsigned long mult, shift, nsec, rem;
+	struct xnvdso_hostrt_data *hostrt_data;
+
+	if (!xnvdso_test_feature(XNVDSO_FEAT_HOST_REALTIME))
+		return -1;
+
+	hostrt_data = &nkvdso->hostrt_data;
+
+	if (unlikely(!hostrt_data->live))
+		return -1;
+
+	/*
+	 * The following is essentially a verbatim copy of the
+	 * mechanism in the kernel.
+	 */
+retry:
+	seq = xnread_seqcount_begin(&hostrt_data->seqcount);
+
+	now = __xn_rdtsc();
+	base = hostrt_data->cycle_last;
+	mask = hostrt_data->mask;
+	mult = hostrt_data->mult;
+	shift = hostrt_data->shift;
+	ts->tv_sec = hostrt_data->wall_time_sec;
+	nsec = hostrt_data->wall_time_nsec;
+
+	/* If the data changed during the read, try the
+	   alternative data element */
+	if (xnread_seqcount_retry(&hostrt_data->seqcount, seq))
+		goto retry;
+
+	cycle_delta = (now - base) & mask;
+	nsec += (cycle_delta * mult) >> shift;
+
+	ts->tv_sec += xnarch_divrem_billion(nsec, &rem);
+	ts->tv_nsec = rem;
+
+	return 0;
+}
+#endif /* XNARCH_HAVE_NONPRIV_TSC */
+
 int __wrap_clock_gettime(clockid_t clock_id, struct timespec *tp)
 {
 	int err;
+
+	switch (clock_id) {
 #ifdef XNARCH_HAVE_NONPRIV_TSC
-	if (clock_id == CLOCK_MONOTONIC && __pse51_sysinfo.tickval == 1) {
-		unsigned long long ns;
-		unsigned long rem;
+	case CLOCK_HOST_REALTIME:
+		err = __do_clock_host_realtime(tp, NULL);
+		break;
+	case CLOCK_MONOTONIC:
+		if (__pse51_sysinfo.tickval == 1) {
+			unsigned long long ns;
+			unsigned long rem;
 
-		ns = xnarch_tsc_to_ns(__xn_rdtsc());
-		tp->tv_sec = xnarch_divrem_billion(ns, &rem);
-		tp->tv_nsec = rem;
-		return 0;
-	}
+			ns = xnarch_tsc_to_ns(__xn_rdtsc());
+			tp->tv_sec = xnarch_divrem_billion(ns, &rem);
+			tp->tv_nsec = rem;
+			return 0;
+		}
+		/* Falldown wanted */
 #endif /* XNARCH_HAVE_NONPRIV_TSC */
-
-	err = -XENOMAI_SKINCALL2(__pse51_muxid,
-				 __pse51_clock_gettime,
-				 clock_id,
-				 tp);
+	default:
+		err = -XENOMAI_SKINCALL2(__pse51_muxid,
+					 __pse51_clock_gettime,
+					 clock_id,
+					 tp);
+	}
 
 	if (!err)
 		return 0;
