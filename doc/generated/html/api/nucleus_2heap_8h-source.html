@@ -149,7 +149,7 @@
 <a name="l00120"></a>00120 <span class="preprocessor"></span><span class="preprocessor">#define xnfreesync()       xnheap_finalize_free(&amp;kheap)</span>
 <a name="l00121"></a>00121 <span class="preprocessor"></span><span class="preprocessor">#define xnfreesafe(thread,ptr,ln) \</span>
 <a name="l00122"></a>00122 <span class="preprocessor">do { \</span>
-<a name="l00123"></a>00123 <span class="preprocessor">    if (xnpod_current_thread() == thread) \</span>
+<a name="l00123"></a>00123 <span class="preprocessor">    if (xnpod_current_p(thread))             \</span>
 <a name="l00124"></a>00124 <span class="preprocessor">        xnheap_schedule_free(&amp;kheap,ptr,ln); \</span>
 <a name="l00125"></a>00125 <span class="preprocessor">    else \</span>
 <a name="l00126"></a>00126 <span class="preprocessor">        xnheap_free(&amp;kheap,ptr); \</span>
@@ -250,7 +250,7 @@
 <a name="l00221"></a>00221 <span class="preprocessor">#define XNHEAP_DEV_NAME  "/dev/rtheap"</span>
 <a name="l00222"></a>00222 <span class="preprocessor"></span>
 <a name="l00223"></a>00223 <span class="preprocessor">#endif </span><span class="comment">/* !_XENO_NUCLEUS_HEAP_H */</span>
-</pre></div><hr size="1"><address style="align: right;"><small>Generated on Mon Mar 19 17:20:28 2007 for Xenomai API by&nbsp;
+</pre></div><hr size="1"><address style="align: right;"><small>Generated on Thu Jul 26 18:26:50 2007 for Xenomai API by&nbsp;
 <a href="http://www.doxygen.org/index.html">
 <img src="doxygen.png" alt="doxygen" align="middle" border="0"></a> 1.4.6 </small></address>
 </body>

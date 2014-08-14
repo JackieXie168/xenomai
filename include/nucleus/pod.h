@@ -344,6 +344,11 @@ static inline void xnpod_renice_root(int prio)
 	xnlock_put_irqrestore(&nklock, s);
 }
 
+static inline int xnpod_root_priority(void)
+{
+	return xnthread_current_priority(xnpod_current_root());
+}
+
 static inline int xnpod_get_qdir(xnpod_t *pod)
 {
 	/* Returns the queuing direction of threads for a given pod */
@@ -417,6 +422,8 @@ int xnpod_start_thread(xnthread_t *thread,
 void xnpod_restart_thread(xnthread_t *thread);
 
 void xnpod_delete_thread(xnthread_t *thread);
+
+void xnpod_abort_thread(xnthread_t *thread);
 
 xnflags_t xnpod_set_thread_mode(xnthread_t *thread,
 				xnflags_t clrmask, xnflags_t setmask);

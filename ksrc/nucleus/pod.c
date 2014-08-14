@@ -1207,6 +1207,12 @@ xnflags_t xnpod_set_thread_mode(xnthread_t *thread,
  *
  * @param thread The descriptor address of the terminated thread.
  *
+ * The target thread's resources may not be immediately removed if
+ * this is an active shadow thread running in user-space. In such a
+ * case, the mated Linux task is sent a termination signal instead,
+ * and the actual deletion is deferred until the task exit event is
+ * called.
+ *
  * The DELETE hooks are called on behalf of the calling context (if
  * any). The information stored in the thread control block remains
  * valid until all hooks have been called.
@@ -1245,9 +1251,51 @@ void xnpod_delete_thread(xnthread_t *thread)
 	if (xnthread_test_state(thread, XNZOMBIE))
 		goto unlock_and_exit;	/* No double-deletion. */
 
-	xnltt_log_event(xeno_ev_thrdelete, thread->name);
-
 	sched = thread->sched;
+
+#if defined(__KERNEL__) && defined(CONFIG_XENO_OPT_PERVASIVE)
+	/*
+	 * This block serves two purposes:
+	 *
+	 * 1) Make sure Linux counterparts of shadow threads do exit
+	 * upon deletion request from the nucleus through a call to
+	 * xnpod_delete_thread().
+	 *
+	 * 2) Make sure shadow threads are removed from the system on
+	 * behalf of their own context, by sending them a lethal
+	 * signal when it is not the case instead of wiping out their
+	 * TCB. In such a case, the deletion is asynchronous, and
+	 * killed thread will later enter xnpod_delete_thread() from
+	 * the exit notification handler (I-pipe).
+	 *
+	 * Sidenote: xnpod_delete_thread() might be called for
+	 * cleaning up a just created shadow task which has not been
+	 * successfully mapped, so we need to make sure that we have
+	 * an associated Linux mate before trying to send it a signal
+	 * (i.e. user_task extension != NULL). This will also prevent
+	 * any action on kernel-based Xenomai threads for which the
+	 * user TCB extension is always NULL.  We don't send any
+	 * signal to dormant threads because GDB (6.x) has some
+	 * problems dealing with vanishing threads under some
+	 * circumstances, likely when asynchronous cancellation is in
+	 * effect. In most cases, this is a non-issue since
+	 * pthread_cancel() is requested from the skin interface
+	 * library in parallel on the target thread. In the rare case
+	 * of calling xnpod_delete_thread() from kernel space against
+	 * a created but unstarted user-space task, the Linux thread
+	 * mated to the Xenomai shadow might linger unexpectedly on
+	 * the startup barrier.
+	 */
+
+	if (xnthread_user_task(thread) != NULL &&
+	    !xnthread_test_state(thread, XNDORMANT) &&
+	    !xnpod_current_p(thread)) {
+		xnshadow_send_sig(thread, SIGKILL, 1);
+		goto unlock_and_exit;
+	}
+#endif /* __KERNEL__ && CONFIG_XENO_OPT_PERVASIVE */
+
+	xnltt_log_event(xeno_ev_thrdelete, thread->name);
 
 	removeq(&nkpod->threadq, &thread->glink);
 	nkpod->threadq_rev++;
@@ -1299,6 +1347,44 @@ void xnpod_delete_thread(xnthread_t *thread)
 
       unlock_and_exit:
 
+	xnlock_put_irqrestore(&nklock, s);
+}
+
+/*! 
+ * \fn void xnpod_abort_thread(xnthread_t *thread)
+ *
+ * \brief Abort a thread.
+ *
+ * Unconditionally terminates a thread and releases all the nucleus
+ * resources it currently holds, regardless of whether the target
+ * thread is currently active in kernel or user-space.
+ * xnpod_abort_thread() should be reserved for use by skin cleanup
+ * routines; xnpod_delete_thread() should be preferred as the common
+ * method for removing threads from a running system.
+ *
+ * @param thread The descriptor address of the terminated thread.
+ *
+ * This service forces a call to xnpod_delete_thread() for the target
+ * thread.
+ *
+ * Environments:
+ *
+ * This service can be called from:
+ *
+ * - Kernel module initialization/cleanup code
+ * - Kernel-based task
+ * - User-space task
+ *
+ * Rescheduling: possible if the current thread self-deletes.
+ */
+void xnpod_abort_thread(xnthread_t *thread)
+{
+	spl_t s;
+
+	xnlock_get_irqsave(&nklock, s);
+	if (!xnpod_current_p(thread))
+		xnpod_suspend_thread(thread, XNDORMANT, XN_INFINITE, NULL);
+	xnpod_delete_thread(thread);
 	xnlock_put_irqrestore(&nklock, s);
 }
 
@@ -3582,6 +3668,7 @@ EXPORT_SYMBOL(xnpod_announce_tick);
 EXPORT_SYMBOL(xnpod_check_context);
 EXPORT_SYMBOL(xnpod_deactivate_rr);
 EXPORT_SYMBOL(xnpod_delete_thread);
+EXPORT_SYMBOL(xnpod_abort_thread);
 EXPORT_SYMBOL(xnpod_fatal_helper);
 EXPORT_SYMBOL(xnpod_get_time);
 EXPORT_SYMBOL(xnpod_init);

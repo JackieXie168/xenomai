@@ -27,6 +27,12 @@
 [<a class="el" href="group__driverapi.html">Driver Development API</a>]</small>
 </h1>
 <p>
+Collaboration diagram for Task Services:<center><table><tr><td><img src="group__rtdmtask.png" border="0" alt="" usemap="#group____rtdmtask_map">
+<map name="group____rtdmtask_map">
+<area href="group__driverapi.html" shape="rect" coords="9,8,172,32" alt="">
+</map></td></tr></table></center>
+
+<p>
 <table border="0" cellpadding="0" cellspacing="0">
 <tr><td></td></tr>
 <tr><td colspan="2"><br><h2>Task Priority Range</h2></td></tr>
@@ -353,7 +359,7 @@ Wait on a real-time task to terminate.
 <dl compact><dt><b>Parameters:</b></dt><dd>
   <table border="0" cellspacing="2" cellpadding="0">
     <tr><td valign="top"><tt>[in,out]</tt>&nbsp;</td><td valign="top"><em>task</em>&nbsp;</td><td>Task handle as returned by <a class="el" href="group__rtdmtask.html#g44b0701b6c28fa8035711f800fdcd371">rtdm_task_init()</a> </td></tr>
-    <tr><td valign="top"><tt>[in]</tt>&nbsp;</td><td valign="top"><em>poll_delay</em>&nbsp;</td><td>Polling delay in milliseconds</td></tr>
+    <tr><td valign="top"><tt>[in]</tt>&nbsp;</td><td valign="top"><em>poll_delay</em>&nbsp;</td><td>Delay in milliseconds between periodic tests for the state of the real-time task. This parameter is ignored if the termination is internally realised without polling.</td></tr>
   </table>
 </dl>
 <dl compact><dt><b>Note:</b></dt><dd>Passing the same task handle to RTDM services after the completion of this function is not allowed.<p>
@@ -638,7 +644,7 @@ This service can be called from:<p>
 Rescheduling: always, unless a timer overrun occured.     </td>
   </tr>
 </table>
-<hr size="1"><address style="align: right;"><small>Generated on Mon Mar 19 17:20:30 2007 for Xenomai API by&nbsp;
+<hr size="1"><address style="align: right;"><small>Generated on Thu Jul 26 18:27:41 2007 for Xenomai API by&nbsp;
 <a href="http://www.doxygen.org/index.html">
 <img src="doxygen.png" alt="doxygen" align="middle" border="0"></a> 1.4.6 </small></address>
 </body>

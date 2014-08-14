@@ -139,15 +139,15 @@ typedef cpumask_t xnarch_cpumask_t;
 #define xnarch_cpu_online_map		 cpumask_of_cpu(0)
 #endif
 #define xnarch_num_online_cpus()          num_online_cpus()
-#define xnarch_cpu_set(cpu, mask)         cpu_set(cpu, mask)
-#define xnarch_cpu_clear(cpu, mask)       cpu_clear(cpu, mask)
+#define xnarch_cpu_set(cpu, mask)         cpu_set(cpu, (mask))
+#define xnarch_cpu_clear(cpu, mask)       cpu_clear(cpu, (mask))
 #define xnarch_cpus_clear(mask)           cpus_clear(mask)
-#define xnarch_cpu_isset(cpu, mask)       cpu_isset(cpu, mask)
-#define xnarch_cpus_and(dst, src1, src2)  cpus_and(dst, src1, src2)
-#define xnarch_cpus_equal(mask1, mask2)   cpus_equal(mask1, mask2)
+#define xnarch_cpu_isset(cpu, mask)       cpu_isset(cpu, (mask))
+#define xnarch_cpus_and(dst, src1, src2)  cpus_and((dst), (src1), (src2))
+#define xnarch_cpus_equal(mask1, mask2)   cpus_equal((mask1), (mask2))
 #define xnarch_cpus_empty(mask)           cpus_empty(mask)
 #define xnarch_cpumask_of_cpu(cpu)        cpumask_of_cpu(cpu)
-#define xnarch_cpu_test_and_set(cpu,mask) cpu_test_and_set(cpu,mask)
+#define xnarch_cpu_test_and_set(cpu,mask) cpu_test_and_set(cpu, (mask))
 
 #define xnarch_first_cpu(mask)            first_cpu(mask)
 #define XNARCH_CPU_MASK_ALL               CPU_MASK_ALL
@@ -363,6 +363,11 @@ static inline int xnarch_send_ipi (xnarch_cpumask_t cpumask)
     return rthal_send_ipi(RTHAL_SERVICE_IPI0, cpumask);
 }
 
+static inline int xnlock_is_owner(xnlock_t *lock)
+{
+	return atomic_read(&lock->owner) == xnarch_current_cpu();
+}
+
 #else /* !CONFIG_SMP */
 
 #define xnlock_init(lock)              do { } while(0)
@@ -372,6 +377,7 @@ static inline int xnarch_send_ipi (xnarch_cpumask_t cpumask)
 #define xnlock_put_irqrestore(lock,x)  rthal_local_irq_restore(x)
 #define xnlock_clear_irqoff(lock)      rthal_local_irq_disable()
 #define xnlock_clear_irqon(lock)       rthal_local_irq_enable()
+#define xnlock_is_owner(lock)	       1
 
 static inline int xnarch_send_ipi (xnarch_cpumask_t cpumask)
 {
@@ -379,6 +385,12 @@ static inline int xnarch_send_ipi (xnarch_cpumask_t cpumask)
 }
 
 #endif /* !CONFIG_SMP */
+
+#define xnlock_sync_irq(lock, x)			\
+	do {						\
+		xnlock_put_irqrestore(lock, x);		\
+		xnlock_get_irqsave(lock, x);		\
+	} while(0)
 
 static inline int xnarch_remap_vm_page(struct vm_area_struct *vma,
 				       unsigned long from,

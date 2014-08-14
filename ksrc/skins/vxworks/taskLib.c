@@ -39,9 +39,17 @@ void wind_task_init(void)
 void wind_task_cleanup(void)
 {
 	xnholder_t *holder;
+	spl_t s;
 
-	while ((holder = getheadq(&wind_tasks_q)) != NULL)
-		taskDeleteForce((TASK_ID) link2wind_task(holder));
+	xnlock_get_irqsave(&nklock, s);
+
+	while ((holder = getheadq(&wind_tasks_q)) != NULL) {
+		WIND_TCB *pTcb = link2wind_task(holder);
+		xnpod_abort_thread(&pTcb->threadbase);
+		xnlock_sync_irq(&nklock, s);
+	}
+
+	xnlock_put_irqrestore(&nklock, s);
 
 	xnpod_remove_hook(XNHOOK_THREAD_DELETE, wind_task_delete_hook);
 }
@@ -284,13 +292,6 @@ STATUS taskDelete(TASK_ID task_id)
 		wind_errnoset(S_objLib_OBJ_DELETED);
 		goto error;
 	}
-
-#if defined(__KERNEL__) && defined(CONFIG_XENO_OPT_PERVASIVE)
-	if (xnthread_user_task(&task->threadbase) != NULL
-	    && !xnthread_test_state(&task->threadbase,XNDORMANT)
-	    && (!xnpod_primary_p() || task != wind_current_task()))
-		xnshadow_send_sig(&task->threadbase, SIGKILL, 1);
-#endif /* __KERNEL__ && CONFIG_XENO_OPT_PERVASIVE */
 
 	xnpod_delete_thread(&task->threadbase);
 	xnlock_put_irqrestore(&nklock, s);

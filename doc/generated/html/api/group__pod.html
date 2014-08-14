@@ -25,7 +25,13 @@
 <h1>Real-time pod services.<br>
 <small>
 [<a class="el" href="group__nucleus.html">Xenomai nucleus.</a>]</small>
-</h1><hr><a name="_details"></a><h2>Detailed Description</h2>
+</h1>
+<p>
+Collaboration diagram for Real-time pod services.:<center><table><tr><td><img src="group__pod.png" border="0" alt="" usemap="#group____pod_map">
+<map name="group____pod_map">
+<area href="group__nucleus.html" shape="rect" coords="9,8,137,32" alt="">
+</map></td></tr></table></center>
+<hr><a name="_details"></a><h2>Detailed Description</h2>
 Real-time pod services. 
 <p>
 <table border="0" cellpadding="0" cellspacing="0">
@@ -57,9 +63,9 @@ typedef <a class="el" href="structxnsched.html">xnsched</a>&nbsp;</td><td class=
 <tr><td class="memItemLeft" nowrap align="right" valign="top">void&nbsp;</td><td class="memItemRight" valign="bottom"><a class="el" href="group__pod.html#gc7a3941274759d17b822d6e996662a05">xnpod_schedule_runnable</a> (xnthread_t *thread, int flags)</td></tr>
 
 <tr><td class="mdescLeft">&nbsp;</td><td class="mdescRight">Hidden rescheduling procedure.  <a href="#gc7a3941274759d17b822d6e996662a05"></a><br></td></tr>
-<tr><td class="memItemLeft" nowrap align="right" valign="top">int&nbsp;</td><td class="memItemRight" valign="bottom"><a class="el" href="group__pod.html#g4da4ab0694f26b794629e568221b04f0">xnpod_init</a> (<a class="el" href="structxnpod.html">xnpod_t</a> *pod, int minpri, int maxpri, xnflags_t flags)</td></tr>
+<tr><td class="memItemLeft" nowrap align="right" valign="top">int&nbsp;</td><td class="memItemRight" valign="bottom"><a class="el" href="group__pod.html#g937a5b31dd6eb1ed99e061c7a5bfd97d">xnpod_init</a> (<a class="el" href="structxnpod.html">xnpod_t</a> *pod, int loprio, int hiprio, xnflags_t flags)</td></tr>
 
-<tr><td class="mdescLeft">&nbsp;</td><td class="mdescRight">Initialize a new pod.  <a href="#g4da4ab0694f26b794629e568221b04f0"></a><br></td></tr>
+<tr><td class="mdescLeft">&nbsp;</td><td class="mdescRight">Initialize a new pod.  <a href="#g937a5b31dd6eb1ed99e061c7a5bfd97d"></a><br></td></tr>
 <tr><td class="memItemLeft" nowrap align="right" valign="top">int&nbsp;</td><td class="memItemRight" valign="bottom"><a class="el" href="group__pod.html#g2559408f64fdd09fd055bb85221ce485">xnpod_start_timer</a> (u_long nstick, xnisr_t tickhandler)</td></tr>
 
 <tr><td class="mdescLeft">&nbsp;</td><td class="mdescRight">Start the system timer.  <a href="#g2559408f64fdd09fd055bb85221ce485"></a><br></td></tr>
@@ -84,6 +90,9 @@ typedef <a class="el" href="structxnsched.html">xnsched</a>&nbsp;</td><td class=
 <tr><td class="memItemLeft" nowrap align="right" valign="top">void&nbsp;</td><td class="memItemRight" valign="bottom"><a class="el" href="group__pod.html#gd2b761fb70cad30339f092edb4a89587">xnpod_delete_thread</a> (xnthread_t *thread)</td></tr>
 
 <tr><td class="mdescLeft">&nbsp;</td><td class="mdescRight">Delete a thread.  <a href="#gd2b761fb70cad30339f092edb4a89587"></a><br></td></tr>
+<tr><td class="memItemLeft" nowrap align="right" valign="top">void&nbsp;</td><td class="memItemRight" valign="bottom"><a class="el" href="group__pod.html#g75278c2ac6f43741eca9cc1d60072eac">xnpod_abort_thread</a> (xnthread_t *thread)</td></tr>
+
+<tr><td class="mdescLeft">&nbsp;</td><td class="mdescRight">Abort a thread.  <a href="#g75278c2ac6f43741eca9cc1d60072eac"></a><br></td></tr>
 <tr><td class="memItemLeft" nowrap align="right" valign="top">xnflags_t&nbsp;</td><td class="memItemRight" valign="bottom"><a class="el" href="group__pod.html#g629c06b152dabfdb679b6e49bd9f7734">xnpod_set_thread_mode</a> (xnthread_t *thread, xnflags_t clrmask, xnflags_t setmask)</td></tr>
 
 <tr><td class="mdescLeft">&nbsp;</td><td class="mdescRight">Change a thread's control mode.  <a href="#g629c06b152dabfdb679b6e49bd9f7734"></a><br></td></tr>
@@ -149,6 +158,48 @@ typedef <a class="el" href="structxnsched.html">xnsched</a>&nbsp;</td><td class=
 <tr><td class="mdescLeft">&nbsp;</td><td class="mdescRight">Announce a new clock tick.  <a href="#g9e92d4827ca1524df548cfbc97aa433a"></a><br></td></tr>
 </table>
 <hr><h2>Function Documentation</h2>
+<a class="anchor" name="g75278c2ac6f43741eca9cc1d60072eac"></a><!-- doxytag: member="pod.h::xnpod_abort_thread" ref="g75278c2ac6f43741eca9cc1d60072eac" args="(xnthread_t *thread)" --><p>
+<table class="mdTable" cellpadding="2" cellspacing="0">
+  <tr>
+    <td class="mdRow">
+      <table cellpadding="0" cellspacing="0" border="0">
+        <tr>
+          <td class="md" nowrap valign="top">void xnpod_abort_thread           </td>
+          <td class="md" valign="top">(&nbsp;</td>
+          <td class="md" nowrap valign="top">xnthread_t *&nbsp;</td>
+          <td class="mdname1" valign="top" nowrap> <em>thread</em>          </td>
+          <td class="md" valign="top">&nbsp;)&nbsp;</td>
+          <td class="md" nowrap></td>
+        </tr>
+      </table>
+    </td>
+  </tr>
+</table>
+<table cellspacing="5" cellpadding="0" border="0">
+  <tr>
+    <td>
+      &nbsp;
+    </td>
+    <td>
+
+<p>
+Abort a thread. 
+<p>
+Unconditionally terminates a thread and releases all the nucleus resources it currently holds, regardless of whether the target thread is currently active in kernel or user-space. <a class="el" href="group__pod.html#g75278c2ac6f43741eca9cc1d60072eac">xnpod_abort_thread()</a> should be reserved for use by skin cleanup routines; <a class="el" href="group__pod.html#gd2b761fb70cad30339f092edb4a89587">xnpod_delete_thread()</a> should be preferred as the common method for removing threads from a running system.<p>
+<dl compact><dt><b>Parameters:</b></dt><dd>
+  <table border="0" cellspacing="2" cellpadding="0">
+    <tr><td valign="top"></td><td valign="top"><em>thread</em>&nbsp;</td><td>The descriptor address of the terminated thread.</td></tr>
+  </table>
+</dl>
+This service forces a call to <a class="el" href="group__pod.html#gd2b761fb70cad30339f092edb4a89587">xnpod_delete_thread()</a> for the target thread.<p>
+Environments:<p>
+This service can be called from:<p>
+<ul>
+<li>Kernel module initialization/cleanup code</li><li>Kernel-based task</li><li>User-space task</li></ul>
+<p>
+Rescheduling: possible if the current thread self-deletes.     </td>
+  </tr>
+</table>
 <a class="anchor" name="g072d9a7d5c9a369061786c8a5b05b7fc"></a><!-- doxytag: member="pod.h::xnpod_activate_rr" ref="g072d9a7d5c9a369061786c8a5b05b7fc" args="(xnticks_t quantum)" --><p>
 <table class="mdTable" cellpadding="2" cellspacing="0">
   <tr>
@@ -374,6 +425,7 @@ Terminates a thread and releases all the nucleus resources it currently holds. A
     <tr><td valign="top"></td><td valign="top"><em>thread</em>&nbsp;</td><td>The descriptor address of the terminated thread.</td></tr>
   </table>
 </dl>
+The target thread's resources may not be immediately removed if this is an active shadow thread running in user-space. In such a case, the mated Linux task is sent a termination signal instead, and the actual deletion is deferred until the task exit event is called.<p>
 The DELETE hooks are called on behalf of the calling context (if any). The information stored in the thread control block remains valid until all hooks have been called.<p>
 Self-terminating a thread is allowed. In such a case, this service does not return to the caller.<p>
 Environments:<p>
@@ -454,7 +506,7 @@ This service can be called from:<p>
 Rescheduling: never.     </td>
   </tr>
 </table>
-<a class="anchor" name="g4da4ab0694f26b794629e568221b04f0"></a><!-- doxytag: member="pod.h::xnpod_init" ref="g4da4ab0694f26b794629e568221b04f0" args="(xnpod_t *pod, int minpri, int maxpri, xnflags_t flags)" --><p>
+<a class="anchor" name="g937a5b31dd6eb1ed99e061c7a5bfd97d"></a><!-- doxytag: member="pod.h::xnpod_init" ref="g937a5b31dd6eb1ed99e061c7a5bfd97d" args="(xnpod_t *pod, int loprio, int hiprio, xnflags_t flags)" --><p>
 <table class="mdTable" cellpadding="2" cellspacing="0">
   <tr>
     <td class="mdRow">
@@ -469,13 +521,13 @@ Rescheduling: never.     </td>
           <td class="md" nowrap align="right"></td>
           <td class="md"></td>
           <td class="md" nowrap>int&nbsp;</td>
-          <td class="mdname" nowrap> <em>minpri</em>, </td>
+          <td class="mdname" nowrap> <em>loprio</em>, </td>
         </tr>
         <tr>
           <td class="md" nowrap align="right"></td>
           <td class="md"></td>
           <td class="md" nowrap>int&nbsp;</td>
-          <td class="mdname" nowrap> <em>maxpri</em>, </td>
+          <td class="mdname" nowrap> <em>hiprio</em>, </td>
         </tr>
         <tr>
           <td class="md" nowrap align="right"></td>
@@ -506,12 +558,12 @@ Initializes a new pod which can subsequently be used to start real-time activiti
 <dl compact><dt><b>Parameters:</b></dt><dd>
   <table border="0" cellspacing="2" cellpadding="0">
     <tr><td valign="top"></td><td valign="top"><em>pod</em>&nbsp;</td><td>The address of a pod descriptor the nucleus will use to store the pod-specific data. This descriptor must always be valid while the pod is active therefore it must be allocated in permanent memory.</td></tr>
-    <tr><td valign="top"></td><td valign="top"><em>minpri</em>&nbsp;</td><td>The value of the lowest priority level which is valid for threads created on behalf of this pod.</td></tr>
-    <tr><td valign="top"></td><td valign="top"><em>maxpri</em>&nbsp;</td><td>The value of the highest priority level which is valid for threads created on behalf of this pod.</td></tr>
+    <tr><td valign="top"></td><td valign="top"><em>loprio</em>&nbsp;</td><td>The value of the lowest priority level which is valid for threads created on behalf of this pod.</td></tr>
+    <tr><td valign="top"></td><td valign="top"><em>hiprio</em>&nbsp;</td><td>The value of the highest priority level which is valid for threads created on behalf of this pod.</td></tr>
     <tr><td valign="top"></td><td valign="top"><em>flags</em>&nbsp;</td><td>A set of creation flags affecting the operation. The only defined flag is XNREUSE, which tells the nucleus that a pre-existing pod exhibiting the same properties as the one which is being registered may be reused. In such a case, the call returns successfully, keeping the active pod unmodified.</td></tr>
   </table>
 </dl>
-minpri might be numerically higher than maxpri if the upper real-time interface exhibits a reverse priority scheme. For instance, some APIs may define a range like minpri=255, maxpri=0 specifying that thread priorities increase as the priority level decreases numerically.<p>
+loprio may be numerically greater than hiprio if the client real-time interface exhibits a reverse priority scheme. For instance, some APIs may define a range like loprio=255, hiprio=0 specifying that thread priorities increase as the priority level decreases numerically.<p>
 <dl compact><dt><b>Returns:</b></dt><dd>0 is returned on success. Otherwise:</dd></dl>
 <ul>
 <li>-EBUSY is returned if a pod already exists. As a special exception, if the Xenomai pod is currently loaded with no active attachment onto it, it is forcibly unloaded and replaced by the new pod.</li></ul>
@@ -592,7 +644,7 @@ Initializes a new thread attached to the active pod. The thread is left in an in
 <dl compact><dt><b>Parameters:</b></dt><dd>
   <table border="0" cellspacing="2" cellpadding="0">
     <tr><td valign="top"></td><td valign="top"><em>name</em>&nbsp;</td><td>An ASCII string standing for the symbolic name of the thread. This name is copied to a safe place into the thread descriptor. This name might be used in various situations by the nucleus for issuing human-readable diagnostic messages, so it is usually a good idea to provide a sensible value here. The simulator even uses this name intensively to identify threads in the debugging GUI it provides. However, passing NULL here is always legal and means "anonymous".</td></tr>
-    <tr><td valign="top"></td><td valign="top"><em>prio</em>&nbsp;</td><td>The base priority of the new thread. This value must range from [minpri .. maxpri] (inclusive) as specified when calling the <a class="el" href="group__pod.html#g4da4ab0694f26b794629e568221b04f0">xnpod_init()</a> service.</td></tr>
+    <tr><td valign="top"></td><td valign="top"><em>prio</em>&nbsp;</td><td>The base priority of the new thread. This value must range from [loprio .. hiprio] (inclusive) as specified when calling the <a class="el" href="group__pod.html#g937a5b31dd6eb1ed99e061c7a5bfd97d">xnpod_init()</a> service.</td></tr>
     <tr><td valign="top"></td><td valign="top"><em>flags</em>&nbsp;</td><td>A set of creation flags affecting the operation. The following flags can be part of this bitmask, each of them affecting the nucleus behaviour regarding the created thread:</td></tr>
   </table>
 </dl>
@@ -1110,7 +1162,7 @@ Hidden rescheduling procedure.
 <p>
 <p><b>For internal use only.</b></p>
 <p>
-This internal routine should NEVER be used directly by the upper interfaces. It reinserts the given thread into the ready queue then switches to the highest priority runnable thread. It must be called with nklock locked, interrupts off.<p>
+This internal routine should NEVER be used directly by the client interfaces. It reinserts the given thread into the ready queue then switches to the highest priority runnable thread. It must be called with nklock locked, interrupts off.<p>
 <dl compact><dt><b>Parameters:</b></dt><dd>
   <table border="0" cellspacing="2" cellpadding="0">
     <tr><td valign="top"></td><td valign="top"><em>thread</em>&nbsp;</td><td>The descriptor address of the thread to reinsert into the ready queue.</td></tr>
@@ -1614,7 +1666,7 @@ Suspends the execution of a thread according to a given suspensive condition. Th
 <li>XNDELAY. This flags denotes a counted delay wait (in ticks) which duration is defined by the value of the timeout parameter.</li></ul>
 <p>
 <ul>
-<li>XNPEND. This flag denotes a wait for a synchronization object to be signaled. The wchan argument must points to this object. A timeout value can be passed to bound the wait. This suspending mode should not be used directly by the upper interface, but rather through the <a class="el" href="group__synch.html#g5bacbd2ab91caeaf39ade357c09abd58">xnsynch_sleep_on()</a> call.</li></ul>
+<li>XNPEND. This flag denotes a wait for a synchronization object to be signaled. The wchan argument must points to this object. A timeout value can be passed to bound the wait. This suspending mode should not be used directly by the client interface, but rather through the <a class="el" href="group__synch.html#g5bacbd2ab91caeaf39ade357c09abd58">xnsynch_sleep_on()</a> call.</li></ul>
 <p>
 <dl compact><dt><b>Parameters:</b></dt><dd>
   <table border="0" cellspacing="2" cellpadding="0">
@@ -1807,7 +1859,7 @@ Entered with nklock locked, irqs off. </p>
     </td>
   </tr>
 </table>
-<hr size="1"><address style="align: right;"><small>Generated on Mon Mar 19 17:20:29 2007 for Xenomai API by&nbsp;
+<hr size="1"><address style="align: right;"><small>Generated on Thu Jul 26 18:27:36 2007 for Xenomai API by&nbsp;
 <a href="http://www.doxygen.org/index.html">
 <img src="doxygen.png" alt="doxygen" align="middle" border="0"></a> 1.4.6 </small></address>
 </body>

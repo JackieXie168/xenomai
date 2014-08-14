@@ -36,24 +36,27 @@ Xenomai is free software; you can redistribute it and/or modify it under the ter
 Xenomai is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for more details.<p>
 You should have received a copy of the GNU General Public License along with Xenomai; if not, write to the Free Software Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA. 
 <p>
-<code>#include &lt;stdarg.h&gt;</code><br>
-<code>#include &lt;<a class="el" href="pod_8h-source.html">nucleus/pod.h</a>&gt;</code><br>
-<code>#include &lt;nucleus/timer.h&gt;</code><br>
-<code>#include &lt;nucleus/synch.h&gt;</code><br>
-<code>#include &lt;nucleus/heap.h&gt;</code><br>
-<code>#include &lt;nucleus/intr.h&gt;</code><br>
-<code>#include &lt;<a class="el" href="include_2nucleus_2registry_8h-source.html">nucleus/registry.h</a>&gt;</code><br>
-<code>#include &lt;nucleus/module.h&gt;</code><br>
-<code>#include &lt;nucleus/ltt.h&gt;</code><br>
-<code>#include &lt;nucleus/stat.h&gt;</code><br>
-<code>#include &lt;asm/xenomai/bits/pod.h&gt;</code><br>
-<code>#include &lt;nucleus/assert.h&gt;</code><br>
+
+<p>
+Include dependency graph for pod.c:<p><center><img src="pod_8c__incl.png" border="0" usemap="#ksrc/nucleus/pod.c_map" alt=""></center>
+<map name="ksrc/nucleus/pod.c_map">
+<area href="pod_8h.html" shape="rect" coords="218,56,322,80" alt="">
+<area href="include_2nucleus_2intr_8h-source.html" shape="rect" coords="401,81,499,105" alt="">
+<area href="include_2nucleus_2timer_8h-source.html" shape="rect" coords="214,154,326,178" alt="">
+<area href="synch_8h-source.html" shape="rect" coords="211,202,329,226" alt="">
+<area href="nucleus_2heap_8h-source.html" shape="rect" coords="214,250,326,274" alt="">
+<area href="include_2nucleus_2registry_8h.html" shape="rect" coords="207,298,333,322" alt="">
+<area href="module_8h-source.html" shape="rect" coords="207,346,333,370" alt="">
+<area href="ltt_8h-source.html" shape="rect" coords="223,394,317,418" alt="">
+<area href="stat_8h-source.html" shape="rect" coords="218,442,322,466" alt="">
+<area href="assert_8h-source.html" shape="rect" coords="210,538,330,562" alt="">
+</map>
 <table border="0" cellpadding="0" cellspacing="0">
 <tr><td></td></tr>
 <tr><td colspan="2"><br><h2>Functions</h2></td></tr>
-<tr><td class="memItemLeft" nowrap align="right" valign="top">int&nbsp;</td><td class="memItemRight" valign="bottom"><a class="el" href="group__pod.html#g4da4ab0694f26b794629e568221b04f0">xnpod_init</a> (<a class="el" href="structxnpod.html">xnpod_t</a> *pod, int minpri, int maxpri, xnflags_t flags)</td></tr>
+<tr><td class="memItemLeft" nowrap align="right" valign="top">int&nbsp;</td><td class="memItemRight" valign="bottom"><a class="el" href="group__pod.html#g937a5b31dd6eb1ed99e061c7a5bfd97d">xnpod_init</a> (<a class="el" href="structxnpod.html">xnpod_t</a> *pod, int loprio, int hiprio, xnflags_t flags)</td></tr>
 
-<tr><td class="mdescLeft">&nbsp;</td><td class="mdescRight">Initialize a new pod.  <a href="group__pod.html#g4da4ab0694f26b794629e568221b04f0"></a><br></td></tr>
+<tr><td class="mdescLeft">&nbsp;</td><td class="mdescRight">Initialize a new pod.  <a href="group__pod.html#g937a5b31dd6eb1ed99e061c7a5bfd97d"></a><br></td></tr>
 <tr><td class="memItemLeft" nowrap align="right" valign="top">void&nbsp;</td><td class="memItemRight" valign="bottom"><a class="el" href="group__pod.html#g824dc22468666c9f14da1842f0184b84">xnpod_shutdown</a> (int xtype)</td></tr>
 
 <tr><td class="mdescLeft">&nbsp;</td><td class="mdescRight">Shutdown the current pod.  <a href="group__pod.html#g824dc22468666c9f14da1842f0184b84"></a><br></td></tr>
@@ -72,6 +75,9 @@ You should have received a copy of the GNU General Public License along with Xen
 <tr><td class="memItemLeft" nowrap align="right" valign="top">void&nbsp;</td><td class="memItemRight" valign="bottom"><a class="el" href="group__pod.html#gd2b761fb70cad30339f092edb4a89587">xnpod_delete_thread</a> (xnthread_t *thread)</td></tr>
 
 <tr><td class="mdescLeft">&nbsp;</td><td class="mdescRight">Delete a thread.  <a href="group__pod.html#gd2b761fb70cad30339f092edb4a89587"></a><br></td></tr>
+<tr><td class="memItemLeft" nowrap align="right" valign="top">void&nbsp;</td><td class="memItemRight" valign="bottom"><a class="el" href="group__pod.html#g75278c2ac6f43741eca9cc1d60072eac">xnpod_abort_thread</a> (xnthread_t *thread)</td></tr>
+
+<tr><td class="mdescLeft">&nbsp;</td><td class="mdescRight">Abort a thread.  <a href="group__pod.html#g75278c2ac6f43741eca9cc1d60072eac"></a><br></td></tr>
 <tr><td class="memItemLeft" nowrap align="right" valign="top">void&nbsp;</td><td class="memItemRight" valign="bottom"><a class="el" href="group__pod.html#g7470b2c5ebe7179c50e2fd276065e292">xnpod_suspend_thread</a> (xnthread_t *thread, xnflags_t mask, xnticks_t timeout, xnsynch_t *wchan)</td></tr>
 
 <tr><td class="mdescLeft">&nbsp;</td><td class="mdescRight">Suspend a thread.  <a href="group__pod.html#g7470b2c5ebe7179c50e2fd276065e292"></a><br></td></tr>
@@ -145,7 +151,7 @@ You should have received a copy of the GNU General Public License along with Xen
 
 <tr><td class="mdescLeft">&nbsp;</td><td class="mdescRight">Wait for the next periodic release point.  <a href="group__pod.html#gf836996e4a3378928f2a9f93a4915cfa"></a><br></td></tr>
 </table>
-<hr size="1"><address style="align: right;"><small>Generated on Mon Mar 19 17:20:28 2007 for Xenomai API by&nbsp;
+<hr size="1"><address style="align: right;"><small>Generated on Thu Jul 26 18:27:21 2007 for Xenomai API by&nbsp;
 <a href="http://www.doxygen.org/index.html">
 <img src="doxygen.png" alt="doxygen" align="middle" border="0"></a> 1.4.6 </small></address>
 </body>

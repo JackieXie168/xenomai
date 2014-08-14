@@ -65,9 +65,17 @@ void psostask_init(u_long rrperiod)
 void psostask_cleanup(void)
 {
 	xnholder_t *holder;
+	spl_t s;
 
-	while ((holder = getheadq(&psostaskq)) != NULL)
-		t_delete((u_long)link2psostask(holder));
+	xnlock_get_irqsave(&nklock, s);
+
+	while ((holder = getheadq(&psostaskq)) != NULL) {
+		psostask_t *task = link2psostask(holder);
+		xnpod_abort_thread(&task->threadbase);
+		xnlock_sync_irq(&nklock, s);
+	}
+
+	xnlock_put_irqrestore(&nklock, s);
 
 	xnpod_remove_hook(XNHOOK_THREAD_DELETE, psostask_delete_hook);
 }
@@ -287,13 +295,6 @@ u_long t_delete(u_long tid)
 		err = psos_handle_error(tid, PSOS_TASK_MAGIC, psostask_t);
 		goto unlock_and_exit;
 	}
-
-#if defined(__KERNEL__) && defined(CONFIG_XENO_OPT_PERVASIVE)
-	if (xnthread_user_task(&task->threadbase) != NULL
-	    && !xnthread_test_state(&task->threadbase,XNDORMANT)
-	    && (!xnpod_primary_p() || task != psos_current_task()))
-		xnshadow_send_sig(&task->threadbase, SIGKILL, 1);
-#endif /* __KERNEL__ && CONFIG_XENO_OPT_PERVASIVE */
 
 	xnpod_delete_thread(&task->threadbase);
 
