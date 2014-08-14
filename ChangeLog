@@ -1,3 +1,173 @@
+2007-12-09  Philippe Gerum  <rpm@xenomai.org>
+
+	* RELEASE: Xenomai 2.3.5 (LifeStyle)
+
+2007-12-08  Philippe Gerum  <rpm@xenomai.org>
+
+	* ksrc/arch/powerpc/hal.c: Fix compilation issue with older I-pipe
+	series over 2.4 kernels (i.e. 1.5 and earlier).
+	
+2007-12-04  Philippe Gerum  <rpm@xenomai.org>
+
+	* include/nucleus/heap.h (xnheap_rounded_size): Fix 32bit overflow
+	for large sizes.
+
+	* ksrc/nucleus/heap.c (xnheap_init_mapped): Only align the
+	requested heap size to the natural page size to avoid duplicate
+	overhead accounting. Callers must include the actual overhead
+	before calling.
+
+ 	* ksrc/skins: Ensure that all callers of xnheap_init_mapped() and
+	xnheap_init() do round to the proper page size before calling.
+
+2007-12-02  Philippe Gerum  <rpm@xenomai.org>
+
+	* ksrc/arch/powerpc/patches: Backport 2.6.23-powerpc-2.0-03 to
+	2.6.23-ppc-1.6-00, to support a number of EVBs (32bit, uniprocessor
+	only) which have not been moved to the powerpc/ tree yet. 
+	
+	* include/asm-powerpc/calibration.h: Add a set of EVB-specific
+	calibration values.
+
+2007-11-30  Philippe Gerum  <rpm@xenomai.org>
+
+	* include/nucleus/heap.h: Include rounding to 2*pagesz in
+	xnheap_rounded_size() computation.
+	
+2007-11-23  Philippe Gerum  <rpm@xenomai.org>
+
+	* ksrc/nucleus/heap.c, include/nucleus/heap.h: Fix computation of
+	overhead due to the heap meta-data (xnheap_overhead). Recycle
+	empty bucketed pages to the global free page list.
+
+2007-11-22  Philippe Gerum  <rpm@xenomai.org>
+
+	* ksrc/arch/i386/patches: Upgrade to 2.6.20.21-1.11-00.
+
+2007-11-19  Philippe Gerum  <rpm@xenomai.org>
+
+	* ksrc/skins/native/syscalls.c (__rt_queue_read): Do not attempt
+	to free the message block after a failed receive op.
+
+2007-11-19  Gilles Chanteperdrix  <gilles.chanteperdrix@gmail.com>
+
+	* ksrc/arch/arm/patches: Upgrade to I-pipe/arm 1.8 series.
+	
+2007-11-19  Philippe Gerum  <rpm@xenomai.org>
+
+	* ksrc/arch/x86/patches: Upgrade to 2.6.20-1.10-12.
+
+2007-11-15  Philippe Gerum  <rpm@xenomai.org>
+
+	* ksrc/arch/powerpc/patches: Upgrade to 2.6.20-1.7-08. Will
+	actually fix a showstopper with MPIC-equipped platforms.
+
+2007-11-13  Philippe Gerum  <rpm@xenomai.org>
+
+	* ksrc/arch/i386/patches: Upgrade to 2.6.20-1.10-11.
+
+2007-11-11  Philippe Gerum  <rpm@xenomai.org>
+
+	* ksrc/nucleus/pipe.c: Fix select() breakage on a message pipe due
+	to multiple insertions into the sleep queue. Remove broken nwait
+	counter which also happened to be useless since WREAD
+	conditions are mutually exclusive.
+
+2007-11-01  Gilles Chanteperdrix  <gilles.chanteperdrix@gmail.com>
+
+	* include/asm-arm/syscall.h: Change struct initializer for
+	C++ compilation.
+
+2007-10-30  Gilles Chanteperdrix  <gilles.chanteperdrix@gmail.com>
+
+	* src/skins/posix/cond.c (__wrap_pthread_cond_wait,
+	__wrap_pthread_cond_timedwait): Do not leave without poping the
+	cleanup handler.
+
+	* ksrc/skins/posix/syscall.c (__pthread_cond_wait_prologue): Copy
+	the mutex recursion count to user-space upon timeout.
+
+2007-10-30  Philippe Gerum  <rpm@eclipse>
+
+	* include/nucleus/heap.h, ksrc/skins/rtai/shm.c,
+	ksrc/skins/native/queue.c, ksrc/skins/native/pipe.c: Make
+	xnheap_rounded_size() round the requested heap size to two times
+	the given page size.
+
+	* ksrc/skins/native/heap.c (rt_heap_create): Record the
+	user-defined heap size value before any rounding is applied.
+
+2007-10-26  Philippe Gerum  <rpm@eclipse>
+
+	* ksrc/arch/i386/patches: Upgrade to 2.6.20-1.10-10.
+
+2007-10-25  Philippe Gerum  <rpm@eclipse>
+
+	* include/asm-i386/hal: Add guard code for kernel version (i.e. <=
+	2.6.20).
+
+2007-10-17  Philippe Gerum  <rpm@xenomai.org>
+
+	* ksrc/arch/blackfin/patches: Upgrade to 2.6.23-1.7-00. Includes a
+	port to the bf561.
+
+	* ksrc/arch/powerpc/patches: Upgrade to 2.6.20-1.7-07.
+	
+	* ksrc/arch/i386/patches: Upgrade to 2.6.20-1.10-09.
+
+2007-10-15  Philippe Gerum  <rpm@xenomai.org>
+
+	* ksrc/arch/i386/patches: Upgrade to 2.6.20-1.10-08.
+
+	* ksrc/arch/powerpc/patches: Upgrade to 2.6.21-1.7-05,
+	2.6.20-1.7-06.
+
+2007-10-13  Jan Kiszka  <jan.kiszka@siemens.com>, Philippe Gerum  <rpm@xenomai.org>
+
+	* scripts/Kconfig.frag: Prevent combined selection of
+	X86_LOCAL_APIC and HPET_TIMER. This setup won't work for us since
+	the HPET will override the PIT, and we use the i8253 as our tick
+	device when running in LAPIC-disabled mode.
+
+2007-10-11  Philippe Gerum  <rpm@xenomai.org>
+
+	* ksrc/nucleus/Config.in: Add missing
+	CONFIG_XENO_OPT_WATCHDOG_TIMEOUT value.
+
+	* ksrc/arch/i386/patches: Upgrade to 2.6.20-1.10-06.
+
+2007-10-08  Wolfgang Grandegger  <wg@grandegger.com>
+
+	* include/rtdm/rtcan.h: Add CAN_RAW_LOOPBACK for compatibility
+	with Socket-CAN. The old name CAN_RAW_TX_LOOPBACK is kept for
+	backward-compatibility.
+
+2007-10-07  Philippe Gerum  <rpm@xenomai.org>
+
+	* include/asm-generic/bits/bind.h (xeno_bind_skin): Clarify the
+	error message sent upon feature conflict/mismatch.
+
+2007-10-06  Stelian Pop  <stelian@popies.net>
+
+	* ksrc/arch/i386/smi.c: Detect ICH8 rev4 chipsets.
+
+2007-10-06  Wolfgang Grandegger  <wg@grandegger.com>
+
+	* include/rtdm/rtcan.h: Add CAN_RAW_RECV_OWN_MSGS for compatibility
+	with Socket-CAN. It is not supported by RT-Socket-CAN.
+
+2007-10-06  Wolfgang Grandegger  <wg@grandegger.com>
+
+	* ksrc/drivers/can/{rtcan_mscan.c, rtcan_mscan_regs.h}: Supports the
+	new resource management of "arch/powerpc" properly and fixes problems
+	with the module parameter "port". Ports are now enabled according
+	to their position in the port list: port=1,1 or 0,1 or 0,1.
+
+2007-09-26  Jan Kiszka  <jan.kiszka@siemens.com>
+
+	* src/skins/posix/thread.c (__wrap_pthread_create): Use the correct
+	attribute reference when creating the real pthread.
+
 2007-09-16  Philippe Gerum  <rpm@xenomai.org>
 
 	* RELEASE: Xenomai 2.3.4 (Cool #9)
