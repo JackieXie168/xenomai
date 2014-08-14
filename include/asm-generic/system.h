@@ -308,6 +308,12 @@ static inline void xnlock_put (xnlock_t *lock)
 		    xnlock_stats[cpuid].line = lock->line;
 	    }
 #endif /* XENO_DEBUG(NUCLEUS) */
+	    /*
+	     * Make sure all data written inside the lock is visible to
+	     * other CPUs before we release the lock.
+	     */
+	    xnarch_memory_barrier();
+
 	    atomic_set(&lock->owner, ~0);
     }
 #if XENO_DEBUG(NUCLEUS)
@@ -406,6 +412,15 @@ static inline int xnarch_remap_io_page_range(struct vm_area_struct *vma,
 					     pgprot_t prot)
 {
     return wrap_remap_io_page_range(vma,from,to,size,prot);
+}
+
+static inline int xnarch_remap_kmem_page_range(struct vm_area_struct *vma,
+					       unsigned long from,
+					       unsigned long to,
+					       unsigned long size,
+					       pgprot_t prot)
+{
+    return wrap_remap_kmem_page_range(vma,from,to,size,prot);
 }
 
 #ifdef __cplusplus

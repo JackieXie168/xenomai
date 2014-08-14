@@ -1,3 +1,212 @@
+2009-08-03  Philippe Gerum  <rpm@xenomai.org>
+
+	* Moving to GIT. Commit messages will replace this file.
+
+2008-06-07  Philippe Gerum  <rpm@xenomai.org>
+
+	* ksrc/arch/powerpc/patches: Update to
+	2.6.20-powerpc-1.8-00 (various fixes + legacy ppc/ support).
+
+2008-05-24  Philippe Gerum  <rpm@xenomai.org>
+
+	* ksrc/skins/vxworks/syscall.c (__wind_msgq_receive): Fix byte
+	count for copy to user.
+
+2008-05-16  Philippe Gerum  <rpm@xenomai.org>
+
+	* ksrc/nucleus/synch.c (xnsynch_sleep_on): Check last wchan
+	signaled to prevent a race on interpreting the XNWAKEN flag. The
+	actual case that patch fixes is as follows:
+	- Thread A grabs synch X
+	- Thread A sleeps on synch Y
+	- Synch Y is signaled, thread A is unblocked but not immediately
+	resumed CPU-wise, XNWAKEN is raised.
+	- Thread B mistakenly steals synch X, being confused by the
+	XNWAKEN state of thread A, but which is applicable to a different
+	synch object (synch Y).
+
+	To fix this, we need to make sure that XNWAKEN applies to the
+	ownership of the right synchronization object -- this is the
+	purpose of the new thread->wwake field. Another option would be to
+	have the synchronization object hold the steal state, but this
+	would raise other issues.
+
+2008-05-15  Gernot Hillier  <gernot.hillier@siemens.com>
+
+	* configure.in: Disallow includedir == /usr/include.
+
+2008-05-15  Markus Osterried <markus.osterried@ericsson.com>
+
+	* src/skins/psos/tm.c (tm_evevery): Fix system call number.
+
+2008-05-06  Philippe Gerum  <rpm@xenomai.org>
+
+	* ksrc/nucleus/shadow.c (do_schedule_event): Do not grab the
+	sighand lock for reading the signal pending mask: it's useless,
+	and exposes us to deadlocks because we own the runqueue lock here.
+
+2008-05-06  Klaas Gadeyne <klaas.gadeyne@fmtc.be>
+
+	* ksrc/skins/native/cond.c (rt_cond_wait): Fix
+	documentation (ETIMEDOUT status).
+	
+2008-04-25  Philippe Gerum  <rpm@xenomai.org>
+
+	* ksrc/skins/vxworks/semLib.c: (sem_create_internal): Clear the
+	owner field at init.
+
+2008-04-14  Philippe Gerum  <rpm@xenomai.org>
+
+	* ksrc/skins/native/task.c (rt_task_suspend): Check for break
+	condition upon return from xnpod_suspend_thread().
+
+2008-04-08  Philippe Gerum  <rpm@xenomai.org>
+
+	* ksrc/skins/vxworks/syscall.c: __vxworks_sem_give has to be a
+	conforming mode entry in order to properly signal mutex-type
+	semaphores, from both genuine Linux and Xenomai user-space
+	contexts.
+
+2008-04-02  Philippe Gerum  <rpm@xenomai.org>
+
+	* include/asm-generic/bits/mlock_alert.h:
+	xeno_handle_mlock_alert() has to be a weak symbol to allow
+	static multi-lib support.
+
+2008-03-28  Philippe Gerum  <rpm@xenomai.org>
+
+	* ksrc/skins/psos/pt.c (pt_getbuf): Return ERR_NOBUF when
+	required.
+
+2008-03-26  Philippe Gerum  <rpm@xenomai.org>
+
+	* ksrc/skins/psos+/tm.c (tm_date_to_ticks): Fix month addition
+	loop.
+
+2008-03-24  Philippe Gerum  <rpm@xenomai.org>
+
+	* ksrc/arch/powerpc/patches: Update to 2.6.20-powerpc-1.7-13.
+
+2008-03-22  Philippe Gerum  <rpm@xenomai.org>
+
+	* ksrc/skins/vxworks/taskLib.c (taskSpawn): Fix error path.
+
+2008-03-16  Jan Kiszka  <jan.kiszka@web.de>
+
+	* ksrc/skins/rtdm/drvlib.c (rtdm_mmap_buffer): Differentiate between
+	mapping of kmalloc'ed vs. I/O memory.
+
+2008-03-16  Philippe Gerum  <rpm@xenomai.org>
+ 
+ 	* include/asm-generic/wrappers.h (wrap_remap_io_page_range): Set
+ 	pgprot_noncached() into the vma flags for MMIO mapping requests.
+ 
+2008-03-12  Anders Blomdell <anders.blomdell@control.lth.se>
+
+	* ksrc/skins/native/cond.c (rt_cond_wait): Fix race due to an
+	unwanted rescheduling between the mutex is released and the sleep
+	state is entered. Also properly release nested locks before
+	attempting to sleep.
+
+2008-03-08  Gilles Chanteperdrix  <gilles.chanteperdrix@gmail.com>
+
+	* src/skins/native/task.c: Call pthread_exit() to properly cleanup
+	thread's resources on self-deletion.
+	
+2007-03-08  Wolfgang Grandegger  <wg@grandegger.com>
+
+	* ksrc/nucleus/intr.c (xnintr_irq_proc): Fix whitespace damage
+	causing string copy bug.
+	
+2008-03-08  Philippe Gerum  <rpm@xenomai.org>
+
+	* src/skins/posix/mq.c (__wrap_mq_notify): Fix error path.
+
+2008-03-06  Philippe Gerum  <rpm@xenomai.org>
+
+	* ksrc/skins/native/syscall.c: Mark __rt_task_delete as a lostage
+	call, since it may release host memory.
+
+2008-03-01  Jan Kiszka  <jan.kiszka@siemens.com>
+
+	* include/asm-generic/system.h (xnlock_put): Add proper barrier.
+
+ 	* ksrc/nucleus/shadow.c, include/nucleus/pod.h: Let rpi_push,
+	xnpod_renice_root, and xnpod_root_priority work on specified CPU
+	instead of the current one. Issue rpi_push for the new thread's
+	target CPU in xnshadow_start, which may be different from the
+	current one.
+
+2008-02-23  Philippe Gerum  <rpm@xenomai.org>
+
+	* ksrc/arch/arm/patches: update IMX21 support.
+	
+2008-01-30  Philippe Gerum  <rpm@xenomai.org>
+
+	* ksrc/nucleus/registry.c: Fix primes[] type.
+
+2008-01-17  Philippe Gerum  <rpm@xenomai.org>
+
+	* ksrc/arch/powerpc/patches: Update to 2.6.20-powerpc-1.7-12,
+	2.6.23-powerpc-2.0-09, 2.6.23-ppc-1.6-03.
+
+	* ksrc/arch/i386/patches: Update to 2.6.20.21-i386-1.12-02.
+	
+2008-01-07  Stephane Fillod  <stephane.fillod@thomson.net>
+
+	* ksrc/drivers/serial/16550A.c (rt_16550_set_config): Set correct
+	bit in IER to enable modem status IRQs.
+
+2008-01-01  Philippe Gerum  <rpm@xenomai.org>
+
+	* ksrc/arch/i386/patches: Update to 2.6.20.21-i386-1.12-01.
+	
+	* ksrc/arch/powerpc/patches: Update to 2.6.20-powerpc-1.7-11.
+
+2007-12-29  Philippe Gerum  <rpm@xenomai.org>
+
+	* ksrc/skins/native/syscall.c (__rt_queue_write): Do not check the
+	source buffer whenever the transmit size is 0.
+	
+2007-12-27  Philippe Gerum  <rpm@xenomai.org>
+
+	* ksrc/arch/i386/patches: Update to 2.6.20.21-i386-1.12-00,
+	2.4.35.5-1.3-05.
+	
+	* ksrc/arch/powerpc/patches: Update to 2.6.20-powerpc-1.7-10,
+	2.6.23-ppc-1.6-02, 2.6.23-powerpc-2.0-07.
+
+2007-12-24  Philippe Gerum  <rpm@xenomai.org>
+
+	* ksrc/arch/i386/patches: Update to 2.6.20-i386-1.11-01.
+	
+	* ksrc/arch/arm/patches: Update to 2.6.20-1.8-03.
+
+	* ksrc/arch/powerpc/patches: Update to 2.6.20-powerpc-1.7-09,
+	2.6.23-ppc-1.6-01, 2.6.23-powerpc-2.0-05.
+
+2007-12-22  Wolfgang Grandegger  <wg@grandegger.com>
+
+	* ksrc/drivers/can/sja1000/{rtcan_sja1000.c, rtcan_*_pci.c}: Remove
+	CONFIG_XENO_OPT_SHIRQ* ifdefs to fix build problems with recent
+	versions of Xenomai. If rtdm_irq_request() now fails with -EBUSY, an
+	error message reminds the user to check for shared interrupt support.
+
+	* ksrc/drivers/can/rtcan_dev.c (rtcan_dev_unregister): unregister
+	devices properly in case refcounts are disabled.
+
+2007-12-22  Philippe Gerum  <rpm@xenomai.org>
+
+	* ksrc/arch/powerpc/patches: Update to 2.4.25-ppc-1.2-02 against
+	DENX's linuxppc_2_4_devel GIT tree as of 2007-12-22.
+
+	* ksrc/arch/i386/patches: Update to 2.4.34-1.3-04,
+	2.4.35.5-1.3-04.
+	
+	* ksrc/nucleus/pipe.c (xnpipe_read_wait): Close race window
+	causing an immediate wakeup opportunity to be missed before the
+	caller schedules out.
+	
 2007-12-09  Philippe Gerum  <rpm@xenomai.org>
 
 	* RELEASE: Xenomai 2.3.5 (LifeStyle)

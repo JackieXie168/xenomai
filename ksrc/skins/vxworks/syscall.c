@@ -884,7 +884,7 @@ static int __wind_msgq_receive(struct task_struct *curr, struct pt_regs *regs)
 
 	if (err != ERROR) {
 		__xn_copy_to_user(curr, (void __user *)__xn_reg_arg2(regs),
-				  msgbuf, nbytes);
+				  msgbuf, err);
 		__xn_copy_to_user(curr, (void __user *)__xn_reg_arg5(regs),
 				  &err, sizeof(err));
 		err = 0;
@@ -1223,7 +1223,7 @@ static xnsysent_t __systab[] = {
 	[__vxworks_sem_mcreate] = {&__wind_sem_mcreate, __xn_exec_any},
 	[__vxworks_sem_delete] = {&__wind_sem_delete, __xn_exec_any},
 	[__vxworks_sem_take] = {&__wind_sem_take, __xn_exec_primary},
-	[__vxworks_sem_give] = {&__wind_sem_give, __xn_exec_any},
+	[__vxworks_sem_give] = {&__wind_sem_give, __xn_exec_conforming},
 	[__vxworks_sem_flush] = {&__wind_sem_flush, __xn_exec_any},
 	[__vxworks_taskinfo_name] = {&__wind_taskinfo_name, __xn_exec_any},
 	[__vxworks_taskinfo_iddfl] = {&__wind_taskinfo_iddfl, __xn_exec_any},

@@ -2337,17 +2337,18 @@ static int __rt_queue_write(struct task_struct *curr, struct pt_regs *regs)
 	/* Sending mode. */
 	mode = (int)__xn_reg_arg4(regs);
 
-	if (!__xn_access_ok(curr, VERIFY_READ, buf, size))
-		return -EFAULT;
-
 	mbuf = rt_queue_alloc(q, size);
 
 	if (!mbuf)
 		return -ENOMEM;
 
-	if (size > 0)
+	if (size > 0) {
+		if (!__xn_access_ok(curr, VERIFY_READ, buf, size))
+			return -EFAULT;
+
 		/* Slurp the message directly into the conveying buffer. */
 		__xn_copy_from_user(curr, mbuf, buf, size);
+	}
 
 	return rt_queue_send(q, mbuf, size, mode);
 }
@@ -3789,7 +3790,7 @@ static xnsysent_t __systab[] = {
 	[__native_intr_inquire] = {&__rt_intr_inquire, __xn_exec_any},
 	[__native_pipe_create] = {&__rt_pipe_create, __xn_exec_lostage},
 	[__native_pipe_bind] = {&__rt_pipe_bind, __xn_exec_conforming},
-	[__native_pipe_delete] = {&__rt_pipe_delete, __xn_exec_any},
+	[__native_pipe_delete] = {&__rt_pipe_delete, __xn_exec_lostage},
 	[__native_pipe_read] = {&__rt_pipe_read, __xn_exec_primary},
 	[__native_pipe_write] = {&__rt_pipe_write, __xn_exec_any},
 	[__native_pipe_stream] = {&__rt_pipe_stream, __xn_exec_any},

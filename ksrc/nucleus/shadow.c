@@ -143,14 +143,12 @@ static inline void rpi_none(xnthread_t *thread)
 	thread->rpi = NULL;
 }
 
-static void rpi_push(xnthread_t *thread)
+static void rpi_push(xnthread_t *thread, int cpu)
 {
-	struct xnrpi *rpislot;
+	struct xnrpi *rpislot = &gatekeeper[cpu].rpislot;
 	xnthread_t *top;
 	int prio;
 	spl_t s;
-
-	rpislot = &gatekeeper[rthal_processor_id()].rpislot;
 
 	/* non-RT shadows and RT shadows which disabled RPI cause the
 	   root priority to be lowered to its base level. The purpose
@@ -175,17 +173,16 @@ static void rpi_push(xnthread_t *thread)
 	} else
 		prio = XNCORE_IDLE_PRIO;
 
-	if (xnpod_root_priority() != prio)
-		xnpod_renice_root(prio);
+	if (xnpod_root_priority(cpu) != prio)
+		xnpod_renice_root(cpu, prio);
 }
 
 static void rpi_pop(xnthread_t *thread)
 {
-	struct xnrpi *rpislot;
+	int cpu = rthal_processor_id();
+	struct xnrpi *rpislot = &gatekeeper[cpu].rpislot;
 	int prio;
 	spl_t s;
-
-	rpislot = &gatekeeper[rthal_processor_id()].rpislot;
 
 	xnlock_get_irqsave(&rpislot->lock, s);
 
@@ -212,20 +209,22 @@ static void rpi_pop(xnthread_t *thread)
 
 	xnlock_put_irqrestore(&rpislot->lock, s);
 
-	if (xnpod_root_priority() != prio)
-		xnpod_renice_root(prio);
+	if (xnpod_root_priority(cpu) != prio)
+		xnpod_renice_root(cpu, prio);
 }
 
 static void rpi_update(xnthread_t *thread)
 {
-	struct xnrpi *rpislot;
+	int cpu = rthal_processor_id();
+	struct xnrpi *rpislot = &gatekeeper[cpu].rpislot;
 	spl_t s;
 
-	rpislot = &gatekeeper[rthal_processor_id()].rpislot;
 	xnlock_get_irqsave(&rpislot->lock, s);
+
 	sched_removepq(&rpislot->threadq, &thread->xlink);
 	rpi_none(thread);
-	rpi_push(thread);
+	rpi_push(thread, cpu);
+
 	xnlock_put_irqrestore(&rpislot->lock, s);
 }
 
@@ -303,7 +302,7 @@ static void rpi_clear_remote(xnthread_t *thread)
 static void rpi_migrate(xnthread_t *thread)
 {
 	rpi_clear_remote(thread);
-	rpi_push(thread);
+	rpi_push(thread, rthal_processor_id());
 }
 
 #else  /* !CONFIG_SMP */
@@ -313,6 +312,7 @@ static void rpi_migrate(xnthread_t *thread)
 
 static inline void rpi_switch(struct task_struct *next)
 {
+	int cpu = rthal_processor_id();
 	xnthread_t *threadin, *threadout;
 	struct xnrpi *rpislot;
 	int oldprio, newprio;
@@ -320,8 +320,8 @@ static inline void rpi_switch(struct task_struct *next)
 
 	threadout = xnshadow_thread(current);
 	threadin = xnshadow_thread(next);
-	rpislot = &gatekeeper[rthal_processor_id()].rpislot;
-	oldprio = xnpod_root_priority();
+	rpislot = &gatekeeper[cpu].rpislot;
+	oldprio = xnpod_root_priority(cpu);
 
 	if (threadout &&
 	    current->state != TASK_RUNNING &&
@@ -401,7 +401,7 @@ boost_root:
 	if (newprio == oldprio)
 		return;
 
-	xnpod_renice_root(newprio);
+	xnpod_renice_root(cpu, newprio);
 
 	if (xnpod_compare_prio(newprio, oldprio) < 0)
 		/* Subtle: by downgrading the root thread priority,
@@ -415,8 +415,9 @@ boost_root:
 
 static inline void rpi_clear_local(xnthread_t *thread)
 {
-	if (thread == NULL && xnpod_root_priority() != XNCORE_IDLE_PRIO)
-		xnpod_renice_root(XNCORE_IDLE_PRIO);
+	int cpu = rthal_processor_id();
+	if (thread == NULL && xnpod_root_priority(cpu) != XNCORE_IDLE_PRIO)
+		xnpod_renice_root(cpu, XNCORE_IDLE_PRIO);
 }
 
 #ifdef CONFIG_SMP
@@ -428,15 +429,16 @@ void xnshadow_rpi_check(void)
 	 * otherwise, we would have to mask them while testing the
 	 * queue for emptiness _and_ demoting the boost level.
 	 */
-	struct xnrpi *rpislot = &gatekeeper[rthal_processor_id()].rpislot;
+	int cpu = rthal_processor_id();
+	struct xnrpi *rpislot = &gatekeeper[cpu].rpislot;
 	int norpi;
  
  	xnlock_get(&rpislot->lock);
  	norpi = sched_emptypq_p(&rpislot->threadq);
  	xnlock_put(&rpislot->lock);
 
-	if (norpi && xnpod_root_priority() != XNCORE_IDLE_PRIO)
-		xnpod_renice_root(XNCORE_IDLE_PRIO);
+	if (norpi && xnpod_root_priority(cpu) != XNCORE_IDLE_PRIO)
+		xnpod_renice_root(cpu, XNCORE_IDLE_PRIO);
 }
 
 #endif	/* CONFIG_SMP */
@@ -447,7 +449,7 @@ void xnshadow_rpi_check(void)
 #define rpi_init_gk(gk)		do { } while(0)
 #define rpi_clear_local(t)	do { } while(0)
 #define rpi_clear_remote(t)	do { } while(0)
-#define rpi_push(t)		do { } while(0)
+#define rpi_push(t, cpu)	do { } while(0)
 #define rpi_pop(t)		do { } while(0)
 #define rpi_update(t)		do { } while(0)
 #define rpi_switch(n)		do { } while(0)
@@ -641,11 +643,13 @@ static unsigned long shield_sync;
 static void engage_irq_shield(void)
 {
 	unsigned long flags;
-	rthal_declare_cpuid;
+	int cpu;
 
-	rthal_lock_cpu(flags);
+	rthal_local_irq_save_hw(flags);
 
-	if (xnarch_cpu_test_and_set(cpuid, shielded_cpus))
+	cpu = rthal_processor_id();
+
+	if (xnarch_cpu_test_and_set(cpu, shielded_cpus))
 		goto unmask_and_exit;
 
 	while (test_bit(0, &shield_sync))
@@ -653,23 +657,25 @@ static void engage_irq_shield(void)
 		 * long, so we spin IRQS off. */
 		cpu_relax();
 
-	xnarch_cpu_clear(cpuid, unshielded_cpus);
+	xnarch_cpu_clear(cpu, unshielded_cpus);
 
-	xnarch_lock_xirqs(&irq_shield, cpuid);
+	xnarch_lock_xirqs(&irq_shield, cpu);
 
       unmask_and_exit:
 
-	rthal_unlock_cpu(flags);
+	rthal_local_irq_restore_hw(flags);
 }
 
 static void disengage_irq_shield(void)
 {
 	unsigned long flags;
-	rthal_declare_cpuid;
+	int cpu;
 
-	rthal_lock_cpu(flags);
+	rthal_local_irq_save_hw(flags);
 
-	if (xnarch_cpu_test_and_set(cpuid, unshielded_cpus))
+	cpu = rthal_processor_id();
+
+	if (xnarch_cpu_test_and_set(cpu, unshielded_cpus))
 		goto unmask_and_exit;
 
 	/* Prevent other CPUs from engaging the shield while we
@@ -677,7 +683,7 @@ static void disengage_irq_shield(void)
 	set_bit(0, &shield_sync);
 
 	/* Ok, this one is now unshielded. */
-	xnarch_cpu_clear(cpuid, shielded_cpus);
+	xnarch_cpu_clear(cpu, shielded_cpus);
 
 	smp_mb__after_clear_bit();
 
@@ -695,12 +701,12 @@ static void disengage_irq_shield(void)
 	   the shield stage on the local CPU in order to flush it the same
 	   way. */
 
-	xnarch_unlock_xirqs(&irq_shield, cpuid);
+	xnarch_unlock_xirqs(&irq_shield, cpu);
 
 #ifdef CONFIG_SMP
 	{
 		cpumask_t other_cpus = xnarch_cpu_online_map;
-		xnarch_cpu_clear(cpuid, other_cpus);
+		xnarch_cpu_clear(cpu, other_cpus);
 		rthal_send_ipi(RTHAL_SERVICE_IPI1, other_cpus);
 	}
 #endif /* CONFIG_SMP */
@@ -715,7 +721,7 @@ clear_sync:
 
 unmask_and_exit:
 
-	rthal_unlock_cpu(flags);
+	rthal_local_irq_restore_hw(flags);
 }
 
 static inline void reset_shield(xnthread_t *thread)
@@ -1089,7 +1095,7 @@ void xnshadow_relax(int notify)
 
 	schedule_linux_call(LO_WAKEUP_REQ, current, 0);
 
-	rpi_push(thread);
+	rpi_push(thread, rthal_processor_id());
 
 	clear_task_nowakeup(current);
 
@@ -1354,7 +1360,8 @@ void xnshadow_start(xnthread_t *thread)
 {
 	struct task_struct *p = xnthread_archtcb(thread)->user_task;
 
-	rpi_push(thread);	/* A shadow always starts in relaxed mode. */
+ 	/* A shadow always starts in relaxed mode. */
+ 	rpi_push(thread, xnsched_cpu(thread->sched));
 	xnltt_log_event(xeno_ev_shadowstart, thread->name);
 	xnpod_resume_thread(thread, XNDORMANT);
 
@@ -2037,7 +2044,7 @@ static inline void do_schedule_event(struct task_struct *next)
 {
 	struct task_struct *prev;
 	xnthread_t *threadin;
-	rthal_declare_cpuid;
+	int cpuid;
 
 	if (!nkpod || testbits(nkpod->status, XNPIDLE))
 		return;
@@ -2045,23 +2052,29 @@ static inline void do_schedule_event(struct task_struct *next)
 	prev = current;
 	threadin = xnshadow_thread(next);
 	set_switch_lock_owner(prev);
-	rthal_load_cpuid();
+	cpuid = rthal_processor_id();
 
 	if (threadin) {
-		/* Check whether we need to unlock the timers, each time a
-		   Linux task resumes from a stopped state, excluding tasks
-		   resuming shortly for entering a stopped state asap due to
-		   ptracing. To identify the latter, we need to check for
-		   SIGSTOP and SIGINT in order to encompass both the NPTL and
-		   LinuxThreads behaviours. */
-
+		/*
+		 * Check whether we need to unlock the timers, each
+		 * time a Linux task resumes from a stopped state,
+		 * excluding tasks resuming shortly for entering a
+		 * stopped state asap due to ptracing. To identify the
+		 * latter, we need to check for SIGSTOP and SIGINT in
+		 * order to encompass both the NPTL and LinuxThreads
+		 * behaviours.
+		 */
 		if (xnthread_test_info(threadin, XNDEBUG)) {
 			if (signal_pending(next)) {
 				sigset_t pending;
-
-				spin_lock(&wrap_sighand_lock(next));	/* Already interrupt-safe. */
+				/*
+				 * Do not grab the sighand lock here:
+				 * it's useless, and we already own
+				 * the runqueue lock, so this would
+				 * expose us to deadlock situations on
+				 * SMP.
+				 */
 				wrap_get_sigpending(&pending, next);
-				spin_unlock(&wrap_sighand_lock(next));
 
 				if (sigismember(&pending, SIGSTOP) ||
 				    sigismember(&pending, SIGINT))
