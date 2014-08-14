@@ -114,6 +114,12 @@ int a4l_poll(a4l_desc_t * dsc,
 int a4l_mmap(a4l_desc_t * dsc,
 	     unsigned int idx_subd, unsigned long size, void **ptr);
 
+int a4l_async_read(a4l_desc_t * dsc,
+		   void *buf, size_t nbyte, unsigned long ms_timeout);
+
+int a4l_async_write(a4l_desc_t * dsc,
+		    void *buf, size_t nbyte, unsigned long ms_timeout);
+
 int a4l_snd_insnlist(a4l_desc_t * dsc, a4l_insnlst_t * arg);
 
 int a4l_snd_insn(a4l_desc_t * dsc, a4l_insn_t *arg);
@@ -130,7 +136,15 @@ int a4l_sync_read(a4l_desc_t * dsc,
 		  unsigned int chan_desc,
 		  unsigned int delay, void *buf, size_t nbyte);
 
+int a4l_config_subd(a4l_desc_t * dsc,
+		    unsigned int idx_subd, unsigned int type, ...);
+
+int a4l_sync_dio(a4l_desc_t *dsc,
+		 unsigned int idx_subd, void *mask, void *buf);
+
 int a4l_sizeof_chan(a4l_chinfo_t * chan);
+
+int a4l_sizeof_subd(a4l_sbinfo_t *subd);
 
 int a4l_find_range(a4l_desc_t * dsc,
 		   unsigned int idx_subd,

@@ -316,12 +316,6 @@ static inline int xnintr_irq_attach(xnintr_t *intr)
 	xnintr_t *prev, **p = &shirq->handlers;
 	int err;
 
-	if (intr->irq >= XNARCH_NR_IRQS)
-		return -EINVAL;
-
-	if (__testbits(intr->flags, XN_ISR_ATTACHED))
-		return -EPERM;
-
 	if ((prev = *p) != NULL) {
 		/* Check on whether the shared mode is allowed. */
 		if (!(prev->flags & intr->flags & XN_ISR_SHARED) ||
@@ -354,8 +348,6 @@ static inline int xnintr_irq_attach(xnintr_t *intr)
 			return err;
 	}
 
-	__setbits(intr->flags, XN_ISR_ATTACHED);
-
 	intr->next = NULL;
 
 	/* Add the given interrupt object. No need to synchronise with the IRQ
@@ -370,14 +362,6 @@ static inline int xnintr_irq_detach(xnintr_t *intr)
 	xnintr_irq_t *shirq = &xnirqs[intr->irq];
 	xnintr_t *e, **p = &shirq->handlers;
 	int err = 0;
-
-	if (intr->irq >= XNARCH_NR_IRQS)
-		return -EINVAL;
-
-	if (!__testbits(intr->flags, XN_ISR_ATTACHED))
-		return -EPERM;
-
-	__clrbits(intr->flags, XN_ISR_ATTACHED);
 
 	while ((e = *p) != NULL) {
 		if (e == intr) {
@@ -432,15 +416,15 @@ static inline int xnintr_irq_attach(xnintr_t *intr)
 
 static inline int xnintr_irq_detach(xnintr_t *intr)
 {
-	int irq = intr->irq, err;
+	int irq = intr->irq, ret;
 
 	xnlock_get(&xnirqs[irq].lock);
-	err = xnarch_release_irq(irq);
+	ret = xnarch_release_irq(irq);
 	xnlock_put(&xnirqs[irq].lock);
 
 	xnintr_sync_stat_references(intr);
 
-	return err;
+	return ret;
 }
 
 #endif /* !CONFIG_XENO_OPT_SHIRQ */
@@ -659,7 +643,7 @@ EXPORT_SYMBOL_GPL(xnintr_init);
  * @param intr The descriptor address of the interrupt object to
  * destroy.
  *
- * @return 0 is returned on success. Otherwise, -EBUSY is returned if
+ * @return 0 is returned on success. Otherwise, -EINVAL is returned if
  * an error occurred while detaching the interrupt (see
  * xnintr_detach()).
  *
@@ -675,8 +659,7 @@ EXPORT_SYMBOL_GPL(xnintr_init);
 
 int xnintr_destroy(xnintr_t *intr)
 {
-	xnintr_detach(intr);
-	return 0;
+	return xnintr_detach(intr);
 }
 EXPORT_SYMBOL_GPL(xnintr_destroy);
 
@@ -696,9 +679,12 @@ EXPORT_SYMBOL_GPL(xnintr_destroy);
  * interrupt object descriptor for further retrieval by the ISR/ISR
  * handlers.
  *
- * @return 0 is returned on success. Otherwise, -EINVAL is returned if
- * a low-level error occurred while attaching the interrupt. -EBUSY is
- * specifically returned if the interrupt object was already attached.
+ * @return 0 is returned on success. Otherwise:
+ *
+ * - -EINVAL is returned if a low-level error occurred while attaching
+ * the interrupt.
+ *
+ * - -EBUSY is returned if the interrupt object was already attached.
  *
  * @note The caller <b>must not</b> hold nklock when invoking this service,
  * this would cause deadlocks.
@@ -718,7 +704,7 @@ EXPORT_SYMBOL_GPL(xnintr_destroy);
 
 int xnintr_attach(xnintr_t *intr, void *cookie)
 {
-	int err;
+	int ret;
 	spl_t s;
 
 	trace_mark(xn_nucleus, irq_attach, "irq %u name %s",
@@ -733,14 +719,26 @@ int xnintr_attach(xnintr_t *intr, void *cookie)
 
 	xnlock_get_irqsave(&intrlock, s);
 
-	err = xnintr_irq_attach(intr);
+	if (intr->irq >= XNARCH_NR_IRQS) {
+		ret = -EINVAL;
+		goto out;
+	}
 
-	if (!err)
-		xnintr_stat_counter_inc();
+	if (__testbits(intr->flags, XN_ISR_ATTACHED)) {
+		ret = -EBUSY;
+		goto out;
+	}
 
+	ret = xnintr_irq_attach(intr);
+	if (ret)
+		goto out;
+
+	__setbits(intr->flags, XN_ISR_ATTACHED);
+	xnintr_stat_counter_inc();
+out:
 	xnlock_put_irqrestore(&intrlock, s);
 
-	return err;
+	return ret;
 }
 EXPORT_SYMBOL_GPL(xnintr_attach);
 
@@ -757,10 +755,11 @@ EXPORT_SYMBOL_GPL(xnintr_attach);
  * @param intr The descriptor address of the interrupt object to
  * detach.
  *
- * @return 0 is returned on success. Otherwise, -EINVAL is returned if
- * a low-level error occurred while detaching the interrupt. Detaching
- * a non-attached interrupt object leads to a null-effect and returns
- * 0.
+ * @return 0 is returned on success. Otherwise:
+ *
+ * - -EINVAL is returned if a low-level error occurred while detaching
+ * the interrupt, or if the interrupt object was not attached. In both
+ * cases, no action is performed.
  *
  * @note The caller <b>must not</b> hold nklock when invoking this service,
  * this would cause deadlocks.
@@ -774,24 +773,36 @@ EXPORT_SYMBOL_GPL(xnintr_attach);
  *
  * Rescheduling: never.
  */
-
 int xnintr_detach(xnintr_t *intr)
 {
-	int err;
+	int ret;
 	spl_t s;
 
 	trace_mark(xn_nucleus, irq_detach, "irq %u", intr->irq);
 
 	xnlock_get_irqsave(&intrlock, s);
 
-	err = xnintr_irq_detach(intr);
+	if (intr->irq >= XNARCH_NR_IRQS) {
+		ret = -EINVAL;
+		goto out;
+	}
 
-	if (!err)
-		xnintr_stat_counter_dec();
+	if (!__testbits(intr->flags, XN_ISR_ATTACHED)) {
+		ret = -EINVAL;
+		goto out;
+	}
 
+	__clrbits(intr->flags, XN_ISR_ATTACHED);
+
+	ret = xnintr_irq_detach(intr);
+	if (ret)
+		goto out;
+
+	xnintr_stat_counter_dec();
+ out:
 	xnlock_put_irqrestore(&intrlock, s);
 
-	return err;
+	return ret;
 }
 EXPORT_SYMBOL_GPL(xnintr_detach);
 

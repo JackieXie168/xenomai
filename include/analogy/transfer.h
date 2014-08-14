@@ -33,6 +33,7 @@
 #define A4L_TSF_BUSY 0
 #define A4L_TSF_BULK 1
 #define A4L_TSF_MMAP 2
+#define A4L_TSF_CLEAN 3
 
 /* Fields init values */
 #define A4L_IRQ_UNUSED (unsigned int)((unsigned short)(~0))
@@ -81,10 +82,12 @@ int a4l_rdproc_transfer(char *page,
 
 void a4l_presetup_transfer(a4l_cxt_t * cxt);
 int a4l_setup_transfer(a4l_cxt_t * cxt);
+int a4l_precleanup_transfer(a4l_cxt_t * cxt);
 int a4l_cleanup_transfer(a4l_cxt_t * cxt);
 int a4l_reserve_transfer(a4l_cxt_t * cxt, int idx_subd);
 int a4l_init_transfer(a4l_cxt_t * cxt, a4l_cmd_t * cmd);
 int a4l_cancel_transfer(a4l_cxt_t * cxt, int idx_subd);
+int a4l_cancel_transfers(a4l_cxt_t * cxt);
 
 ssize_t a4l_put(a4l_cxt_t * cxt, void *buf, size_t nbytes);
 ssize_t a4l_get(a4l_cxt_t * cxt, void *buf, size_t nbytes);

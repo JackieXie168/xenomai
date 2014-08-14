@@ -311,7 +311,7 @@ int rt_intr_create(RT_INTR *intr,
  *
  * @return 0 is returned upon success. Otherwise:
  *
- * - -EINVAL is returned if @a intr is not a interrupt object
+ * - -EINVAL is returned if @a intr is not a valid interrupt object
  * descriptor.
  *
  * - -EIDRM is returned if @a intr is a deleted interrupt object
@@ -362,8 +362,7 @@ int rt_intr_delete(RT_INTR *intr)
 
 	xnlock_put_irqrestore(&nklock, s);
 
-	err = xnintr_detach(&intr->intr_base);
-	xnintr_destroy(&intr->intr_base);
+	err = xnintr_destroy(&intr->intr_base);
 
 	if (rc == XNSYNCH_RESCHED)
 		/* Some task has been woken up as a result of the deletion:

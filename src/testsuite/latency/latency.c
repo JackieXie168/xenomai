@@ -9,7 +9,9 @@
 #include <sys/time.h>
 #include <unistd.h>
 
+#ifndef __UCLIBC__
 #include <execinfo.h>
+#endif /* !__UCLIBC__ */
 
 #include <native/task.h>
 #include <native/timer.h>
@@ -433,11 +435,6 @@ void cleanup(void)
 	exit(0);
 }
 
-void sighand(int sig __attribute__ ((unused)))
-{
-	finished = 1;
-}
-
 void faulthand(int sig)
 {
 	xntrace_user_freeze(0, 1);
@@ -447,8 +444,13 @@ void faulthand(int sig)
 
 void mode_sw(int sig)
 {
+#ifndef __UCLIBC__
 	const char buffer[] = "Mode switch, aborting. Backtrace:\n";
 	static void *bt[200];
+#else /* __UCLIBC__ */
+	const char buffer[] = "Mode switch, aborting."
+		" Backtrace unavailable with uclibc.\n";
+#endif /* __UCLIBC__ */
 	unsigned n;
 
 	if (!stop_upon_switch) {
@@ -456,9 +458,11 @@ void mode_sw(int sig)
 		return;
 	}
 
-	write(STDERR_FILENO, buffer, sizeof(buffer));
+	n = write(STDERR_FILENO, buffer, sizeof(buffer));
+#ifndef __UCLIBC__
 	n = backtrace(bt, sizeof(bt)/sizeof(bt[0]));
 	backtrace_symbols_fd(bt, n, STDERR_FILENO);
+#endif /* !__UCLIBC__ */
 
 	signal(sig, SIG_DFL);
 	kill(getpid(), sig);
@@ -466,9 +470,9 @@ void mode_sw(int sig)
 
 int main(int argc, char **argv)
 {
-	int c, err;
+	int cpu = 0, c, err, sig;
 	char task_name[16];
-	int cpu = 0;
+	sigset_t mask;
 
 	while ((c = getopt(argc, argv, "hp:l:T:qH:B:sD:t:fc:P:b")) != EOF)
 		switch (c) {
@@ -590,10 +594,13 @@ int main(int argc, char **argv)
 	else if (priority > T_HIPRIO)
 		priority = T_HIPRIO;
 
-	signal(SIGINT, sighand);
-	signal(SIGTERM, sighand);
-	signal(SIGHUP, sighand);
-	signal(SIGALRM, sighand);
+	sigemptyset(&mask);
+	sigaddset(&mask, SIGINT);
+	sigaddset(&mask, SIGTERM);
+	sigaddset(&mask, SIGHUP);
+	sigaddset(&mask, SIGALRM);
+	pthread_sigmask(SIG_BLOCK, &mask, NULL);
+
 	signal(SIGXCPU, mode_sw);
 
 	if (freeze_max) {
@@ -671,8 +678,8 @@ int main(int argc, char **argv)
 		}
 	}
 
-	while (!finished)
-		pause();
+	sigwait(&mask, &sig);
+	finished = 1;
 
 	cleanup();
 

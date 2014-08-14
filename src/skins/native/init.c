@@ -24,11 +24,9 @@
 #include <pthread.h>
 #include <native/syscall.h>
 #include <native/task.h>
-#include <asm-generic/bits/mlock_alert.h>
 #include <asm/xenomai/bits/bind.h>
 
 int __native_muxid = -1;
-void native_timer_init(int);
 
 #ifndef HAVE___THREAD
 pthread_key_t __native_tskey;
@@ -57,7 +55,5 @@ void __init_xeno_interface(void)
 	__native_muxid =
 		xeno_bind_skin(XENO_SKIN_MAGIC, "native", "xeno_native", NULL);
 
-	native_timer_init(__native_muxid);
-	
 	__native_muxid = __xn_mux_shifted_id(__native_muxid);
 }

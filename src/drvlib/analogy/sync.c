@@ -255,6 +255,86 @@ int a4l_sync_read(a4l_desc_t * dsc,
 }
 
 /**
+ * @brief Perform a synchronous acquisition digital acquisition
+ *
+ * @param[in] dsc Device descriptor filled by a4l_open() (and
+ * optionally a4l_fill_desc())
+ * @param[in] idx_subd Index of the concerned subdevice
+ * @param[in] mask Write mask which indicates which bit(s) must be
+ * modified
+ * @param[in,out] buf Input / output buffer
+ *
+ * @return Number of bytes read, otherwise negative error code:
+ *
+ * - -EINVAL is returned if some argument is missing or wrong (Please,
+ *    type "dmesg" for more info)
+ * - -EFAULT is returned if a user <-> kernel transfer went wrong
+ * - -ENOMEM is returned if the system is out of memory
+ * - -ENOSYS is returned if the driver does not provide any handler
+ *    "instruction bits"
+ *
+ */
+int a4l_sync_dio(a4l_desc_t *dsc,
+		 unsigned int idx_subd, void *mask, void *buf)
+{
+	unsigned char values[16];	
+	a4l_insn_t insn = {
+		.type = A4L_INSN_BITS,
+		.idx_subd = idx_subd,
+		.data = values,
+	};
+
+	int ret, size;
+	a4l_sbinfo_t *subd;
+
+	/* Get the subdevice descriptor */
+	ret = a4l_get_subdinfo(dsc, idx_subd, &subd);
+	if (ret < 0)
+		return ret;
+
+	/* Get the size in memory of a DIO acquisition */
+	size = a4l_sizeof_subd(subd);
+
+	switch(size) {
+	case 4:
+		((uint32_t *)values)[0] = *((uint32_t *)mask);
+		((uint32_t *)values)[1] = *((uint32_t *)buf);
+		insn.data_size = 2 * sizeof(uint32_t);
+		break;
+	case 2: 
+		((uint16_t *)values)[0] = *((uint16_t *)mask);
+		((uint16_t *)values)[1] = *((uint16_t *)buf);
+		insn.data_size = 2 * sizeof(uint16_t);
+		break;
+	case 1: 
+		((uint8_t *)values)[0] = *((uint8_t *)mask);
+		((uint8_t *)values)[1] = *((uint8_t *)buf);
+		insn.data_size = 2 * sizeof(uint8_t);
+		break;
+	default:
+		return -EINVAL;
+	}
+
+	/* Send the insn_bits instruction */
+	ret = a4l_snd_insn(dsc, &insn);
+
+	/* Update the buffer if need be */
+	switch(size) {
+	case 4:
+		*((uint32_t *)buf) = ((uint32_t *)values)[1];
+		break;
+	case 2: 
+		*((uint16_t *)buf) = ((uint16_t *)values)[1];
+		break;
+	case 1: 
+		*((uint8_t *)buf) = ((uint8_t *)values)[1];
+		break;
+	}	
+	
+	return ret;
+}
+
+/**
  * @brief Configure a subdevice
  *
  * a4l_config_subd() takes a variable count of arguments. According to
@@ -295,6 +375,7 @@ int a4l_config_subd(a4l_desc_t * dsc,
 	switch (type) {
 	case A4L_INSN_CONFIG_DIO_OUTPUT:
 	case A4L_INSN_CONFIG_DIO_INPUT:
+	case A4L_INSN_CONFIG_DIO_OPENDRAIN:
 	{
 		unsigned int idx_chan = va_arg(args, unsigned int);
 		insn.chan_desc = CHAN(idx_chan);

@@ -33,8 +33,9 @@ POST_UNINSTALL = :
 build_triplet = @build@
 host_triplet = @host@
 target_triplet = @target@
-bin_PROGRAMS = arith$(EXEEXT) wakeup-time$(EXEEXT) \
+test_PROGRAMS = arith$(EXEEXT) wakeup-time$(EXEEXT) \
 	mutex-torture-posix$(EXEEXT) mutex-torture-native$(EXEEXT) \
+	cond-torture-posix$(EXEEXT) cond-torture-native$(EXEEXT) \
 	check-vdso$(EXEEXT)
 subdir = src/testsuite/unit
 DIST_COMMON = $(srcdir)/Makefile.am $(srcdir)/Makefile.in
@@ -52,26 +53,49 @@ am__configure_deps = $(am__aclocal_m4_deps) $(CONFIGURE_DEPENDENCIES) \
 mkinstalldirs = $(install_sh) -d
 CONFIG_HEADER = $(top_builddir)/src/include/xeno_config.h
 CONFIG_CLEAN_FILES =
-am__installdirs = "$(DESTDIR)$(bindir)"
-binPROGRAMS_INSTALL = $(INSTALL_PROGRAM)
-PROGRAMS = $(bin_PROGRAMS)
+am__installdirs = "$(DESTDIR)$(testdir)"
+testPROGRAMS_INSTALL = $(INSTALL_PROGRAM)
+PROGRAMS = $(test_PROGRAMS)
 am_arith_OBJECTS = arith-arith.$(OBJEXT) \
 	arith-arith-noinline.$(OBJEXT)
 arith_OBJECTS = $(am_arith_OBJECTS)
-arith_DEPENDENCIES = ../../skins/native/libnative.la
+arith_DEPENDENCIES = ../../skins/native/libnative.la \
+	../../skins/common/libxenomai.la
 arith_LINK = $(LIBTOOL) --tag=CC $(AM_LIBTOOLFLAGS) $(LIBTOOLFLAGS) \
 	--mode=link $(CCLD) $(AM_CFLAGS) $(CFLAGS) $(arith_LDFLAGS) \
 	$(LDFLAGS) -o $@
-am_check_vdso_OBJECTS = check_vdso-check-vdso.$(OBJEXT)
+am__check_vdso_SOURCES_DIST = check-vdso.c
+@CONFIG_XENO_FASTSYNCH_TRUE@am_check_vdso_OBJECTS =  \
+@CONFIG_XENO_FASTSYNCH_TRUE@	check_vdso-check-vdso.$(OBJEXT)
 check_vdso_OBJECTS = $(am_check_vdso_OBJECTS)
-check_vdso_DEPENDENCIES = ../../skins/native/libnative.la
+@CONFIG_XENO_FASTSYNCH_TRUE@check_vdso_DEPENDENCIES =  \
+@CONFIG_XENO_FASTSYNCH_TRUE@	../../skins/native/libnative.la \
+@CONFIG_XENO_FASTSYNCH_TRUE@	../../skins/common/libxenomai.la
 check_vdso_LINK = $(LIBTOOL) --tag=CC $(AM_LIBTOOLFLAGS) \
 	$(LIBTOOLFLAGS) --mode=link $(CCLD) $(AM_CFLAGS) $(CFLAGS) \
 	$(check_vdso_LDFLAGS) $(LDFLAGS) -o $@
+am_cond_torture_native_OBJECTS =  \
+	cond_torture_native-cond-torture.$(OBJEXT)
+cond_torture_native_OBJECTS = $(am_cond_torture_native_OBJECTS)
+cond_torture_native_DEPENDENCIES = ../../skins/native/libnative.la \
+	../../skins/common/libxenomai.la
+cond_torture_native_LINK = $(LIBTOOL) --tag=CC $(AM_LIBTOOLFLAGS) \
+	$(LIBTOOLFLAGS) --mode=link $(CCLD) $(AM_CFLAGS) $(CFLAGS) \
+	$(cond_torture_native_LDFLAGS) $(LDFLAGS) -o $@
+am_cond_torture_posix_OBJECTS =  \
+	cond_torture_posix-cond-torture.$(OBJEXT)
+cond_torture_posix_OBJECTS = $(am_cond_torture_posix_OBJECTS)
+cond_torture_posix_DEPENDENCIES = ../../skins/posix/libpthread_rt.la \
+	../../skins/native/libnative.la \
+	../../skins/common/libxenomai.la
+cond_torture_posix_LINK = $(LIBTOOL) --tag=CC $(AM_LIBTOOLFLAGS) \
+	$(LIBTOOLFLAGS) --mode=link $(CCLD) $(AM_CFLAGS) $(CFLAGS) \
+	$(cond_torture_posix_LDFLAGS) $(LDFLAGS) -o $@
 am_mutex_torture_native_OBJECTS =  \
 	mutex_torture_native-mutex-torture.$(OBJEXT)
 mutex_torture_native_OBJECTS = $(am_mutex_torture_native_OBJECTS)
-mutex_torture_native_DEPENDENCIES = ../../skins/native/libnative.la
+mutex_torture_native_DEPENDENCIES = ../../skins/native/libnative.la \
+	../../skins/common/libxenomai.la
 mutex_torture_native_LINK = $(LIBTOOL) --tag=CC $(AM_LIBTOOLFLAGS) \
 	$(LIBTOOLFLAGS) --mode=link $(CCLD) $(AM_CFLAGS) $(CFLAGS) \
 	$(mutex_torture_native_LDFLAGS) $(LDFLAGS) -o $@
@@ -79,13 +103,15 @@ am_mutex_torture_posix_OBJECTS =  \
 	mutex_torture_posix-mutex-torture.$(OBJEXT)
 mutex_torture_posix_OBJECTS = $(am_mutex_torture_posix_OBJECTS)
 mutex_torture_posix_DEPENDENCIES = ../../skins/posix/libpthread_rt.la \
-	../../skins/native/libnative.la
+	../../skins/native/libnative.la \
+	../../skins/common/libxenomai.la
 mutex_torture_posix_LINK = $(LIBTOOL) --tag=CC $(AM_LIBTOOLFLAGS) \
 	$(LIBTOOLFLAGS) --mode=link $(CCLD) $(AM_CFLAGS) $(CFLAGS) \
 	$(mutex_torture_posix_LDFLAGS) $(LDFLAGS) -o $@
 am_wakeup_time_OBJECTS = wakeup_time-wakeup-time.$(OBJEXT)
 wakeup_time_OBJECTS = $(am_wakeup_time_OBJECTS)
-wakeup_time_DEPENDENCIES = ../../skins/native/libnative.la
+wakeup_time_DEPENDENCIES = ../../skins/native/libnative.la \
+	../../skins/common/libxenomai.la
 wakeup_time_LINK = $(LIBTOOL) --tag=CC $(AM_LIBTOOLFLAGS) \
 	$(LIBTOOLFLAGS) --mode=link $(CCLD) $(AM_CFLAGS) $(CFLAGS) \
 	$(wakeup_time_LDFLAGS) $(LDFLAGS) -o $@
@@ -101,9 +127,11 @@ LINK = $(LIBTOOL) --tag=CC $(AM_LIBTOOLFLAGS) $(LIBTOOLFLAGS) \
 	--mode=link $(CCLD) $(AM_CFLAGS) $(CFLAGS) $(AM_LDFLAGS) \
 	$(LDFLAGS) -o $@
 SOURCES = $(arith_SOURCES) $(check_vdso_SOURCES) \
+	$(cond_torture_native_SOURCES) $(cond_torture_posix_SOURCES) \
 	$(mutex_torture_native_SOURCES) $(mutex_torture_posix_SOURCES) \
 	$(wakeup_time_SOURCES)
-DIST_SOURCES = $(arith_SOURCES) $(check_vdso_SOURCES) \
+DIST_SOURCES = $(arith_SOURCES) $(am__check_vdso_SOURCES_DIST) \
+	$(cond_torture_native_SOURCES) $(cond_torture_posix_SOURCES) \
 	$(mutex_torture_native_SOURCES) $(mutex_torture_posix_SOURCES) \
 	$(wakeup_time_SOURCES)
 ETAGS = etags
@@ -207,6 +235,7 @@ XENO_LINUX_INSTALL_TARGET = @XENO_LINUX_INSTALL_TARGET@
 XENO_MAYBE_DOCDIR = @XENO_MAYBE_DOCDIR@
 XENO_POSIX_WRAPPERS = @XENO_POSIX_WRAPPERS@
 XENO_TARGET_ARCH = @XENO_TARGET_ARCH@
+XENO_TEST_DIR = @XENO_TEST_DIR@
 XENO_USER_APP_CFLAGS = @XENO_USER_APP_CFLAGS@
 XENO_USER_APP_LDFLAGS = @XENO_USER_APP_LDFLAGS@
 XENO_USER_CFLAGS = @XENO_USER_CFLAGS@
@@ -268,7 +297,8 @@ target_vendor = @target_vendor@
 top_build_prefix = @top_build_prefix@
 top_builddir = @top_builddir@
 top_srcdir = @top_srcdir@
-testdir = $(exec_prefix)/share/xenomai/testsuite/unit
+rundir = $(exec_prefix)/share/xenomai/testsuite/unit
+testdir = @XENO_TEST_DIR@
 CCLD = $(top_srcdir)/scripts/wrap-link.sh $(CC)
 arith_SOURCES = arith.c arith-noinline.c arith-noinline.h
 arith_CPPFLAGS = \
@@ -278,6 +308,7 @@ arith_CPPFLAGS = \
 arith_LDFLAGS = @XENO_USER_LDFLAGS@
 arith_LDADD = \
 	../../skins/native/libnative.la \
+	../../skins/common/libxenomai.la \
 	-lpthread -lm
 
 wakeup_time_SOURCES = wakeup-time.c
@@ -288,6 +319,7 @@ wakeup_time_CPPFLAGS = \
 wakeup_time_LDFLAGS = @XENO_USER_LDFLAGS@
 wakeup_time_LDADD = \
 	../../skins/native/libnative.la \
+	../../skins/common/libxenomai.la \
 	-lpthread -lm
 
 mutex_torture_posix_SOURCES = mutex-torture.c
@@ -299,6 +331,7 @@ mutex_torture_posix_LDFLAGS = $(XENO_POSIX_WRAPPERS) @XENO_USER_LDFLAGS@
 mutex_torture_posix_LDADD = \
 	../../skins/posix/libpthread_rt.la \
 	../../skins/native/libnative.la \
+	../../skins/common/libxenomai.la \
 	-lpthread -lrt -lm
 
 mutex_torture_native_SOURCES = mutex-torture.c
@@ -309,17 +342,42 @@ mutex_torture_native_CPPFLAGS = \
 mutex_torture_native_LDFLAGS = @XENO_USER_LDFLAGS@
 mutex_torture_native_LDADD = \
 	../../skins/native/libnative.la \
+	../../skins/common/libxenomai.la \
 	-lpthread -lm
 
-check_vdso_SOURCES = check-vdso.c
-check_vdso_CPPFLAGS = \
+cond_torture_posix_SOURCES = cond-torture.c
+cond_torture_posix_CPPFLAGS = \
+	-I$(top_srcdir)/include/posix @XENO_USER_CFLAGS@ -g -DXENO_POSIX \
+	-I$(top_srcdir)/include
+
+cond_torture_posix_LDFLAGS = $(XENO_POSIX_WRAPPERS) @XENO_USER_LDFLAGS@
+cond_torture_posix_LDADD = \
+	../../skins/posix/libpthread_rt.la \
+	../../skins/native/libnative.la \
+	../../skins/common/libxenomai.la \
+	-lpthread -lrt -lm
+
+cond_torture_native_SOURCES = cond-torture.c
+cond_torture_native_CPPFLAGS = \
 	@XENO_USER_CFLAGS@ \
 	-I$(top_srcdir)/include
 
-check_vdso_LDFLAGS = @XENO_USER_LDFLAGS@
-check_vdso_LDADD = \
+cond_torture_native_LDFLAGS = @XENO_USER_LDFLAGS@
+cond_torture_native_LDADD = \
 	../../skins/native/libnative.la \
+	../../skins/common/libxenomai.la \
 	-lpthread -lm
+
+@CONFIG_XENO_FASTSYNCH_TRUE@check_vdso_SOURCES = check-vdso.c
+@CONFIG_XENO_FASTSYNCH_TRUE@check_vdso_CPPFLAGS = \
+@CONFIG_XENO_FASTSYNCH_TRUE@	@XENO_USER_CFLAGS@ \
+@CONFIG_XENO_FASTSYNCH_TRUE@	-I$(top_srcdir)/include
+
+@CONFIG_XENO_FASTSYNCH_TRUE@check_vdso_LDFLAGS = @XENO_USER_LDFLAGS@
+@CONFIG_XENO_FASTSYNCH_TRUE@check_vdso_LDADD = \
+@CONFIG_XENO_FASTSYNCH_TRUE@	../../skins/native/libnative.la \
+@CONFIG_XENO_FASTSYNCH_TRUE@	../../skins/common/libxenomai.la \
+@CONFIG_XENO_FASTSYNCH_TRUE@	-lpthread -lm
 
 EXTRA_DIST = runinfo.in
 all: all-am
@@ -355,30 +413,30 @@ $(top_srcdir)/configure: @MAINTAINER_MODE_TRUE@ $(am__configure_deps)
 	cd $(top_builddir) && $(MAKE) $(AM_MAKEFLAGS) am--refresh
 $(ACLOCAL_M4): @MAINTAINER_MODE_TRUE@ $(am__aclocal_m4_deps)
 	cd $(top_builddir) && $(MAKE) $(AM_MAKEFLAGS) am--refresh
-install-binPROGRAMS: $(bin_PROGRAMS)
+install-testPROGRAMS: $(test_PROGRAMS)
 	@$(NORMAL_INSTALL)
-	test -z "$(bindir)" || $(MKDIR_P) "$(DESTDIR)$(bindir)"
-	@list='$(bin_PROGRAMS)'; for p in $$list; do \
+	test -z "$(testdir)" || $(MKDIR_P) "$(DESTDIR)$(testdir)"
+	@list='$(test_PROGRAMS)'; for p in $$list; do \
 	  p1=`echo $$p|sed 's/$(EXEEXT)$$//'`; \
 	  if test -f $$p \
 	     || test -f $$p1 \
 	  ; then \
 	    f=`echo "$$p1" | sed 's,^.*/,,;$(transform);s/$$/$(EXEEXT)/'`; \
-	   echo " $(INSTALL_PROGRAM_ENV) $(LIBTOOL) $(AM_LIBTOOLFLAGS) $(LIBTOOLFLAGS) --mode=install $(binPROGRAMS_INSTALL) '$$p' '$(DESTDIR)$(bindir)/$$f'"; \
-	   $(INSTALL_PROGRAM_ENV) $(LIBTOOL) $(AM_LIBTOOLFLAGS) $(LIBTOOLFLAGS) --mode=install $(binPROGRAMS_INSTALL) "$$p" "$(DESTDIR)$(bindir)/$$f" || exit 1; \
+	   echo " $(INSTALL_PROGRAM_ENV) $(LIBTOOL) $(AM_LIBTOOLFLAGS) $(LIBTOOLFLAGS) --mode=install $(testPROGRAMS_INSTALL) '$$p' '$(DESTDIR)$(testdir)/$$f'"; \
+	   $(INSTALL_PROGRAM_ENV) $(LIBTOOL) $(AM_LIBTOOLFLAGS) $(LIBTOOLFLAGS) --mode=install $(testPROGRAMS_INSTALL) "$$p" "$(DESTDIR)$(testdir)/$$f" || exit 1; \
 	  else :; fi; \
 	done
 
-uninstall-binPROGRAMS:
+uninstall-testPROGRAMS:
 	@$(NORMAL_UNINSTALL)
-	@list='$(bin_PROGRAMS)'; for p in $$list; do \
+	@list='$(test_PROGRAMS)'; for p in $$list; do \
 	  f=`echo "$$p" | sed 's,^.*/,,;s/$(EXEEXT)$$//;$(transform);s/$$/$(EXEEXT)/'`; \
-	  echo " rm -f '$(DESTDIR)$(bindir)/$$f'"; \
-	  rm -f "$(DESTDIR)$(bindir)/$$f"; \
+	  echo " rm -f '$(DESTDIR)$(testdir)/$$f'"; \
+	  rm -f "$(DESTDIR)$(testdir)/$$f"; \
 	done
 
-clean-binPROGRAMS:
-	@list='$(bin_PROGRAMS)'; for p in $$list; do \
+clean-testPROGRAMS:
+	@list='$(test_PROGRAMS)'; for p in $$list; do \
 	  f=`echo $$p|sed 's/$(EXEEXT)$$//'`; \
 	  echo " rm -f $$p $$f"; \
 	  rm -f $$p $$f ; \
@@ -389,6 +447,12 @@ arith$(EXEEXT): $(arith_OBJECTS) $(arith_DEPENDENCIES)
 check-vdso$(EXEEXT): $(check_vdso_OBJECTS) $(check_vdso_DEPENDENCIES) 
 	@rm -f check-vdso$(EXEEXT)
 	$(check_vdso_LINK) $(check_vdso_OBJECTS) $(check_vdso_LDADD) $(LIBS)
+cond-torture-native$(EXEEXT): $(cond_torture_native_OBJECTS) $(cond_torture_native_DEPENDENCIES) 
+	@rm -f cond-torture-native$(EXEEXT)
+	$(cond_torture_native_LINK) $(cond_torture_native_OBJECTS) $(cond_torture_native_LDADD) $(LIBS)
+cond-torture-posix$(EXEEXT): $(cond_torture_posix_OBJECTS) $(cond_torture_posix_DEPENDENCIES) 
+	@rm -f cond-torture-posix$(EXEEXT)
+	$(cond_torture_posix_LINK) $(cond_torture_posix_OBJECTS) $(cond_torture_posix_LDADD) $(LIBS)
 mutex-torture-native$(EXEEXT): $(mutex_torture_native_OBJECTS) $(mutex_torture_native_DEPENDENCIES) 
 	@rm -f mutex-torture-native$(EXEEXT)
 	$(mutex_torture_native_LINK) $(mutex_torture_native_OBJECTS) $(mutex_torture_native_LDADD) $(LIBS)
@@ -408,6 +472,8 @@ distclean-compile:
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/arith-arith-noinline.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/arith-arith.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/check_vdso-check-vdso.Po@am__quote@
+@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/cond_torture_native-cond-torture.Po@am__quote@
+@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/cond_torture_posix-cond-torture.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/mutex_torture_native-mutex-torture.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/mutex_torture_posix-mutex-torture.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/wakeup_time-wakeup-time.Po@am__quote@
@@ -474,6 +540,34 @@ check_vdso-check-vdso.obj: check-vdso.c
 @AMDEP_TRUE@@am__fastdepCC_FALSE@	source='check-vdso.c' object='check_vdso-check-vdso.obj' libtool=no @AMDEPBACKSLASH@
 @AMDEP_TRUE@@am__fastdepCC_FALSE@	DEPDIR=$(DEPDIR) $(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
 @am__fastdepCC_FALSE@	$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(check_vdso_CPPFLAGS) $(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS) -c -o check_vdso-check-vdso.obj `if test -f 'check-vdso.c'; then $(CYGPATH_W) 'check-vdso.c'; else $(CYGPATH_W) '$(srcdir)/check-vdso.c'; fi`
+
+cond_torture_native-cond-torture.o: cond-torture.c
+@am__fastdepCC_TRUE@	$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(cond_torture_native_CPPFLAGS) $(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS) -MT cond_torture_native-cond-torture.o -MD -MP -MF $(DEPDIR)/cond_torture_native-cond-torture.Tpo -c -o cond_torture_native-cond-torture.o `test -f 'cond-torture.c' || echo '$(srcdir)/'`cond-torture.c
+@am__fastdepCC_TRUE@	mv -f $(DEPDIR)/cond_torture_native-cond-torture.Tpo $(DEPDIR)/cond_torture_native-cond-torture.Po
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	source='cond-torture.c' object='cond_torture_native-cond-torture.o' libtool=no @AMDEPBACKSLASH@
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	DEPDIR=$(DEPDIR) $(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
+@am__fastdepCC_FALSE@	$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(cond_torture_native_CPPFLAGS) $(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS) -c -o cond_torture_native-cond-torture.o `test -f 'cond-torture.c' || echo '$(srcdir)/'`cond-torture.c
+
+cond_torture_native-cond-torture.obj: cond-torture.c
+@am__fastdepCC_TRUE@	$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(cond_torture_native_CPPFLAGS) $(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS) -MT cond_torture_native-cond-torture.obj -MD -MP -MF $(DEPDIR)/cond_torture_native-cond-torture.Tpo -c -o cond_torture_native-cond-torture.obj `if test -f 'cond-torture.c'; then $(CYGPATH_W) 'cond-torture.c'; else $(CYGPATH_W) '$(srcdir)/cond-torture.c'; fi`
+@am__fastdepCC_TRUE@	mv -f $(DEPDIR)/cond_torture_native-cond-torture.Tpo $(DEPDIR)/cond_torture_native-cond-torture.Po
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	source='cond-torture.c' object='cond_torture_native-cond-torture.obj' libtool=no @AMDEPBACKSLASH@
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	DEPDIR=$(DEPDIR) $(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
+@am__fastdepCC_FALSE@	$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(cond_torture_native_CPPFLAGS) $(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS) -c -o cond_torture_native-cond-torture.obj `if test -f 'cond-torture.c'; then $(CYGPATH_W) 'cond-torture.c'; else $(CYGPATH_W) '$(srcdir)/cond-torture.c'; fi`
+
+cond_torture_posix-cond-torture.o: cond-torture.c
+@am__fastdepCC_TRUE@	$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(cond_torture_posix_CPPFLAGS) $(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS) -MT cond_torture_posix-cond-torture.o -MD -MP -MF $(DEPDIR)/cond_torture_posix-cond-torture.Tpo -c -o cond_torture_posix-cond-torture.o `test -f 'cond-torture.c' || echo '$(srcdir)/'`cond-torture.c
+@am__fastdepCC_TRUE@	mv -f $(DEPDIR)/cond_torture_posix-cond-torture.Tpo $(DEPDIR)/cond_torture_posix-cond-torture.Po
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	source='cond-torture.c' object='cond_torture_posix-cond-torture.o' libtool=no @AMDEPBACKSLASH@
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	DEPDIR=$(DEPDIR) $(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
+@am__fastdepCC_FALSE@	$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(cond_torture_posix_CPPFLAGS) $(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS) -c -o cond_torture_posix-cond-torture.o `test -f 'cond-torture.c' || echo '$(srcdir)/'`cond-torture.c
+
+cond_torture_posix-cond-torture.obj: cond-torture.c
+@am__fastdepCC_TRUE@	$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(cond_torture_posix_CPPFLAGS) $(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS) -MT cond_torture_posix-cond-torture.obj -MD -MP -MF $(DEPDIR)/cond_torture_posix-cond-torture.Tpo -c -o cond_torture_posix-cond-torture.obj `if test -f 'cond-torture.c'; then $(CYGPATH_W) 'cond-torture.c'; else $(CYGPATH_W) '$(srcdir)/cond-torture.c'; fi`
+@am__fastdepCC_TRUE@	mv -f $(DEPDIR)/cond_torture_posix-cond-torture.Tpo $(DEPDIR)/cond_torture_posix-cond-torture.Po
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	source='cond-torture.c' object='cond_torture_posix-cond-torture.obj' libtool=no @AMDEPBACKSLASH@
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	DEPDIR=$(DEPDIR) $(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
+@am__fastdepCC_FALSE@	$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(cond_torture_posix_CPPFLAGS) $(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS) -c -o cond_torture_posix-cond-torture.obj `if test -f 'cond-torture.c'; then $(CYGPATH_W) 'cond-torture.c'; else $(CYGPATH_W) '$(srcdir)/cond-torture.c'; fi`
 
 mutex_torture_native-mutex-torture.o: mutex-torture.c
 @am__fastdepCC_TRUE@	$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(mutex_torture_native_CPPFLAGS) $(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS) -MT mutex_torture_native-mutex-torture.o -MD -MP -MF $(DEPDIR)/mutex_torture_native-mutex-torture.Tpo -c -o mutex_torture_native-mutex-torture.o `test -f 'mutex-torture.c' || echo '$(srcdir)/'`mutex-torture.c
@@ -600,7 +694,7 @@ check-am: all-am
 check: check-am
 all-am: Makefile $(PROGRAMS)
 installdirs:
-	for dir in "$(DESTDIR)$(bindir)"; do \
+	for dir in "$(DESTDIR)$(testdir)"; do \
 	  test -z "$$dir" || $(MKDIR_P) "$$dir"; \
 	done
 install: install-am
@@ -629,7 +723,8 @@ maintainer-clean-generic:
 	@echo "it deletes files that may require special tools to rebuild."
 clean: clean-am
 
-clean-am: clean-binPROGRAMS clean-generic clean-libtool mostlyclean-am
+clean-am: clean-generic clean-libtool clean-testPROGRAMS \
+	mostlyclean-am
 
 distclean: distclean-am
 	-rm -rf ./$(DEPDIR)
@@ -647,11 +742,11 @@ info: info-am
 
 info-am:
 
-install-data-am: install-data-local
+install-data-am: install-data-local install-testPROGRAMS
 
 install-dvi: install-dvi-am
 
-install-exec-am: install-binPROGRAMS
+install-exec-am:
 
 install-html: install-html-am
 
@@ -683,35 +778,35 @@ ps: ps-am
 
 ps-am:
 
-uninstall-am: uninstall-binPROGRAMS uninstall-local
+uninstall-am: uninstall-local uninstall-testPROGRAMS
 
 .MAKE: install-am install-strip
 
-.PHONY: CTAGS GTAGS all all-am check check-am clean clean-binPROGRAMS \
-	clean-generic clean-libtool ctags distclean distclean-compile \
-	distclean-generic distclean-libtool distclean-tags distdir dvi \
-	dvi-am html html-am info info-am install install-am \
-	install-binPROGRAMS install-data install-data-am \
+.PHONY: CTAGS GTAGS all all-am check check-am clean clean-generic \
+	clean-libtool clean-testPROGRAMS ctags distclean \
+	distclean-compile distclean-generic distclean-libtool \
+	distclean-tags distdir dvi dvi-am html html-am info info-am \
+	install install-am install-data install-data-am \
 	install-data-local install-dvi install-dvi-am install-exec \
 	install-exec-am install-html install-html-am install-info \
 	install-info-am install-man install-pdf install-pdf-am \
-	install-ps install-ps-am install-strip installcheck \
-	installcheck-am installdirs maintainer-clean \
+	install-ps install-ps-am install-strip install-testPROGRAMS \
+	installcheck installcheck-am installdirs maintainer-clean \
 	maintainer-clean-generic mostlyclean mostlyclean-compile \
 	mostlyclean-generic mostlyclean-libtool pdf pdf-am ps ps-am \
-	tags uninstall uninstall-am uninstall-binPROGRAMS \
-	uninstall-local
+	tags uninstall uninstall-am uninstall-local \
+	uninstall-testPROGRAMS
 
 
 install-data-local:
-	$(mkinstalldirs) $(DESTDIR)$(testdir)
-	@sed -e's,@exec_prefix\@,$(exec_prefix),g' $(srcdir)/runinfo.in > $(DESTDIR)$(testdir)/.runinfo
-	@echo "#!/bin/sh" > $(DESTDIR)$(testdir)/run
-	@echo "\$${DESTDIR}$(exec_prefix)/bin/xeno-load \`dirname \$$0\` \$$*" >> $(DESTDIR)$(testdir)/run
-	@chmod +x $(DESTDIR)$(testdir)/run
+	$(mkinstalldirs) $(DESTDIR)$(rundir)
+	@sed -e's,@exec_prefix\@,$(exec_prefix),g' $(srcdir)/runinfo.in > $(DESTDIR)$(rundir)/.runinfo
+	@echo "#!/bin/sh" > $(DESTDIR)$(rundir)/run
+	@echo "\$${DESTDIR}$(exec_prefix)/bin/xeno-load \`dirname \$$0\` \$$*" >> $(DESTDIR)$(rundir)/run
+	@chmod +x $(DESTDIR)$(rundir)/run
 
 uninstall-local:
-	$(RM) $(DESTDIR)$(testdir)/.runinfo $(DESTDIR)$(testdir)/run
+	$(RM) $(DESTDIR)$(rundir)/.runinfo $(DESTDIR)$(rundir)/run
 
 run: all
 	@$(top_srcdir)/scripts/xeno-load --verbose

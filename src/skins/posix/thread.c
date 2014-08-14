@@ -68,7 +68,7 @@ int __wrap_pthread_setschedparam(pthread_t thread,
 		return __real_pthread_setschedparam(thread, policy, param);
 
 	if (!err && promoted) {
-		sigshadow_install_once();
+		xeno_sigshadow_install_once();
 		xeno_set_current();
 		if (policy != SCHED_OTHER)
 			XENOMAI_SYSCALL1(__xn_sys_migrate, XENOMAI_XENO_DOMAIN);
@@ -111,7 +111,7 @@ int pthread_setschedparam_ex(pthread_t thread,
 	}
 
 	if (!err && promoted) {
-		sigshadow_install_once();
+		xeno_sigshadow_install_once();
 		xeno_set_current();
 		if (policy != SCHED_OTHER)
 			XENOMAI_SYSCALL1(__xn_sys_migrate, XENOMAI_XENO_DOMAIN);
@@ -193,7 +193,7 @@ static void *__pthread_trampoline(void *arg)
 	unsigned long *mode_buf;
 	long err;
 
-	sigshadow_install_once();
+	xeno_sigshadow_install_once();
 
 	param.sched_priority = iargs->prio;
 	policy = iargs->policy;
@@ -330,19 +330,10 @@ int pthread_wait_np(unsigned long *overruns_r)
 
 int pthread_set_mode_np(int clrmask, int setmask)
 {
-	extern int xeno_sigxcpu_no_mlock;
 	int err;
 
 	err = -XENOMAI_SKINCALL2(__pse51_muxid,
 				 __pse51_thread_set_mode, clrmask, setmask);
-
-	/* Silently deactivate our internal handler for SIGXCPU. At that
-	   point, we know that the process memory has been properly
-	   locked, otherwise we would have caught the latter signal upon
-	   thread creation. */
-
-	if (!err && xeno_sigxcpu_no_mlock)
-		xeno_sigxcpu_no_mlock = !(setmask & PTHREAD_WARNSW);
 
 	return err;
 }

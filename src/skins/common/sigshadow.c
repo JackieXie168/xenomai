@@ -1,12 +1,12 @@
+#include <pthread.h>
+#include <signal.h>
+
 #include <asm/xenomai/syscall.h>
 #include <asm-generic/xenomai/bits/sigshadow.h>
 
-pthread_once_t __attribute__((weak))
-	xeno_sigshadow_installed = PTHREAD_ONCE_INIT;
-struct sigaction __attribute__((weak)) xeno_saved_sigshadow_action;
+static struct sigaction xeno_saved_sigshadow_action;
 
-int __attribute__((weak))
-xeno_sigwinch_handler(int sig, siginfo_t *si, void *ctxt)
+int xeno_sigwinch_handler(int sig, siginfo_t *si, void *ctxt)
 {
 	int action;
 
@@ -37,8 +37,7 @@ xeno_sigwinch_handler(int sig, siginfo_t *si, void *ctxt)
 	return 1;
 }
 
-void __attribute__((weak))
-xeno_sigshadow_handler(int sig, siginfo_t *si, void *ctxt)
+static void xeno_sigshadow_handler(int sig, siginfo_t *si, void *ctxt)
 {
 	const struct sigaction *const sa = &xeno_saved_sigshadow_action;
 	sigset_t saved_sigset;
@@ -60,7 +59,7 @@ xeno_sigshadow_handler(int sig, siginfo_t *si, void *ctxt)
 	return;
 }
 
-void __attribute__((weak)) xeno_sigshadow_install(void)
+void xeno_sigshadow_install(void)
 {
 	struct sigaction new_sigshadow_action;
 
@@ -72,4 +71,10 @@ void __attribute__((weak)) xeno_sigshadow_install(void)
 		  &new_sigshadow_action, &xeno_saved_sigshadow_action);
 	if (!(xeno_saved_sigshadow_action.sa_flags & SA_NODEFER))
 		sigaddset(&xeno_saved_sigshadow_action.sa_mask, SIGSHADOW);
+}
+
+void xeno_sigshadow_install_once(void)
+{
+	static pthread_once_t sigshadow_installed = PTHREAD_ONCE_INIT;
+	pthread_once(&sigshadow_installed, xeno_sigshadow_install);
 }

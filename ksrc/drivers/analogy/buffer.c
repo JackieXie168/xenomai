@@ -397,8 +397,7 @@ int a4l_ioctl_mmap(a4l_cxt_t *cxt, void *arg)
 	/* The mmap operation cannot be performed in a 
 	   real-time context */
 	if (a4l_test_rt() != 0) {
-		__a4l_err("a4l_ioctl_mmap: mmap must be done in NRT context\n");
-		return -EPERM;
+		return -ENOSYS;
 	}
 
 	/* Recover the argument structure */
@@ -473,9 +472,7 @@ int a4l_ioctl_bufcfg(a4l_cxt_t * cxt, void *arg)
 	/* As Linux API is used to allocate a virtual buffer,
 	   the calling process must not be in primary mode */
 	if (a4l_test_rt() != 0) {
-		__a4l_err("a4l_ioctl_bufcfg: buffer config must done "
-			  "in NRT context\n");
-		return -EPERM;
+		return -ENOSYS;
 	}
 
 	if (rtdm_safe_copy_from_user(cxt->user_info,
@@ -560,6 +557,14 @@ int a4l_ioctl_bufinfo(a4l_cxt_t * cxt, void *arg)
 
 	buf = dev->transfer.bufs[info.idx_subd];
 
+	/* If a transfer is not occuring, simply return buffer
+	   informations, otherwise make the transfer progress */
+	if (!test_bit(A4L_TSF_BUSY,
+		       &(dev->transfer.status[info.idx_subd]))) {
+		info.rw_count = 0;
+		goto a4l_ioctl_bufinfo_out;
+	}
+
 	ret = __handle_event(buf);
 
 	if (info.idx_subd == dev->transfer.idx_read_subd) {
@@ -621,6 +626,8 @@ int a4l_ioctl_bufinfo(a4l_cxt_t * cxt, void *arg)
 		buf->mng_count += tmp_cnt;
 	}
 
+a4l_ioctl_bufinfo_out:	
+
 	/* Sets the buffer size */
 	info.buf_size = buf->size;
 
@@ -670,10 +677,17 @@ ssize_t a4l_read(a4l_cxt_t * cxt, void *bufdata, size_t nbytes)
 		if (tmp_cnt > nbytes - count)
 			tmp_cnt = nbytes - count;
 
-		if ((ret < 0 && ret != -ENOENT) ||
-		    (ret == -ENOENT && tmp_cnt == 0)) {
+		/* We check whether there is an error */
+		if (ret < 0 && ret != -ENOENT) {
 			a4l_cancel_transfer(cxt, idx_subd);
 			count = ret;
+			goto out_a4l_read;			
+		}
+		
+		/* We check whether the acquisition is over */
+		if (ret == -ENOENT && tmp_cnt == 0) {
+			a4l_cancel_transfer(cxt, idx_subd);
+			count = 0;
 			goto out_a4l_read;
 		}
 
@@ -711,7 +725,7 @@ ssize_t a4l_read(a4l_cxt_t * cxt, void *bufdata, size_t nbytes)
 		}
 		/* If the acquisition is not over, we must not
 		   leave the function without having read a least byte */
-		else if (ret != -ENOENT) {
+		else {
 			ret = a4l_wait_sync(&(buf->sync), a4l_test_rt());
 			if (ret < 0) {
 				if (ret == -ERESTARTSYS)
@@ -897,8 +911,9 @@ int a4l_ioctl_poll(a4l_cxt_t * cxt, void *arg)
 	}
 
 	buf = dev->transfer.bufs[poll.idx_subd];
-
+	
 	/* Checks the buffer events */
+	a4l_flush_sync(&buf->sync);
 	ret = __handle_event(buf);
 
 	/* Retrieves the data amount to compute 
@@ -908,13 +923,16 @@ int a4l_ioctl_poll(a4l_cxt_t * cxt, void *arg)
 
 		tmp_cnt = __count_to_get(buf);
 
-		/* If some error occured... */
-		if ((ret < 0 && ret != -ENOENT) ||
-		    /* ...or if we reached the end of the input transfer... */
-		    (ret == -ENOENT && tmp_cnt == 0)) {
-			/* ...cancel the transfer */
+		/* Check if some error occured */
+		if (ret < 0 && ret != -ENOENT) {
 			a4l_cancel_transfer(cxt, poll.idx_subd);
 			return ret;
+		}
+
+		/* Check whether the acquisition is over */
+		if (ret == -ENOENT && tmp_cnt == 0) {
+			a4l_cancel_transfer(cxt, poll.idx_subd);
+			return 0;
 		}
 	} else {
 

@@ -14,6 +14,7 @@ Xenomai user-space posix skin in two stages.
 Options:
 -q be quiet
 -v be verbose (print each command before running it)
+-n dry run (print all commands but don't run any)
 
 Example:
 $1 -v gcc -o foo foo.o -Wl,@/usr/xenomai/lib/posix.wrappers -L/usr/xenomai/lib -lpthread_rt -lpthread -lrt
@@ -34,7 +35,14 @@ add_linker_flag() {
 	stage1_args="$stage1_args -Wl,--wrap $@"
 	next_is_wrapped_symbol=false
     else
-	add_2stages "$@"
+	case "$@" in
+	*--as-needed*)
+		stage2_args="$stage2_args $@"
+		;;
+	*)
+		add_2stages "$@"
+		;;
+	esac
     fi
 }
 
@@ -51,6 +59,7 @@ if test -n "$V" && test $V -gt 0; then
 else
     verbose=false
 fi
+dryrun=
 progname="$0"
 
 if test $# -eq 0; then
@@ -68,6 +77,10 @@ while test $# -gt 0; do
 
 	-q) 
 	    verbose=false
+	    ;;
+
+	-n) 
+	    dryrun="echo # "
 	    ;;
 
 	-*)
@@ -91,6 +104,7 @@ while test $# -gt 0; do
     esac
 done
 
+test -z "$dryrun" || verbose=false
 next_is_wrapped_symbol=false
 
 onestage_args="$@"
@@ -158,6 +172,11 @@ while test $# -gt 0; do
 	    stage2_args="$stage2_args $arg"
 	    ;;
 
+	*.o)
+	    # Force .o to stage1 regardless of its position
+	    stage1_args="$stage1_args $arg"
+	    ;;
+
 	*) 
 	    if test -e "$arg"; then
 		add_linker_obj $arg
@@ -170,10 +189,10 @@ done
 
 if $stage2; then
     $verbose && set -x
-    $cc -o "$output.tmp" -Wl,-Ur -nostdlib $stage1_args
-    $cc -o "$output" "$output.tmp" $stage2_args
-    rm -f $output.tmp
+    $dryrun $cc -o "$output.tmp" -Wl,-Ur -nostdlib $stage1_args
+    $dryrun $cc -o "$output" "$output.tmp" $stage2_args
+    $dryrun rm -f $output.tmp
 else
     $verbose && set -x
-    $cc -o "$output" $onestage_args
+    $dryrun $cc -o "$output" $onestage_args
 fi
