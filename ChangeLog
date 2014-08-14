@@ -1,3 +1,96 @@
+2006-08-18  Philippe Gerum  <rpm@xenomai.org>
+	
+ 	* RELEASE: Xenomai 2.2.1 (Tumble)
+
+2006-08-18  Philippe Gerum  <rpm@xenomai.org>
+
+	* ksrc/arch/i386/patches: Upgrade to 2.4.3{2,3}-1.2-07.
+
+2006-08-12  Philippe Gerum  <rpm@xenomai.org>
+
+	* ksrc/nucleus/synch.c (xnsynch_flush): Do not clear the current
+	owner: flushing should not alter ownership.
+	(xnsynch_sleep_on): Fully refactor the resource stealing feature.
+
+2006-08-12  Gilles Chanteperdrix  <gilles.chanteperdrix@laposte.net>
+
+	* ksrc/skins/posix/thread.c (thread_destroy): Do not assume that
+	current->mm is valid when called upon process destruction.
+
+	* include/posix/pthread.h, ksrc/skins/posix/mutex_attr.c: Handle
+	correctly mutex attributes in user-space.
+
+	* ksrc/skins/posix/cond.c (pthread_cond_wait): Split this service
+	in order to correctly handle cancellation requests in user-space.
+
+2006-08-10  Jan Kiszka  <jan.kiszka@web.de>
+
+	* scripts/Modules.frag: Fix 2.4 in-kernel build of irqbench.
+
+2006-08-11  Philippe Gerum  <rpm@xenomai.org>
+
+	* ksrc/nucleus/synch.c (xnsynch_sleep_on): Check for wait abortion
+	bits after returning from xnpod_suspend_thread().
+
+2006-08-05  Philippe Gerum  <rpm@xenomai.org>
+
+	* ksrc/skins/native/syscall.c (__rt_queue_read): Use proper
+	timeout argument.
+
+2006-07-30  Philippe Gerum  <rpm@xenomai.org>
+
+	* ksrc/skins/native/task.c (rt_task_delete): Do not send SIGKILL
+	to dormant threads.
+
+	* ksrc/nucleus/shadow.c (xnshadow_sys_migrate): Ignore requests
+	from threads blocked on the startup barrier (i.e. dormant).
+
+	* ksrc/arch/i386/patches: Upgrade to 2.6.17-1.3-09.
+
+2006-07-28  Philippe Gerum  <rpm@xenomai.org>
+
+	* ksrc/arch/i386/patches: Upgrade to 2.4.32-1.2-06.
+
+2006-07-27  Philippe Gerum  <rpm@xenomai.org>
+
+	* ksrc/nucleus/pod.c (xnpod_suspend_thread): Don't send migration
+	signal to dormant threads.
+
+2006-07-25  Jan Kiszka  <jan.kiszka@web.de>
+
+	* include/native/task.h, ksrc/native/task.c: Kill unused timer field
+	in RT_TASK. Return ptimer of the underlying thread on rt_task_inquire.
+
+2006-07-23  Jan Kiszka  <jan.kiszka@web.de>
+
+	* ksrc/skins/native/Makefile: Fixed typo that messed up modularised
+	native skin build under 2.4.
+
+2006-07-20  Jan Kiszka  <jan.kiszka@web.de>
+
+	* ksrc/drivers/testing/Config.in: Add irqbench to 2.4 build.
+
+2006-07-20  Philippe Gerum  <rpm@xenomai.org>
+
+	* ksrc/skins/uvm: Deprecate the UVM support. Will be removed from
+	v2.3.
+
+2006-07-19  Philippe Gerum  <rpm@xenomai.org>
+
+	* ksrc/arch/i386/patches: Upgrade to 2.6.1[67]-1.3-08.
+
+	* ksrc/arch/powerpc/patches: Upgrade to 2.6.14-1.3-06.
+	
+2006-07-19  Gilles Chanteperdrix  <gilles.chanteperdrix@laposte.net>
+
+	* src/skins/posix/init.c (__init_posix_interface): Register
+	__init_posix_interface to be called by process children when
+	forking.
+
+2006-07-18  Philippe Gerum  <rpm@xenomai.org>
+
+	* ksrc/arch/powerpc/patches: Upgrade to 2.6.14-1.3-05.
+
 2006-07-17  Philippe Gerum  <rpm@xenomai.org>
 
  	* RELEASE: Xenomai 2.2 (Engines Of Creation)
