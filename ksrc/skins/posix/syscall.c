@@ -485,7 +485,7 @@ static int __sem_timedwait(struct task_struct *curr, struct pt_regs *regs)
 			    &ts,
 			    (void __user *)__xn_reg_arg2(regs), sizeof(ts));
 
-	return sem_timedwait(&sm.native_sem, &ts) == 0 ? : -thread_get_errno();
+	return sem_timedwait(&sm.native_sem, &ts) == 0 ? 0 : -thread_get_errno();
 }
 
 static int __sem_trywait(struct task_struct *curr, struct pt_regs *regs)
@@ -2460,7 +2460,7 @@ static int __mmap_prologue(struct task_struct *curr, struct pt_regs *regs)
 	}
 
 	mmap_param.len = len;
-	mmap_param.heapsize = xnheap_size(mmap_param.ioctl_cookie);
+	mmap_param.heapsize = xnheap_extentsize(mmap_param.ioctl_cookie);
 	mmap_param.offset = xnheap_mapped_offset(mmap_param.ioctl_cookie,
 						 mmap_param.kaddr);
 
@@ -2547,7 +2547,7 @@ static int __munmap_prologue(struct task_struct *curr, struct pt_regs *regs)
 	if (err)
 		return err;
 
-	uunmap.mapsize = xnheap_size(heap);
+	uunmap.mapsize = xnheap_extentsize(heap);
 	uunmap.offset = xnheap_mapped_offset(heap, umap->kaddr);
 	__xn_copy_to_user(curr,
 			  (void __user *)__xn_reg_arg3(regs),
@@ -2778,7 +2778,8 @@ static void __shadow_delete_hook(xnthread_t *thread)
 	    testbits(thread->status, XNSHADOW)) {
 		pthread_t k_tid = thread2pthread(thread);
 		__pthread_unhash(&k_tid->hkey);
-		xnshadow_unmap(thread);
+		if (thread->mapped)
+			xnshadow_unmap(thread);
 	}
 }
 

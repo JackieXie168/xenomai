@@ -153,7 +153,7 @@ static int __rt_task_create(struct task_struct *curr, struct pt_regs *regs)
 	/* Task priority. */
 	prio = bulk.a3;
 	/* Task init mode & CPU affinity. */
-	mode = bulk.a4 & (T_CPUMASK | T_SUSP);
+	mode = bulk.a4 & (T_CPUMASK | T_SUSP | T_SHIELD);
 	/* Completion descriptor our parent thread is pending on -- may be NULL. */
 	u_completion = (xncompletion_t __user *)__xn_reg_arg2(regs);
 
@@ -2027,7 +2027,7 @@ static int __rt_queue_create(struct task_struct *curr, struct pt_regs *regs)
 	/* Copy back the registry handle to the ph struct. */
 	ph.opaque = q->handle;
 	ph.opaque2 = &q->bufpool;
-	ph.mapsize = xnheap_size(&q->bufpool);
+	ph.mapsize = xnheap_extentsize(&q->bufpool);
 
 	__xn_copy_to_user(curr, (void __user *)__xn_reg_arg1(regs), &ph,
 			  sizeof(ph));
@@ -2068,7 +2068,7 @@ static int __rt_queue_bind(struct task_struct *curr, struct pt_regs *regs)
 		goto unlock_and_exit;
 
 	ph.opaque2 = &q->bufpool;
-	ph.mapsize = xnheap_size(&q->bufpool);
+	ph.mapsize = xnheap_extentsize(&q->bufpool);
 
 	xnlock_put_irqrestore(&nklock, s);
 
@@ -2551,7 +2551,7 @@ static int __rt_heap_create(struct task_struct *curr, struct pt_regs *regs)
 	/* Copy back the registry handle to the ph struct. */
 	ph.opaque = heap->handle;
 	ph.opaque2 = &heap->heap_base;
-	ph.mapsize = xnheap_size(&heap->heap_base);
+	ph.mapsize = xnheap_extentsize(&heap->heap_base);
 
 	__xn_copy_to_user(curr, (void __user *)__xn_reg_arg1(regs), &ph,
 			  sizeof(ph));
@@ -2592,7 +2592,7 @@ static int __rt_heap_bind(struct task_struct *curr, struct pt_regs *regs)
 		goto unlock_and_exit;
 
 	ph.opaque2 = &heap->heap_base;
-	ph.mapsize = xnheap_size(&heap->heap_base);
+	ph.mapsize = xnheap_extentsize(&heap->heap_base);
 
 	xnlock_put_irqrestore(&nklock, s);
 
@@ -3806,7 +3806,7 @@ static xnsysent_t __systab[] = {
 static void __shadow_delete_hook(xnthread_t *thread)
 {
 	if (xnthread_get_magic(thread) == XENO_SKIN_MAGIC &&
-	    testbits(thread->status, XNSHADOW))
+	    thread->mapped)
 		xnshadow_unmap(thread);
 }
 

@@ -389,7 +389,7 @@ void xnshadow_reset_shield(void)
 	xnthread_t *thread = xnshadow_thread(current);
 
 	if (!thread)
-		return;		/* uh?! */
+		return;
 
 	reset_shield(thread);
 }
@@ -553,6 +553,9 @@ static int gatekeeper_thread(void *data)
 #ifndef CONFIG_XENO_OPT_RPIDISABLE
 			xnpod_renice_root(XNPOD_ROOT_PRIO_BASE);
 #endif /* CONFIG_XENO_OPT_RPIDISABLE */
+#ifdef CONFIG_XENO_OPT_ISHIELD
+			disengage_irq_shield();
+#endif /* CONFIG_XENO_OPT_ISHIELD */
 			xnpod_schedule();
 		}
 
@@ -639,6 +642,8 @@ int xnshadow_harden(void)
 #ifdef CONFIG_XENO_HW_FPU
 	xnpod_switch_fpu(xnpod_current_sched());
 #endif /* CONFIG_XENO_HW_FPU */
+
+	xnarch_schedule_tail(this_task);
 
 	if (xnthread_signaled_p(thread))
 		xnpod_dispatch_signals();
@@ -847,6 +852,7 @@ int xnshadow_map(xnthread_t *thread, xncompletion_t __user * u_completion)
 	    MAX_RT_PRIO ? xnthread_base_priority(thread) : MAX_RT_PRIO - 1;
 	set_linux_task_priority(current, prio);
 	xnshadow_thrptd(current) = thread;
+	thread->mapped = 1;
 	xnpod_suspend_thread(thread, XNRELAX, XN_INFINITE, NULL);
 
 	if (u_completion) {
@@ -904,6 +910,8 @@ void xnshadow_unmap(xnthread_t *thread)
 			break;
 		}
 	}
+
+	thread->mapped = 0;
 
 	xnltt_log_event(xeno_ev_shadowunmap, thread->name, p ? p->pid : -1);
 	if (!p)
@@ -1627,7 +1635,8 @@ RTHAL_DECLARE_EVENT(losyscall_event);
 
 static inline void do_taskexit_event(struct task_struct *p)
 {
-	xnthread_t *thread = xnshadow_thread(p);	/* p == current */
+	xnthread_t *thread = xnshadow_thread(p); /* p == current */
+	spl_t s;
 
 	if (!thread)
 		return;
@@ -1635,12 +1644,15 @@ static inline void do_taskexit_event(struct task_struct *p)
 	if (xnpod_shadow_p())
 		xnshadow_relax(0);
 
-	/* So that we won't attempt to further wakeup the exiting task in
-	   xnshadow_unmap(). */
-
+	xnlock_get_irqsave(&nklock, s);
+	/* Prevent wakeup call from xnshadow_unmap() */
 	xnshadow_thrptd(p) = NULL;
 	xnthread_archtcb(thread)->user_task = NULL;
-	xnpod_delete_thread(thread);	/* Should indirectly call xnshadow_unmap(). */
+	/* xnpod_delete_thread() -> hook -> xnshadow_unmap(). */
+	xnpod_delete_thread(thread);
+	xnsched_set_resched(thread->sched);
+	xnlock_put_irqrestore(&nklock, s);
+	xnpod_schedule();
 
 	xnltt_log_event(xeno_ev_shadowexit, thread->name);
 }

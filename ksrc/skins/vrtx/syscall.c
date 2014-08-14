@@ -236,7 +236,10 @@ static int __sc_unlock(struct task_struct *curr, struct pt_regs *regs)
 
 static int __sc_delay(struct task_struct *curr, struct pt_regs *regs)
 {
+	vrtxtask_t *task = vrtx_current_task();
 	sc_delay(__xn_reg_arg1(regs));
+	if (xnthread_test_flags(&task->threadbase, XNBREAK))
+		return -EINTR;
 	return 0;
 }
 
@@ -948,7 +951,7 @@ static int __sc_hcreate(struct task_struct *curr, struct pt_regs *regs)
 		heap->mm = curr->mm;
 		hdesc.hid = hid;
 		hdesc.hcb = &heap->sysheap;
-		hdesc.hsize = xnheap_size(&heap->sysheap);
+		hdesc.hsize = xnheap_extentsize(&heap->sysheap);
 
 		xnlock_put_irqrestore(&nklock, s);
 
@@ -1167,7 +1170,7 @@ static int __sc_pcreate(struct task_struct *curr, struct pt_regs *regs)
 		pt->sysheap = ptheap;
 		pdesc.pid = pid;
 		pdesc.ptcb = ptheap;
-		pdesc.ptsize = xnheap_size(ptheap);
+		pdesc.ptsize = xnheap_extentsize(ptheap);
 
 		xnlock_put_irqrestore(&nklock, s);
 
@@ -1405,7 +1408,7 @@ static xnsysent_t __systab[] = {
 static void __shadow_delete_hook(xnthread_t *thread)
 {
 	if (xnthread_get_magic(thread) == VRTX_SKIN_MAGIC &&
-	    testbits(thread->status, XNSHADOW))
+	    thread->mapped)
 		xnshadow_unmap(thread);
 }
 
