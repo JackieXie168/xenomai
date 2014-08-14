@@ -1,5 +1,5 @@
 dnl Process this file with autoconf to produce a configure script.
-AC_PREREQ(2.59)
+AC_PREREQ(2.62)
 
 AC_INIT([Xenomai],m4_normalize(m4_include([config/version])),xenomai-help@gna.org)
 
@@ -217,8 +217,7 @@ integrator, ixp4xx, mx2, mx3, pxa, pxa3xx, s3c2410, sa1100.]),
 	at91rm9200)   	arch=4
 	        	tsc_type=__XN_TSC_TYPE_FREERUNNING_FAST_WRAP;;
 
-	at91sam926x)   	arch=5
-			vfp=vfp
+	at91sam926x|at91sam9) 	arch=5
 	        	tsc_type=__XN_TSC_TYPE_FREERUNNING_FAST_WRAP;;
 
 	generic)	arch=4
@@ -248,6 +247,10 @@ integrator, ixp4xx, mx2, mx3, pxa, pxa3xx, s3c2410, sa1100.]),
 			vfp=vfp3
 			tsc_type=__XN_TSC_TYPE_FREERUNNING;;
 
+	orion)		arch=5
+			vfp=vfp
+			tsc_type=__XN_TSC_TYPE_FREERUNNING_COUNTDOWN;;
+
 	pxa) 		arch=5
 	      		tsc_type=__XN_TSC_TYPE_FREERUNNING;;
 
@@ -260,10 +263,6 @@ integrator, ixp4xx, mx2, mx3, pxa, pxa3xx, s3c2410, sa1100.]),
 	sa1100) 	arch=4
 			CONFIG_XENO_ARM_SA1100=y
 			tsc_type=__XN_TSC_TYPE_FREERUNNING;;
-
-	orion)		arch=5
-			vfp=vfp
-			tsc_type=__XN_TSC_TYPE_FREERUNNING_COUNTDOWN;;
 
 	*)AC_MSG_ERROR([Invalid machine selected: "$enableval"]);;
 	esac],
@@ -493,9 +492,12 @@ patch. Default is to infer the patch name from Linux kernel version.]),
               . $XENO_LINUX_SRCDIR/.config
 	      test x"$CONFIG_ARM" = xy && cfg_arch=arm || :
               test x"$CONFIG_BLACKFIN" = xy && cfg_arch=blackfin || :
-              test x"$CONFIG_PPC" = xy && cfg_arch=ppc || :
-              test x"$CONFIG_PPC64" = xy && cfg_arch=ppc64 || :
-	      test x"$CONFIG_PPC_MERGE" = xy && cfg_arch=powerpc || :
+	      if test x"$CONFIG_PPC" = xy; then
+	         cfg_arch=ppc
+	         test x"$CONFIG_PPC_MERGE" = xy && cfg_arch=powerpc || :
+	         test x"$CONFIG_WORD_SIZE" = x32 && cfg_arch=powerpc || :
+	         test x"$CONFIG_WORD_SIZE" = x64 && cfg_arch=powerpc || :
+              fi
               test x"$CONFIG_X86" = xy && cfg_arch=i386 || :
               test x"$CONFIG_X86_64" = xy && cfg_arch=x86_64 || :
               test x"$CONFIG_NIOS2" = xy && cfg_arch=nios2 || :

@@ -64,9 +64,7 @@ typedef void siginfo_handler_t(int, siginfo_t *, void *);
 #define SIGRTMAX 64
 static struct sigaction actions[SIGRTMAX];
 static pse51_siginfo_t pse51_infos_pool[PSE51_SIGQUEUE_MAX];
-#ifdef CONFIG_SMP
-static xnlock_t pse51_infos_lock = XNARCH_LOCK_UNLOCKED;
-#endif
+DEFINE_XNLOCK(pse51_infos_lock);
 static xnpqueue_t pse51_infos_free_list;
 
 static pse51_siginfo_t *pse51_new_siginfo(int sig, int code, union sigval value)
@@ -1059,7 +1057,7 @@ static void pse51_dispatch_shadow_signals(xnsigmask_t sigs)
 {
 	/* Migrate to secondary mode in order to get the signals delivered by
 	   Linux. */
-	xnshadow_relax(1);
+	xnshadow_relax(1, SIGDEBUG_MIGRATE_SIGNAL);
 }
 
 void pse51_signal_handle_request(pthread_t thread)

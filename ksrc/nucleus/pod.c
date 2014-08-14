@@ -58,9 +58,9 @@ xnpod_t nkpod_struct;
 EXPORT_SYMBOL_GPL(nkpod_struct);
 
 DEFINE_XNLOCK(nklock);
-#ifdef CONFIG_SMP
+#if defined(CONFIG_SMP) || XENO_DEBUG(XNLOCK)
 EXPORT_SYMBOL_GPL(nklock);
-#endif /* CONFIG_SMP */
+#endif /* CONFIG_SMP || XENO_DEBUG(XNLOCK) */
 
 u_long nklatency = 0;
 EXPORT_SYMBOL_GPL(nklatency);
@@ -2599,7 +2599,8 @@ int xnpod_trap_fault(xnarch_fltinfo_t *fltinfo)
 			   locking anyway. */
 			xnstat_counter_inc(&thread->stat.pf);
 
-		xnshadow_relax(xnarch_fault_notify(fltinfo));
+		xnshadow_relax(xnarch_fault_notify(fltinfo),
+			       SIGDEBUG_MIGRATE_FAULT);
 	}
 #endif /* CONFIG_XENO_OPT_PERVASIVE */
 #endif /* __KERNEL__ */
@@ -3087,7 +3088,7 @@ EXPORT_SYMBOL_GPL(xnpod_set_thread_tslice);
 #include <linux/proc_fs.h>
 #include <linux/ctype.h>
 
-#if defined(CONFIG_SMP) && XENO_DEBUG(NUCLEUS)
+#if XENO_DEBUG(XNLOCK)
 
 xnlockinfo_t xnlock_stats[RTHAL_NR_CPUS];
 
@@ -3134,7 +3135,7 @@ static int lock_read_proc(char *page,
 }
 EXPORT_SYMBOL_GPL(xnlock_stats);
 
-#endif /* CONFIG_SMP && XENO_DEBUG(NUCLEUS) */
+#endif /* XENO_DEBUG(XNLOCK) */
 
 static int latency_read_proc(char *page,
 			     char **start,
@@ -3217,17 +3218,17 @@ void xnpod_init_proc(void)
 	rthal_add_proc_leaf("version", &version_read_proc, NULL, NULL,
 			    rthal_proc_root);
 
-#if defined(CONFIG_SMP) && XENO_DEBUG(NUCLEUS)
+#if XENO_DEBUG(XNLOCK)
 	rthal_add_proc_leaf("lock", &lock_read_proc, NULL, NULL,
 			    rthal_proc_root);
-#endif /* CONFIG_SMP && XENO_DEBUG(NUCLEUS) */
+#endif /* XENO_DEBUG(XNLOCK) */
 }
 
 void xnpod_cleanup_proc(void)
 {
-#if defined(CONFIG_SMP) && XENO_DEBUG(NUCLEUS)
+#if XENO_DEBUG(XNLOCK)
 	remove_proc_entry("lock", rthal_proc_root);
-#endif /* CONFIG_SMP && XENO_DEBUG(NUCLEUS) */
+#endif /* XENO_DEBUG(XNLOCK) */
 	remove_proc_entry("version", rthal_proc_root);
 	remove_proc_entry("latency", rthal_proc_root);
 

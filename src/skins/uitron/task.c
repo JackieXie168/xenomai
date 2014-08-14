@@ -23,11 +23,13 @@
 #include <signal.h>
 #include <errno.h>
 #include <limits.h>
+
 #include <asm/xenomai/system.h>
 #include <asm-generic/bits/sigshadow.h>
+#include <asm-generic/bits/current.h>
+#include <asm-generic/stack.h>
 #include <nucleus/sched.h>
 #include <uitron/uitron.h>
-#include <asm-generic/bits/current.h>
 
 extern int __uitron_muxid;
 
@@ -127,10 +129,7 @@ ER cre_tsk(ID tskid, T_CTSK *pk_ctsk)
 
 	pthread_attr_init(&thattr);
 
-	if (pk_ctsk->stksz == 0)
-		pk_ctsk->stksz = PTHREAD_STACK_MIN * 4;
-	else if (pk_ctsk->stksz < PTHREAD_STACK_MIN * 2)
-		pk_ctsk->stksz = PTHREAD_STACK_MIN * 2;
+	pk_ctsk->stksz = xeno_stacksize(pk_ctsk->stksz);
 
 	pthread_attr_setinheritsched(&thattr, PTHREAD_EXPLICIT_SCHED);
 	policy = uitron_task_set_posix_priority(pk_ctsk->itskpri, &param);
@@ -152,7 +151,9 @@ ER shd_tsk(ID tskid, T_CTSK *pk_ctsk) /* Xenomai extension. */
 {
 	struct sched_param param;
 	int policy, err;
-	
+
+	xeno_fault_stack();
+
 	/* Make sure the POSIX library caches the right priority. */
 	policy = uitron_task_set_posix_priority(pk_ctsk->itskpri, &param);
 	pthread_setschedparam(pthread_self(), policy, &param);

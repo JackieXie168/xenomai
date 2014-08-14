@@ -28,6 +28,7 @@
 #include <native/task.h>
 #include <asm-generic/bits/sigshadow.h>
 #include <asm-generic/bits/current.h>
+#include <asm-generic/stack.h>
 #include "wrappers.h"
 
 #ifdef HAVE___THREAD
@@ -146,10 +147,7 @@ int rt_task_create(RT_TASK *task,
 
 	pthread_attr_init(&thattr);
 
-	if (!stksize)
-		stksize = 32 * 1024;
-	if (stksize < PTHREAD_STACK_MIN)
-		stksize = PTHREAD_STACK_MIN;
+	stksize = xeno_stacksize(stksize);
 
 	pthread_attr_setinheritsched(&thattr, PTHREAD_EXPLICIT_SCHED);
 	memset(&param, 0, sizeof(param));
@@ -188,6 +186,8 @@ int rt_task_shadow(RT_TASK *task, const char *name, int prio, int mode)
 	RT_TASK task_desc;
 	RT_TASK *self;
 	int err;
+
+	xeno_fault_stack();
 
 #ifdef HAVE___THREAD
 	self = &__native_self;

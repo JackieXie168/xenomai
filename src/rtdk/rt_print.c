@@ -29,6 +29,7 @@
 
 #include <rtdk.h>
 #include <asm/xenomai/system.h>
+#include <asm-generic/stack.h>
 
 #define RT_PRINT_BUFFER_ENV		"RT_PRINT_BUFFER"
 #define RT_PRINT_DEFAULT_BUFFER		16*1024
@@ -455,7 +456,7 @@ static void spawn_printer_thread(void)
 	pthread_attr_t thattr;
 
 	pthread_attr_init(&thattr);
-	pthread_attr_setstacksize(&thattr, PTHREAD_STACK_MIN);
+	pthread_attr_setstacksize(&thattr, xeno_stacksize(0));
 	pthread_create(&printer_thread, &thattr, printer_loop, NULL);
 }
 
@@ -463,6 +464,15 @@ static void forked_child_init(void)
 {
 	struct print_buffer *my_buffer = pthread_getspecific(buffer_key);
 	struct print_buffer **pbuffer = &first_buffer;
+
+	if (my_buffer) {
+		/* Any content of my_buffer should be printed by our parent,
+		   not us. */
+		memset(my_buffer->ring, 0, my_buffer->size);
+
+		my_buffer->read_pos  = 0;
+		my_buffer->write_pos = 0;
+	}
 
 	/* re-init to avoid finding it locked by some parent thread */
 	pthread_mutex_init(&buffer_lock, NULL);
@@ -517,4 +527,14 @@ void __rt_print_init(void)
 
 	spawn_printer_thread();
 	pthread_atfork(NULL, NULL, forked_child_init);
+}
+
+void __rt_print_exit(void)
+{
+	if (buffers) {
+		/* Flush the buffers. Do not call print_buffers here
+		 * since we do not know if our stack is big enough. */
+		nanosleep(&print_period, NULL);
+		nanosleep(&print_period, NULL);
+	}
 }

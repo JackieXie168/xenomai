@@ -174,6 +174,40 @@ static inline void set_switch_lock_owner(struct task_struct *p)
 
 #define rpi_p(t)	((t)->rpi != NULL)
 
+static struct xnthread *rpi_next(struct xnsched *sched, spl_t s)
+{
+	struct xnthread *thread;
+
+	thread = xnsched_peek_rpi(sched);
+	while (thread && 
+	       xnthread_user_task(thread)->state != TASK_RUNNING &&
+	       !xnthread_test_info(thread, XNATOMIC)) {
+		/*
+		 * A blocked Linux task must be removed from the RPI
+		 * list. Checking for XNATOMIC prevents from unlinking
+		 * a thread which is currently in flight to the
+		 * primary domain (see xnshadow_harden()); not doing
+		 * so would open a tiny window for priority inversion.
+		 *
+		 * BIG FAT WARNING: Do not consider a blocked thread
+		 * linked to another processor's RPI list for removal,
+		 * since this may happen if such thread immediately
+		 * resumes on the remote CPU.
+		 */
+		xnsched_pop_rpi(thread);
+		thread->rpi = NULL;
+		xnlock_put_irqrestore(&sched->rpilock, s);
+		/* Do NOT nest the rpilock and nklock locks. */
+		xnlock_get_irqsave(&nklock, s);
+		xnsched_suspend_rpi(thread);
+		xnlock_put_irqrestore(&nklock, s);
+		xnlock_get_irqsave(&sched->rpilock, s);
+		thread = xnsched_peek_rpi(sched);
+	}
+
+	return thread;
+}
+
 static void rpi_push(struct xnsched *sched, struct xnthread *thread)
 {
 	struct xnsched_class *sched_class;
@@ -236,7 +270,7 @@ static void rpi_pop(struct xnthread *thread)
 		return;
 	}
 
-	top = xnsched_peek_rpi(sched);
+	top = rpi_next(sched, s);
 	if (likely(top == NULL)) {
 		prio = XNSCHED_IDLE_PRIO;
 		sched_class = &xnsched_class_idle;
@@ -310,7 +344,7 @@ static void rpi_clear_remote(struct xnthread *thread)
 	xnsched_pop_rpi(thread);
 	thread->rpi = NULL;
 
-	if (xnsched_peek_rpi(rpi) == NULL)
+	if (rpi_next(rpi, s) == NULL)
 		rcpu = xnsched_cpu(rpi);
 
 	xnlock_put_irqrestore(&rpi->rpilock, s);
@@ -374,40 +408,12 @@ static inline void rpi_switch(struct task_struct *next_task)
 	oldprio = xnsched_root_priority(sched);
 	oldclass = xnsched_root_class(sched);
 
-	if (prev &&
-	    current->state != TASK_RUNNING &&
-	    !xnthread_test_info(prev, XNATOMIC)) {
-		/*
-		 * A blocked Linux task must be removed from the RPI
-		 * list. Checking for XNATOMIC prevents from unlinking
-		 * a thread which is currently in flight to the
-		 * primary domain (see xnshadow_harden()); not doing
-		 * so would open a tiny window for priority inversion.
-		 *
-		 * BIG FAT WARNING: Do not consider a blocked thread
-		 * linked to another processor's RPI list for removal,
-		 * since this may happen if such thread immediately
-		 * resumes on the remote CPU.
-		 */
-		xnlock_get_irqsave(&sched->rpilock, s);
-		if (prev->rpi == sched) {
-			xnsched_pop_rpi(prev);
-			prev->rpi = NULL;
-			xnlock_put_irqrestore(&sched->rpilock, s);
-			/* Do NOT nest the rpilock and nklock locks. */
-			xnlock_get_irqsave(&nklock, s);
-		  	xnsched_suspend_rpi(prev);
-			xnlock_put_irqrestore(&nklock, s);
-		} else
-		  	xnlock_put_irqrestore(&sched->rpilock, s);
-	}
-
 	if (next == NULL ||
 	    next_task->policy != SCHED_FIFO ||
 	    xnthread_test_state(next, XNRPIOFF)) {
 		xnlock_get_irqsave(&sched->rpilock, s);
 
-		top = xnsched_peek_rpi(sched);
+		top = rpi_next(sched, s);
 		if (top) {
 			newprio = top->cprio;
 			newclass = top->sched_class;
@@ -493,10 +499,11 @@ void xnshadow_rpi_check(void)
 {
 	struct xnsched *sched = xnpod_current_sched();
 	struct xnthread *top;
+	spl_t s;
  
- 	xnlock_get(&sched->rpilock);
- 	top = xnsched_peek_rpi(sched);
- 	xnlock_put(&sched->rpilock);
+ 	xnlock_get_irqsave(&sched->rpilock, s);
+ 	top = rpi_next(sched, s);
+ 	xnlock_put_irqrestore(&sched->rpilock, s);
 
 	if (top == NULL && xnsched_root_class(sched) != &xnsched_class_idle)
 		xnsched_renice_root(sched, NULL);
@@ -771,7 +778,7 @@ static inline void request_syscall_restart(xnthread_t *thread,
 		xnthread_clear_info(thread, XNKICKED);
 	}
 
-	xnshadow_relax(notify);
+	xnshadow_relax(notify, SIGDEBUG_MIGRATE_SIGNAL);
 }
 
 static inline void set_linux_task_priority(struct task_struct *p, int prio)
@@ -800,14 +807,7 @@ static void xnshadow_dereference_skin(unsigned magic)
 
 	for (muxid = 0; muxid < XENOMAI_MUX_NR; muxid++) {
 		if (muxtable[muxid].props && muxtable[muxid].props->magic == magic) {
-			if (xnarch_atomic_dec_and_test(&muxtable[0].refcnt))
-				xnarch_atomic_dec(&muxtable[0].refcnt);
-			if (xnarch_atomic_dec_and_test(&muxtable[muxid].refcnt))
-
-				/* We were the last thread, decrement the counter,
-				   since it was incremented by the xn_sys_bind
-				   operation. */
-				xnarch_atomic_dec(&muxtable[muxid].refcnt);
+			xnarch_atomic_dec(&muxtable[muxid].refcnt);
 			if (muxtable[muxid].props->module)
 				module_put(muxtable[muxid].props->module);
 
@@ -861,7 +861,7 @@ static void lostage_handler(void *cookie)
 
 		case LO_SIGTHR_REQ:
 			xnshadow_sig_demux(arg, sig, sigarg);
-			if (sig == SIGSHADOW) {
+			if (sig == SIGSHADOW || sig == SIGDEBUG) {
 				siginfo_t si;
 				memset(&si, '\0', sizeof(si));
 				si.si_signo = sig;
@@ -1112,7 +1112,7 @@ EXPORT_SYMBOL_GPL(xnshadow_harden);
 
 /*! 
  * @internal
- * \fn void xnshadow_relax(int notify);
+ * \fn void xnshadow_relax(int notify, int reason);
  * \brief Switch a shadow thread back to the Linux domain.
  *
  * This service yields the control of the running shadow back to
@@ -1122,9 +1122,11 @@ EXPORT_SYMBOL_GPL(xnshadow_harden);
  * behalf of the root thread.
  *
  * @param notify A boolean flag indicating whether threads monitored
- * from secondary mode switches should be sent a SIGXCPU signal. For
+ * from secondary mode switches should be sent a SIGDEBUG signal. For
  * instance, some internal operations like task exit should not
  * trigger such signal.
+ *
+ * @param reason The reason to report along with the SIGDEBUG signal.
  *
  * Environments:
  *
@@ -1138,9 +1140,10 @@ EXPORT_SYMBOL_GPL(xnshadow_harden);
  * properties of the Linux task.
  */
 
-void xnshadow_relax(int notify)
+void xnshadow_relax(int notify, int reason)
 {
 	xnthread_t *thread = xnpod_current_thread();
+	siginfo_t si;
 	int prio;
 	spl_t s;
 
@@ -1172,10 +1175,14 @@ void xnshadow_relax(int notify)
 	xnstat_counter_inc(&thread->stat.ssw);	/* Account for secondary mode switch. */
 
 	if (notify) {
-		if (xnthread_test_state(thread, XNTRAPSW))
+		if (xnthread_test_state(thread, XNTRAPSW)) {
 			/* Help debugging spurious relaxes. */
-			send_sig(SIGXCPU, current, 1);
-
+			memset(&si, 0, sizeof(si));
+			si.si_signo = SIGDEBUG;
+			si.si_code = SI_QUEUE;
+			si.si_int = reason;
+			send_sig_info(SIGDEBUG, &si, current);
+		}
 		xnsynch_detect_claimed_relax(thread);
 	}
 
@@ -1295,9 +1302,15 @@ int xnshadow_map(xnthread_t *thread, xncompletion_t __user *u_completion,
 		return -EFAULT;
 
 #ifdef CONFIG_MMU
-	if (!(current->mm->def_flags & VM_LOCKED))
-		send_sig(SIGXCPU, current, 1);
-	else
+	if (!(current->mm->def_flags & VM_LOCKED)) {
+		siginfo_t si;
+
+		memset(&si, 0, sizeof(si));
+		si.si_signo = SIGDEBUG;
+		si.si_code = SI_QUEUE;
+		si.si_int = SIGDEBUG_NOMLOCK;
+		send_sig_info(SIGDEBUG, &si, current);
+	} else
 		if ((ret = rthal_disable_ondemand_mappings(current)))
 			return ret;
 #endif /* CONFIG_MMU */
@@ -1307,11 +1320,10 @@ int xnshadow_map(xnthread_t *thread, xncompletion_t __user *u_completion,
 
 	for (muxid = 0; muxid < XENOMAI_MUX_NR; muxid++) {
 		if (muxtable[muxid].props && muxtable[muxid].props->magic == magic) {
-			xnarch_atomic_inc(&muxtable[muxid].refcnt);
-			xnarch_atomic_inc(&muxtable[0].refcnt);
 			if (muxtable[muxid].props->module
 			    && !try_module_get(muxtable[muxid].props->module))
 				return -ENOSYS;
+			xnarch_atomic_inc(&muxtable[muxid].refcnt);
 			break;
 		}
 	}
@@ -1530,7 +1542,7 @@ static int xnshadow_sys_migrate(struct pt_regs *regs)
 			return 0;
 	else /* rthal_current_domain != rthal_root_domain */
     if (__xn_reg_arg1(regs) == XENOMAI_LINUX_DOMAIN) {
-		xnshadow_relax(0);
+		xnshadow_relax(0, 0);
 		return 1;
 	} else
 		return 0;
@@ -1628,15 +1640,6 @@ static int xnshadow_sys_bind(struct pt_regs *regs)
 
       do_bind:
 
-	/* Increment the reference count now (actually, only the first
-	   call to bind_to_interface() really increments the counter), so
-	   that the interface cannot be removed under our feet. */
-
-	if (!xnarch_atomic_inc_and_test(&muxtable[muxid].refcnt))
-		xnarch_atomic_dec(&muxtable[muxid].refcnt);
-	if (!xnarch_atomic_inc_and_test(&muxtable[0].refcnt))
-		xnarch_atomic_dec(&muxtable[0].refcnt);
-
 	xnlock_put_irqrestore(&nklock, s);
 
 	/* Since the pod might be created by the event callback and not
@@ -1650,17 +1653,14 @@ static int xnshadow_sys_bind(struct pt_regs *regs)
 	if (sys_ppd)
 		goto muxid_eventcb;
 
-	sys_ppd = (xnshadow_ppd_t *) muxtable[0].props->eventcb(XNSHADOW_CLIENT_ATTACH,
-								 current);
-
+	sys_ppd = muxtable[0].props->eventcb(XNSHADOW_CLIENT_ATTACH, current);
 	if (IS_ERR(sys_ppd)) {
 		err = PTR_ERR(sys_ppd);
 		goto fail;
 	}
 
-	if (!sys_ppd)
+	if (sys_ppd == NULL)
 		goto muxid_eventcb;
-
 
 	sys_ppd->key.muxid = 0;
 	sys_ppd->key.mm = current->mm;
@@ -1672,7 +1672,8 @@ static int xnshadow_sys_bind(struct pt_regs *regs)
 		sys_ppd = NULL;
 	}
 
-  muxid_eventcb:
+muxid_eventcb:
+
 	if (!muxtable[muxid].props->eventcb)
 		goto eventcb_done;
 
@@ -1684,8 +1685,7 @@ static int xnshadow_sys_bind(struct pt_regs *regs)
 	if (ppd)
 		goto eventcb_done;
 
-	ppd = (xnshadow_ppd_t *) muxtable[muxid].props->eventcb(XNSHADOW_CLIENT_ATTACH,
-								current);
+	ppd = muxtable[muxid].props->eventcb(XNSHADOW_CLIENT_ATTACH, current);
 
 	if (IS_ERR(ppd)) {
 		err = PTR_ERR(ppd);
@@ -1732,10 +1732,6 @@ static int xnshadow_sys_bind(struct pt_regs *regs)
 			muxtable[0].props->eventcb(XNSHADOW_CLIENT_DETACH, sys_ppd);
 		}
 	      fail:
-		if (!xnarch_atomic_get(&muxtable[muxid].refcnt))
-			xnarch_atomic_dec(&muxtable[muxid].refcnt);
-		if (!xnarch_atomic_get(&muxtable[muxid].refcnt))
-			xnarch_atomic_dec(&muxtable[0].refcnt);
 		return err;
 	}
 
@@ -2000,8 +1996,8 @@ static void *xnshadow_sys_event(int event, void *data)
 
 	switch(event) {
 	case XNSHADOW_CLIENT_ATTACH:
-		p = (struct xnsys_ppd *) xnarch_alloc_host_mem(sizeof(*p));
-		if (!p)
+		p = xnarch_alloc_host_mem(sizeof(*p));
+		if (p == NULL)
 			return ERR_PTR(-ENOMEM);
 
 		err = xnheap_init_mapped(&p->sem_heap,
@@ -2013,12 +2009,13 @@ static void *xnshadow_sys_event(int event, void *data)
 		}
 		xnheap_set_label(&p->sem_heap,
 				 "private sem heap [%d]", current->pid);
-
+		xnarch_atomic_inc(&muxtable[0].refcnt);
 		return &p->ppd;
 
 	case XNSHADOW_CLIENT_DETACH:
-		p = ppd2sys((xnshadow_ppd_t *) data);
+		p = ppd2sys(data);
 		xnheap_destroy_mapped(&p->sem_heap, post_ppd_release, NULL);
+		xnarch_atomic_dec(&muxtable[0].refcnt);
 
 		return NULL;
 	}
@@ -2130,7 +2127,7 @@ static inline int do_hisyscall_event(unsigned event, unsigned domid, void *data)
 		if (domid == RTHAL_DOMAIN_ID) {
 			/* Request originates from the Xenomai domain: just relax the
 			   caller and execute the syscall immediately after. */
-			xnshadow_relax(1);
+			xnshadow_relax(1, SIGDEBUG_MIGRATE_SYSCALL);
 			switched = 1;
 		} else
 			/* Request originates from the Linux domain: propagate the
@@ -2224,7 +2221,7 @@ static inline int do_hisyscall_event(unsigned event, unsigned domid, void *data)
 	 * it. Before we let it go, ensure that the current thread has
 	 * properly entered the Linux domain.
 	 */
-	xnshadow_relax(1);
+	xnshadow_relax(1, SIGDEBUG_MIGRATE_SYSCALL);
 
 	goto propagate_syscall;
 
@@ -2321,7 +2318,7 @@ static inline int do_losyscall_event(unsigned event, unsigned domid, void *data)
 	if (err == -ENOSYS && (sysflags & __xn_exec_adaptive) != 0) {
 		if (switched) {
 			switched = 0;
-			xnshadow_relax(1);
+			xnshadow_relax(1, SIGDEBUG_MIGRATE_SYSCALL);
 		}
 
 		sysflags ^=
@@ -2342,7 +2339,7 @@ static inline int do_losyscall_event(unsigned event, unsigned domid, void *data)
 		handle_rt_signals(thread, regs, sysflags);
 	}
 	if (!sigs && (sysflags & __xn_exec_switchback) != 0 && switched)
-		xnshadow_relax(0);
+		xnshadow_relax(0, 0);
 
       ret_handled:
 	trace_mark(xn_nucleus, syscall_lostage_exit,
@@ -2633,9 +2630,10 @@ int xnshadow_register_interface(struct xnskin_props *props)
 	int muxid;
 	spl_t s;
 
-	/* We can only handle up to 256 syscalls per skin, check for over-
-	   and underflow (MKL). */
-
+	/*
+	 * We can only handle up to MAX_SYSENT syscalls per skin,
+	 * check for over- and underflow (MKL).
+	 */
 	if (XENOMAI_MAX_SYSENT < props->nrcalls || 0 > props->nrcalls)
 		return -EINVAL;
 
@@ -2644,16 +2642,20 @@ int xnshadow_register_interface(struct xnskin_props *props)
 	for (muxid = 0; muxid < XENOMAI_MUX_NR; muxid++) {
 		if (muxtable[muxid].props == NULL) {
 			muxtable[muxid].props = props;
-			xnarch_atomic_set(&muxtable[muxid].refcnt, -1);
-			xnlock_put_irqrestore(&nklock, s);
-			xnshadow_declare_proc(muxtable + muxid);
-			return muxid;
+			xnarch_atomic_set(&muxtable[muxid].refcnt, 0);
+			break;
 		}
 	}
 
 	xnlock_put_irqrestore(&nklock, s);
 
-	return -ENOBUFS;
+	if (muxid >= XENOMAI_MUX_NR)
+		return -ENOBUFS;
+
+	xnshadow_declare_proc(muxtable + muxid);
+
+	return muxid;
+
 }
 EXPORT_SYMBOL_GPL(xnshadow_register_interface);
 
@@ -2679,7 +2681,6 @@ int xnshadow_unregister_interface(int muxid)
 
 	name = muxtable[muxid].props->name;
 	muxtable[muxid].props = NULL;
-	xnarch_atomic_set(&muxtable[muxid].refcnt, -1);
 
 	xnlock_put_irqrestore(&nklock, s);
 
@@ -2843,9 +2844,10 @@ static int iface_read_proc(char *page,
 			   off_t off, int count, int *eof, void *data)
 {
 	struct xnskin_slot *iface = data;
-	int len, refcnt = xnarch_atomic_get(&iface->refcnt);
+	int len, refcnt;
 
-	len = sprintf(page, "%d\n", refcnt < 0 ? 0 : refcnt);
+	refcnt = xnarch_atomic_get(&iface->refcnt);
+	len = sprintf(page, "%d\n", refcnt);
 
 	len -= off;
 	if (len <= off + count)
