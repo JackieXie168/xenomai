@@ -44,8 +44,8 @@ typedef unsigned long cpu_set_t;
 #define smp_sched_setaffinity(pid,len,mask) 0
 #endif /* !CONFIG_SMP */
 
-#define SMALL_STACK_MIN xeno_stacksize(20 * 1024)
-#define LARGE_STACK_MIN xeno_stacksize(50 * 1024)
+#define SMALL_STACK_MIN xeno_stacksize(32 * 1024)
+#define LARGE_STACK_MIN xeno_stacksize(64 * 1024)
 
 /* Thread type. */
 typedef enum {
@@ -888,13 +888,19 @@ static int task_create(struct cpu_tasks *cpu,
 
 #define DEV_NR_MAX 256
 
+static const char *devname_fmt[] = {
+	"/dev/rttest-switchtest%d",
+	"/dev/rttest%d",
+};
+
 static int open_rttest(char *buf, size_t size, unsigned count)
 {
 	static unsigned dev_nr = 0;
 	int fd, status;
+	int fmt = 0;
 
 	do {
-		snprintf(buf, size, "/dev/rttest%u", dev_nr);
+		snprintf(buf, size, devname_fmt[fmt], dev_nr);
 
 		status = fd = open(buf, O_RDWR);
 
@@ -912,6 +918,11 @@ static int open_rttest(char *buf, size_t size, unsigned count)
 
 		if (++dev_nr != DEV_NR_MAX)
 			continue;
+
+		if (fmt++ == 0) {
+			dev_nr = 0;
+			continue;
+		}
 
 		fprintf(stderr, "switchtest: Unable to open switchtest device.\n"
 			"(modprobe xeno_switchtest ?)\n");
@@ -1110,7 +1121,7 @@ int main(int argc, const char *argv[])
 	const char *progname = argv[0];
 	struct cpu_tasks *cpus;
 	struct sched_param sp;
-	char devname[21];
+	char devname[RTDM_MAX_DEVNAME_LEN+1];
 	sigset_t mask;
 	int sig;
 

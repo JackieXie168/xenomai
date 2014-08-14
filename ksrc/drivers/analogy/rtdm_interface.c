@@ -151,11 +151,12 @@ ssize_t a4l_rt_read(struct rtdm_dev_context * context,
 		    rtdm_user_info_t * user_info, void *buf, size_t nbytes)
 {
 	a4l_cxt_t cxt;
-	a4l_dev_t *dev;
 
+	if (!rtdm_in_rt_context() && rtdm_rt_capable(user_info))
+		return -ENOSYS;
+	
 	a4l_init_cxt(context, user_info, &cxt);
 	a4l_set_dev(&cxt);
-	dev = a4l_get_dev(&cxt);
 
 	__a4l_dbg(1, core_dbg, 
 		  "a4l_rt_read: minor=%d\n", a4l_get_minor(&cxt));
@@ -171,11 +172,12 @@ ssize_t a4l_rt_write(struct rtdm_dev_context * context,
 		     size_t nbytes)
 {
 	a4l_cxt_t cxt;
-	a4l_dev_t *dev;
+
+	if (!rtdm_in_rt_context() && rtdm_rt_capable(user_info))
+		return -ENOSYS;
 
 	a4l_init_cxt(context, user_info, &cxt);
 	a4l_set_dev(&cxt);
-	dev = a4l_get_dev(&cxt);
 
 	__a4l_dbg(1, core_dbg, "a4l_rt_write: minor=%d\n", a4l_get_minor(&cxt));
 
@@ -227,11 +229,9 @@ static struct rtdm_device rtdm_devs[A4L_NB_DEVICES] =
 		.context_size =		sizeof(struct a4l_dummy_context),
 		.device_name = 		"",
 
-		.open_rt =		a4l_rt_open,
 		.open_nrt =		a4l_rt_open,
 
 		.ops = {
-			.close_rt =	a4l_rt_close,
 			.ioctl_rt =	a4l_rt_ioctl,
 			.read_rt =	a4l_rt_read,
 			.write_rt =	a4l_rt_write,

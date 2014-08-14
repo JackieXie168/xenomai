@@ -10,7 +10,8 @@ test_PROGRAMS = \
 	mutex-torture-native \
 	cond-torture-posix \
 	cond-torture-native \
-	check-vdso
+	check-vdso \
+	rtdm
 
 arith_SOURCES = arith.c arith-noinline.c arith-noinline.h
 
@@ -92,8 +93,6 @@ cond_torture_native_LDADD = \
 	../../skins/common/libxenomai.la \
 	-lpthread -lm
 
-if CONFIG_XENO_FASTSYNCH
-
 check_vdso_SOURCES = check-vdso.c
 
 check_vdso_CPPFLAGS = \
@@ -107,7 +106,19 @@ check_vdso_LDADD = \
 	../../skins/common/libxenomai.la \
 	-lpthread -lm
 
-endif
+rtdm_SOURCES = rtdm.c
+
+rtdm_CPPFLAGS = \
+	-I$(top_srcdir)/include/posix @XENO_USER_CFLAGS@ -g -DXENO_POSIX \
+	-I$(top_srcdir)/include
+
+rtdm_LDFLAGS = $(XENO_POSIX_WRAPPERS) @XENO_USER_LDFLAGS@
+
+rtdm_LDADD = \
+	../../skins/posix/libpthread_rt.la \
+	../../skins/native/libnative.la \
+	../../skins/common/libxenomai.la \
+	-lpthread -lrt -lm
 
 install-data-local:
 	$(mkinstalldirs) $(DESTDIR)$(rundir)

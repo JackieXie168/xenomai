@@ -55,10 +55,6 @@
 #include <asm/xenomai/syscall.h>
 #include <asm/xenomai/bits/shadow.h>
 
-#ifndef CONFIG_XENO_OPT_DEBUG_NUCLEUS
-#define CONFIG_XENO_OPT_DEBUG_NUCLEUS  0
-#endif
-
 static int xn_gid_arg = -1;
 module_param_named(xenomai_gid, xn_gid_arg, int, 0644);
 MODULE_PARM_DESC(xenomai_gid, "GID of the group with access to Xenomai services");
@@ -174,40 +170,6 @@ static inline void set_switch_lock_owner(struct task_struct *p)
 
 #define rpi_p(t)	((t)->rpi != NULL)
 
-static struct xnthread *rpi_next(struct xnsched *sched, spl_t s)
-{
-	struct xnthread *thread;
-
-	thread = xnsched_peek_rpi(sched);
-	while (thread && 
-	       xnthread_user_task(thread)->state != TASK_RUNNING &&
-	       !xnthread_test_info(thread, XNATOMIC)) {
-		/*
-		 * A blocked Linux task must be removed from the RPI
-		 * list. Checking for XNATOMIC prevents from unlinking
-		 * a thread which is currently in flight to the
-		 * primary domain (see xnshadow_harden()); not doing
-		 * so would open a tiny window for priority inversion.
-		 *
-		 * BIG FAT WARNING: Do not consider a blocked thread
-		 * linked to another processor's RPI list for removal,
-		 * since this may happen if such thread immediately
-		 * resumes on the remote CPU.
-		 */
-		xnsched_pop_rpi(thread);
-		thread->rpi = NULL;
-		xnlock_put_irqrestore(&sched->rpilock, s);
-		/* Do NOT nest the rpilock and nklock locks. */
-		xnlock_get_irqsave(&nklock, s);
-		xnsched_suspend_rpi(thread);
-		xnlock_put_irqrestore(&nklock, s);
-		xnlock_get_irqsave(&sched->rpilock, s);
-		thread = xnsched_peek_rpi(sched);
-	}
-
-	return thread;
-}
-
 static void rpi_push(struct xnsched *sched, struct xnthread *thread)
 {
 	struct xnsched_class *sched_class;
@@ -270,7 +232,7 @@ static void rpi_pop(struct xnthread *thread)
 		return;
 	}
 
-	top = rpi_next(sched, s);
+	top = xnsched_peek_rpi(sched);
 	if (likely(top == NULL)) {
 		prio = XNSCHED_IDLE_PRIO;
 		sched_class = &xnsched_class_idle;
@@ -344,7 +306,7 @@ static void rpi_clear_remote(struct xnthread *thread)
 	xnsched_pop_rpi(thread);
 	thread->rpi = NULL;
 
-	if (rpi_next(rpi, s) == NULL)
+	if (xnsched_peek_rpi(rpi) == NULL)
 		rcpu = xnsched_cpu(rpi);
 
 	xnlock_put_irqrestore(&rpi->rpilock, s);
@@ -408,12 +370,40 @@ static inline void rpi_switch(struct task_struct *next_task)
 	oldprio = xnsched_root_priority(sched);
 	oldclass = xnsched_root_class(sched);
 
+	if (prev &&
+	    current->state != TASK_RUNNING &&
+	    !xnthread_test_info(prev, XNATOMIC)) {
+		/*
+		 * A blocked Linux task must be removed from the RPI
+		 * list. Checking for XNATOMIC prevents from unlinking
+		 * a thread which is currently in flight to the
+		 * primary domain (see xnshadow_harden()); not doing
+		 * so would open a tiny window for priority inversion.
+		 *
+		 * BIG FAT WARNING: Do not consider a blocked thread
+		 * linked to another processor's RPI list for removal,
+		 * since this may happen if such thread immediately
+		 * resumes on the remote CPU.
+		 */
+		xnlock_get_irqsave(&sched->rpilock, s);
+		if (prev->rpi == sched) {
+			xnsched_pop_rpi(prev);
+			prev->rpi = NULL;
+			xnlock_put_irqrestore(&sched->rpilock, s);
+			/* Do NOT nest the rpilock and nklock locks. */
+			xnlock_get_irqsave(&nklock, s);
+		  	xnsched_suspend_rpi(prev);
+			xnlock_put_irqrestore(&nklock, s);
+		} else
+		  	xnlock_put_irqrestore(&sched->rpilock, s);
+	}
+
 	if (next == NULL ||
 	    next_task->policy != SCHED_FIFO ||
 	    xnthread_test_state(next, XNRPIOFF)) {
 		xnlock_get_irqsave(&sched->rpilock, s);
 
-		top = rpi_next(sched, s);
+		top = xnsched_peek_rpi(sched);
 		if (top) {
 			newprio = top->cprio;
 			newclass = top->sched_class;
@@ -458,7 +448,7 @@ static inline void rpi_switch(struct task_struct *next_task)
 			next->rpi = sched;
 			xnlock_put_irqrestore(&sched->rpilock, s);
 			xnlock_get_irqsave(&nklock, s);
-		  	xnsched_resume_rpi(next);
+			xnsched_resume_rpi(next);
 			xnlock_put_irqrestore(&nklock, s);
 		}
 	} else if (unlikely(next->rpi != sched))
@@ -500,17 +490,17 @@ void xnshadow_rpi_check(void)
 	struct xnsched *sched = xnpod_current_sched();
 	struct xnthread *top;
 	spl_t s;
- 
- 	xnlock_get_irqsave(&sched->rpilock, s);
- 	top = rpi_next(sched, s);
- 	xnlock_put_irqrestore(&sched->rpilock, s);
+
+	xnlock_get_irqsave(&sched->rpilock, s);
+ 	top = xnsched_peek_rpi(sched);
+	xnlock_put_irqrestore(&sched->rpilock, s);
 
 	if (top == NULL && xnsched_root_class(sched) != &xnsched_class_idle)
 		xnsched_renice_root(sched, NULL);
 }
 
 #endif	/* CONFIG_SMP */
- 
+
 #else
 
 #define rpi_p(t)		(0)
@@ -660,14 +650,14 @@ static inline void ppd_remove_mm(struct mm_struct *mm,
 	xnlock_put_irqrestore(&nklock, s);
 }
 
-/** 
+/**
  * Mark the per-thread per-skin signal condition for the skin whose
  * muxid is @a muxid.
- * 
+ *
  * @param thread the target thread;
  * @param muxid the muxid of the skin for which the signal is marked
  * pending.
- * 
+ *
  * @return whether rescheduling is needed.
  */
 int xnshadow_mark_sig(xnthread_t *thread, unsigned muxid)
@@ -687,13 +677,13 @@ int xnshadow_mark_sig(xnthread_t *thread, unsigned muxid)
 }
 EXPORT_SYMBOL_GPL(xnshadow_mark_sig);
 
-/** 
+/**
  * Clear the per-thrad per-skin signal condition.
- * 
+ *
  * Called with nklock locked irqs off.
  *
  * @param thread the target thrad
- * @param muxid 
+ * @param muxid
  */
 void xnshadow_clear_sig(xnthread_t *thread, unsigned muxid)
 {
@@ -754,7 +744,7 @@ static inline void handle_rt_signals(xnthread_t *thread,
 /* In the case when we are going to handle linux signals, do not let
    the kernel handle the syscall restart to give a chance to the
    xenomai handlers to be executed. */
-	if (__xn_interrupted_p(regs) 
+	if (__xn_interrupted_p(regs)
 	    || __xn_reg_rval(regs) == -ERESTARTSYS
 	    || __xn_reg_rval(regs) == -ERESTARTNOHAND)
 		__xn_error_return(regs, ((sysflags & __xn_exec_norestart)
@@ -902,7 +892,7 @@ static void schedule_linux_call(int type, struct task_struct *p, int arg)
 	rq->req[reqnum].type = type;
 	rq->req[reqnum].task = p;
 	rq->req[reqnum].arg = arg;
-	
+
 	splexit(s);
 
 	rthal_apc_schedule(lostage_apc);
@@ -979,7 +969,7 @@ static int gatekeeper_thread(void *data)
 	return 0;
 }
 
-/*! 
+/*!
  * @internal
  * \fn int xnshadow_harden(void);
  * \brief Migrate a Linux task to the Xenomai domain.
@@ -1111,7 +1101,7 @@ redo:
 }
 EXPORT_SYMBOL_GPL(xnshadow_harden);
 
-/*! 
+/*!
  * @internal
  * \fn void xnshadow_relax(int notify, int reason);
  * \brief Switch a shadow thread back to the Linux domain.
@@ -1158,8 +1148,8 @@ void xnshadow_relax(int notify, int reason)
 	trace_mark(xn_nucleus, shadow_gorelax, "thread %p thread_name %s",
 		  thread, xnthread_name(thread));
 
-	rpi_push(thread->sched, thread);
 	splhigh(s);
+	rpi_push(thread->sched, thread);
 	schedule_linux_call(LO_WAKEUP_REQ, current, 0);
 	clear_task_nowakeup(current);
 	xnpod_suspend_thread(thread, XNRELAX, XN_INFINITE, XN_RELATIVE, NULL);
@@ -1280,7 +1270,7 @@ void xnshadow_exit(void)
  *
  * This service can be called from:
  *
- * - Regular user-space process. 
+ * - Regular user-space process.
  *
  * Rescheduling: always.
  *
@@ -1365,10 +1355,10 @@ int xnshadow_map(xnthread_t *thread, xncompletion_t __user *u_completion,
 		 */
 		xnshadow_renice(thread);
 
- 		/*
+		/*
 		 * We still have the XNDORMANT bit set, so we can't
- 		 * link to the RPI queue which only links _runnable_
- 		 * relaxed shadow.
+		 * link to the RPI queue which only links _runnable_
+		 * relaxed shadow.
 		 */
 		xnshadow_signal_completion(u_completion, 0);
 		return 0;
@@ -1994,7 +1984,7 @@ static xnsysent_t __systab[] = {
 	[__xn_sys_current] = {&xnshadow_sys_current, __xn_exec_any},
 	[__xn_sys_current_info] =
 		{&xnshadow_sys_current_info, __xn_exec_shadow},
-	[__xn_sys_get_next_sigs] = 
+	[__xn_sys_get_next_sigs] =
 		{&xnshadow_sys_get_next_sigs, __xn_exec_conforming},
 	[__xn_sys_drop_u_mode] =
 		{&xnshadow_sys_drop_u_mode, __xn_exec_shadow},
@@ -2748,7 +2738,7 @@ EXPORT_SYMBOL_GPL(xnshadow_unregister_interface);
  *
  * @return the per-process data if the current context is a user-space process;
  * @return NULL otherwise.
- * 
+ *
  */
 xnshadow_ppd_t *xnshadow_ppd_get(unsigned muxid)
 {

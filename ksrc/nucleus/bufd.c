@@ -58,7 +58,7 @@
  *
  *       ret = this_may_fail();
  *       if (ret)
- *  	       xnbufd_invalidate(bufd);
+ *	       xnbufd_invalidate(bufd);
  *
  *       return ret;
  *   }
@@ -145,10 +145,6 @@
 #include <nucleus/pod.h>
 #include <nucleus/bufd.h>
 #include <nucleus/assert.h>
-
-#ifndef CONFIG_XENO_OPT_DEBUG_NUCLEUS
-#define CONFIG_XENO_OPT_DEBUG_NUCLEUS  0
-#endif
 
 #ifdef CONFIG_XENO_OPT_PERVASIVE
 
@@ -629,6 +625,26 @@ done:
 	return ret ?: (ssize_t)len;
 }
 EXPORT_SYMBOL_GPL(xnbufd_unmap_uwrite);
+
+/*!
+ * \fn void xnbufd_reset(struct xnbufd *bufd)
+ * \brief Reset a buffer descriptor.
+ *
+ * The buffer descriptor is reset, so that all data already copied is
+ * forgotten. Any carry over buffer allocated is kept, though.
+ *
+ * @param bufd The address of the buffer descriptor to reset.
+ *
+ * Environments:
+ *
+ * This service can be called from:
+ *
+ * - Kernel code (including from primary mode)
+ * - Kernel-based task
+ * - Interrupt service routine
+ *
+ * Rescheduling: never.
+ */
 
 /*!
  * \fn void xnbufd_invalidate(struct xnbufd *bufd)

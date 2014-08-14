@@ -36,14 +36,10 @@
 #include <nucleus/thread.h>
 #include <nucleus/module.h>
 
-#ifndef CONFIG_XENO_OPT_DEBUG_NUCLEUS
-#define CONFIG_XENO_OPT_DEBUG_NUCLEUS 0
-#endif
-
 #define w_bprio(t)	xnsched_weighted_bprio(t)
 #define w_cprio(t)	xnsched_weighted_cprio(t)
 
-/*! 
+/*!
  * \fn void xnsynch_init(struct xnsynch *synch, xnflags_t flags,
  *                       xnarch_atomic_t *fastlock)
  *
@@ -360,7 +356,7 @@ static void xnsynch_renice_thread(struct xnthread *thread,
 #endif /* CONFIG_XENO_OPT_PERVASIVE */
 }
 
-/*! 
+/*!
  * \fn xnflags_t xnsynch_acquire(struct xnsynch *synch, xnticks_t timeout,
  *                               xntmode_t timeout_mode);
  * \brief Acquire the ownership of a synchronization object.
@@ -518,6 +514,9 @@ xnflags_t xnsynch_acquire(struct xnsynch *synch, xnticks_t timeout,
 
 	xnpod_suspend_thread(thread, XNPEND, timeout, timeout_mode, synch);
 
+	thread->wwake = NULL;
+	xnthread_clear_info(thread, XNWAKEN);
+
 	if (xnthread_test_info(thread, XNRMID | XNTIMEO | XNBREAK))
 		goto unlock_and_exit;
 
@@ -552,16 +551,13 @@ xnflags_t xnsynch_acquire(struct xnsynch *synch, xnticks_t timeout,
 
       unlock_and_exit:
 
-	thread->wwake = NULL;
-	xnthread_clear_info(thread, XNWAKEN);
-
 	xnlock_put_irqrestore(&nklock, s);
 
 	return xnthread_test_info(thread, XNRMID|XNTIMEO|XNBREAK);
 }
 EXPORT_SYMBOL_GPL(xnsynch_acquire);
 
-/*! 
+/*!
  * @internal
  * \fn void xnsynch_clear_boost(struct xnsynch *synch, struct xnthread *owner);
  * \brief Clear the priority boost.
@@ -609,7 +605,7 @@ static void xnsynch_clear_boost(struct xnsynch *synch,
 		xnsynch_renice_thread(owner, target);
 }
 
-/*! 
+/*!
  * @internal
  * \fn void xnsynch_requeue_sleeper(struct xnthread *thread);
  * \brief Change a sleeper's priority.
@@ -761,7 +757,7 @@ struct xnthread *xnsynch_release(struct xnsynch *synch)
 }
 EXPORT_SYMBOL_GPL(xnsynch_release);
 
-/*! 
+/*!
  * \fn struct xnthread *xnsynch_peek_pendq(struct xnsynch *synch);
  * \brief Access the thread leading a synch object wait queue.
  *
@@ -800,7 +796,7 @@ struct xnthread *xnsynch_peek_pendq(struct xnsynch *synch)
 }
 EXPORT_SYMBOL_GPL(xnsynch_peek_pendq);
 
-/*! 
+/*!
  * \fn void xnsynch_flush(struct xnsynch *synch, xnflags_t reason);
  * \brief Unblock all waiters pending on a resource.
  *
@@ -882,7 +878,7 @@ int xnsynch_flush(struct xnsynch *synch, xnflags_t reason)
 }
 EXPORT_SYMBOL_GPL(xnsynch_flush);
 
-/*! 
+/*!
  * @internal
  * \fn void xnsynch_forget_sleeper(struct xnthread *thread);
  * \brief Abort a wait for a resource.
@@ -947,7 +943,7 @@ void xnsynch_forget_sleeper(struct xnthread *thread)
 }
 EXPORT_SYMBOL_GPL(xnsynch_forget_sleeper);
 
-/*! 
+/*!
  * @internal
  * \fn void xnsynch_release_all_ownerships(struct xnthread *thread);
  * \brief Release all ownerships.
@@ -981,7 +977,7 @@ void xnsynch_release_all_ownerships(struct xnthread *thread)
 }
 EXPORT_SYMBOL_GPL(xnsynch_release_all_ownerships);
 
-#ifdef CONFIG_XENO_OPT_DEBUG_SYNCH_RELAX
+#if XENO_DEBUG(SYNCH_RELAX)
 
 /*
  * Detect when a thread is about to sleep on a synchronization
@@ -1000,9 +996,11 @@ void xnsynch_detect_relaxed_owner(struct xnsynch *synch, struct xnthread *sleepe
 
 /*
  * Detect when a thread is about to relax while holding a
- * synchronization object currently claimed by someone else. By
- * relying on the claim queue, we restrict the checks to PIP-enabled
- * objects, but that already covers most of the use cases anyway.
+ * synchronization object currently claimed by another thread, which
+ * bears the TWARNSW bit (thus advertising a concern about potential
+ * spurious relaxes and priority inversion). By relying on the claim
+ * queue, we restrict the checks to PIP-enabled objects, but that
+ * already covers most of the use cases anyway.
  */
 void xnsynch_detect_claimed_relax(struct xnthread *owner)
 {
@@ -1016,7 +1014,7 @@ void xnsynch_detect_claimed_relax(struct xnthread *owner)
 		for (ht = getheadpq(&synch->pendq); ht != NULL;
 		     ht = nextpq(&synch->pendq, ht)) {
 			sleeper = link2thread(ht, plink);
-			if (xnthread_test_state(sleeper, XNRELAX)) {
+			if (xnthread_test_state(sleeper, XNTRAPSW)) {
 				xnthread_set_state(sleeper, XNSWREP);
 				xnshadow_send_sig(sleeper, SIGDEBUG,
 						  SIGDEBUG_MIGRATE_PRIOINV, 1);
@@ -1025,7 +1023,7 @@ void xnsynch_detect_claimed_relax(struct xnthread *owner)
 	}
 }
 
-#endif /* CONFIG_XENO_OPT_DEBUG_SYNCH_RELAX */
+#endif /* XENO_DEBUG(SYNCH_RELAX) */
 
 
 /*@}*/

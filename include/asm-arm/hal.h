@@ -126,7 +126,22 @@ static inline __attribute_const__ unsigned long ffnz (unsigned long ul)
 #include <asm/mach/irq.h>
 #include <asm/cacheflush.h>
 
-#define RTHAL_TIMER_IRQ   __ipipe_mach_timerint
+#ifndef RTHAL_TIMER_IRQ
+/*
+ * Default setting, unless pre-set in the machine-dependent section.
+ */
+#ifdef __IPIPE_FEATURE_SYSINFO_V2
+#define RTHAL_TIMER_IRQ		__ipipe_mach_hrtimer_irq
+#else
+#define RTHAL_TIMER_IRQ		__ipipe_mach_timerint
+#endif /* __IPIPE_FEATURE_SYSINFO_V2 */
+#endif /* RTHAL_TIMER_IRQ */
+
+#ifdef __IPIPE_FEATURE_SYSINFO_V2
+#define RTHAL_TSC_INFO(p)	((p)->arch_tsc)
+#else
+#define RTHAL_TSC_INFO(p)	((p)->archdep.tsc)
+#endif /* __IPIPE_FEATURE_SYSINFO_V2 */
 
 #ifdef CONFIG_XENO_OPT_PERVASIVE
 #define RTHAL_SHARED_HEAP_FLAGS (cache_is_vivt() ? XNHEAP_GFP_NONCACHED : 0)
@@ -233,26 +248,29 @@ extern union vfp_state *last_VFP_context[NR_CPUS];
 	 : container_of(_vfp_owner, rthal_fpenv_t, vfpstate));		\
     })
 
-#define rthal_vfp_fmrx(_vfp_) ({		\
-    u32 __v;					\
-    asm("mrc p10, 7, %0, " __stringify(_vfp_)	\
-	", cr0, 0 @ fmrx %0, " #_vfp_:		\
-	"=r" (__v));				\
-    __v;					\
+#define rthal_vfp_fmrx(_vfp_) ({			\
+    u32 __v;						\
+    asm volatile("mrc p10, 7, %0, " __stringify(_vfp_)	\
+		 ", cr0, 0 @ fmrx %0, " #_vfp_:		\
+		 "=r" (__v));				\
+    __v;						\
  })
 
-#define rthal_vfp_fmxr(_vfp_,_var_)		\
-    asm("mcr p10, 7, %0, " __stringify(_vfp_)	\
-	", cr0, 0 @ fmxr " #_vfp_ ", %0":	\
-	/* */ : "r" (_var_))
+#define rthal_vfp_fmxr(_vfp_,_var_)			\
+    asm volatile("mcr p10, 7, %0, " __stringify(_vfp_)	\
+		 ", cr0, 0 @ fmxr " #_vfp_ ", %0":	\
+		 /* */ : "r" (_var_))
 
 #define rthal_disable_fpu() \
     rthal_vfp_fmxr(FPEXC, rthal_vfp_fmrx(FPEXC) & ~FPEXC_EN)
 
+#define RTHAL_VFP_ANY_EXC \
+	(FPEXC_EX|FPEXC_DEX|FPEXC_FP2V|FPEXC_VV|FPEXC_TRAP_MASK)
+
 #define rthal_enable_fpu()					\
     ({								\
 	unsigned _fpexc = rthal_vfp_fmrx(FPEXC) | FPEXC_EN;	\
-	rthal_vfp_fmxr(FPEXC, _fpexc);				\
+	rthal_vfp_fmxr(FPEXC, _fpexc & ~RTHAL_VFP_ANY_EXC);	\
 	_fpexc;							\
     })
 
@@ -268,7 +286,7 @@ static inline void rthal_restore_fpu(rthal_fpenv_t *fpuenv)
 #define rthal_get_fpu_owner(cur) ({                                         \
     struct task_struct * _cur = (cur);                                      \
     ((task_thread_info(_cur)->used_cp[1] | task_thread_info(_cur)->used_cp[2])    \
-        ? _cur : NULL);                                                     \
+	? _cur : NULL);                                                     \
 })
 
 #define rthal_disable_fpu() \
