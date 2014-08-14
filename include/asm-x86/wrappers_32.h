@@ -107,7 +107,9 @@ do { \
 #define wrap_iobitmap_base(tss)  (tss)->x86_tss.io_bitmap_base
 #endif
 
-static inline void wrap_switch_iobitmap (struct task_struct *p, int cpu)
+#if LINUX_VERSION_CODE < KERNEL_VERSION(2,6,30)
+
+static inline void wrap_switch_iobitmap(struct task_struct *p, int cpu)
 {
     struct thread_struct *thread = &p->thread;
 
@@ -132,6 +134,15 @@ static inline void wrap_switch_iobitmap (struct task_struct *p, int cpu)
 	}
     }
 }
+
+#else /* LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,30) */
+
+static inline void wrap_switch_iobitmap(struct task_struct *p, int cpu)
+{
+	/* I/O bitmap is eagerly switched in __switch_to() */
+}
+
+#endif /* LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,30) */
 
 #define wrap_strncpy_from_user(dstP,srcP,n) rthal_strncpy_from_user(dstP,srcP,n)
 

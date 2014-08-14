@@ -356,7 +356,7 @@ unsigned long find_next_bit(const unsigned long *addr,
 #include <linux/pid.h>
 
 #define find_task_by_pid(nr)		\
-  find_task_by_pid_type_ns(PIDTYPE_PID, nr, &init_pid_ns)
+  find_task_by_pid_ns(nr, &init_pid_ns)
 #define kill_proc(pid, sig, priv)	\
   kill_proc_info(sig, (priv) ? SEND_SIG_PRIV : SEND_SIG_NOINFO, pid)
 
@@ -399,5 +399,18 @@ static inline int wrap_raise_cap(int cap)
 	return commit_creds(new);
 }
 #endif /* LINUX_VERSION_CODE >= 2.6.29 */
+
+#ifdef CONFIG_PROC_FS
+#if LINUX_VERSION_CODE < KERNEL_VERSION(2,6,30)
+#include <linux/module.h>
+#include <linux/proc_fs.h>
+static inline void wrap_proc_dir_entry_owner(struct proc_dir_entry *entry)
+{
+    entry->owner = THIS_MODULE;
+}
+#else  /* LINUX_VERSION_CODE < KERNEL_VERSION(2,6,30) */
+#define wrap_proc_dir_entry_owner(entry)
+#endif /* LINUX_VERSION_CODE < KERNEL_VERSION(2,6,30) */
+#endif /* CONFIG_PROC_FS */
 
 #endif /* _XENO_ASM_GENERIC_WRAPPERS_H */

@@ -35,13 +35,11 @@ static inline unsigned long xnarch_get_sched_latency(void)
 
 
 #if defined(CONFIG_PPC_PASEMI)
-#ifdef CONFIG_SMP
-#define __sched_latency 5000
-#else
-#define __sched_latency 3000
-#endif
+#define __sched_latency 1000
 #elif defined(CONFIG_WALNUT)
 #define __sched_latency 11000
+#elif defined(CONFIG_YOSEMITE)
+#define __sched_latency 2000
 #elif defined(CONFIG_BUBINGA)
 #define __sched_latency 8000
 #elif defined(CONFIG_SYCAMORE)
@@ -60,16 +58,22 @@ static inline unsigned long xnarch_get_sched_latency(void)
 #define __sched_latency 2780
 #elif defined(CONFIG_YELLOWSTONE)
 #define __sched_latency 2700
+#elif defined(CONFIG_YOSEMITE)
+#define __sched_latency 2500
 #elif defined(CONFIG_MPC8349_ITX)
 #define __sched_latency 2500
 #elif defined(CONFIG_MPC836x_MDS)
 #define __sched_latency 2900
 #elif defined(CONFIG_MPC5121_ADS)
 #define __sched_latency 4000
+#elif defined(CONFIG_MPC8272_ADS)
+#define __sched_latency 5500
 #elif defined(CONFIG_MVME7100)
 #define __sched_latency 1500
 #elif defined(CONFIG_TQM8548)
 #define __sched_latency 500
+#elif defined(CONFIG_TQM8560)
+#define __sched_latency 1000
 /*
  * Check for the most generic configs at the bottom of this list, so
  * that the most specific choices available are picked first.
