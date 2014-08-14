@@ -37,7 +37,6 @@
 #include <linux/module.h>
 #include <linux/console.h>
 #include <linux/bitops.h>
-#include <asm/system.h>
 #include <asm/hardirq.h>
 #include <asm/desc.h>
 #include <asm/io.h>
@@ -52,11 +51,7 @@ unsigned long rthal_timer_calibrate(void)
 	rthal_time_t t, dt;
 	int i;
 
-#ifndef CONFIG_IPIPE_CORE
-	v = 1;
-#else /* I-pipe core */
-	v = RTHAL_TIMER_FREQ / HZ;
-#endif /* I-pipe core */
+	v = RTHAL_COMPAT_TIMERFREQ / HZ;
 
 	flags = rthal_critical_enter(NULL);
 
@@ -82,7 +77,7 @@ unsigned long rthal_timer_calibrate(void)
 int rthal_arch_init(void)
 {
 #ifdef CONFIG_IPIPE_CORE
-	int rc = ipipe_timers_request();
+	int rc = wrap_select_timers(&rthal_supported_cpus);
 	if (rc < 0)
 		return rc;
 #endif /* I-pipe core */

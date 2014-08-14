@@ -40,7 +40,6 @@
 #else
 #include <asm/hardirq.h>
 #endif
-#include <asm/system.h>
 #include <asm/irq.h>
 #include <asm/xenomai/hal.h>
 #include <stdarg.h>
@@ -55,6 +54,9 @@ module_param_named(timerfreq, rthal_timerfreq_arg, ulong, 0444);
 
 unsigned long rthal_clockfreq_arg;
 module_param_named(clockfreq, rthal_clockfreq_arg, ulong, 0444);
+
+unsigned long rthal_disable;
+module_param_named(disable, rthal_disable, ulong, 0444);
 
 #ifdef CONFIG_SMP
 static unsigned long supported_cpus_arg = -1;
@@ -536,21 +538,23 @@ static inline void cleanup_apc_handler(void) { }
 int rthal_init(void)
 {
     int err;
+#ifdef CONFIG_SMP
+    int cpu;
+    cpus_clear(rthal_supported_cpus);
+    for (cpu = 0; cpu < num_online_cpus(); cpu++)
+	    if (supported_cpus_arg & (1 << cpu))
+		    cpu_set(cpu, rthal_supported_cpus);
+#endif /* CONFIG_SMP */
+
+    if (rthal_disable) {
+	    printk("Xenomai: disabled on kernel command line\n");
+	    return -ENOENT;
+    }
 
     err = rthal_arch_init();
 
     if (err)
 	goto out;
-
-#ifdef CONFIG_SMP
-    {
-	int cpu;
-	cpus_clear(rthal_supported_cpus);
-	for (cpu = 0; cpu < BITS_PER_LONG; cpu++)
-	    if (supported_cpus_arg & (1 << cpu))
-		cpu_set(cpu, rthal_supported_cpus);
-    }
-#endif /* CONFIG_SMP */
 
     /*
      * The arch-dependent support must have updated the various
@@ -558,7 +562,7 @@ int rthal_init(void)
      */
 
     /* check the CPU frequency first and abort if it's invalid */
-    if (rthal_cpufreq_arg == 0) {
+    if (rthal_clockfreq_arg == 0) {
 	printk(KERN_ERR "Xenomai has detected a CPU frequency of 0. Aborting.\n");
 	return -ENODEV;
     }

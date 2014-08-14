@@ -171,6 +171,8 @@ static int bufp_close(struct rtipc_private *priv,
 	if (sk->bufmem)
 		xnarch_free_host_mem(sk->bufmem, sk->bufsz);
 
+	kfree(sk);
+
 	return 0;
 }
 
@@ -1049,7 +1051,7 @@ static int bufp_ioctl(struct rtipc_private *priv,
 	return __bufp_ioctl(priv, user_info, request, arg);
 }
 
-static int __init bufp_init(void)
+static int bufp_init(void)
 {
 	portmap = xnmap_create(CONFIG_XENO_OPT_BUFP_NRPORT, 0, 0);
 	if (portmap == NULL)

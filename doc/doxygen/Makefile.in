@@ -59,9 +59,11 @@ CONFIG_CLEAN_VPATH_FILES =
 SOURCES =
 DIST_SOURCES =
 DISTFILES = $(DIST_COMMON) $(DIST_SOURCES) $(TEXINFOS) $(EXTRA_DIST)
+A2X = @A2X@
 ACLOCAL = @ACLOCAL@
 AMTAR = @AMTAR@
 AR = @AR@
+ASCIIDOC = @ASCIIDOC@
 AUTOCONF = @AUTOCONF@
 AUTOHEADER = @AUTOHEADER@
 AUTOMAKE = @AUTOMAKE@
@@ -148,6 +150,7 @@ SET_MAKE = @SET_MAKE@
 SHELL = @SHELL@
 STRIP = @STRIP@
 VERSION = @VERSION@
+W3M = @W3M@
 XENO_BUILD_STRING = @XENO_BUILD_STRING@
 XENO_DLOPEN_CONSTRAINT = @XENO_DLOPEN_CONSTRAINT@
 XENO_HOST_STRING = @XENO_HOST_STRING@
@@ -529,7 +532,14 @@ dist-psdocs: $(PS_DOCS:%=$(PS_DOCSDIR)%)
 	    $(INSTALL_DATA) $$f $$dest; \
 	done
 
-dist-docs-hook: all-local dist-htmldocs dist-pdfdocs dist-psdocs
+dist-mans: $(man1_MANS:%=$(MAN_DOCSDIR)%)
+	docs="$^"; dest=$(GEN_DOC_DIST_ROOT)/man; \
+	$(mkinstalldirs) $$dest && \
+	for f in $$docs; do \
+	    $(INSTALL_DATA) $$f $$dest; \
+	done
+
+dist-docs-hook: all-local dist-htmldocs dist-pdfdocs dist-psdocs dist-mans
 
 # To make distcheck happy.
 uninstall-docs:

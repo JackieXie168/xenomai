@@ -25,6 +25,7 @@
 #error "Pure kernel header included from user-space!"
 #endif
 
+#include <linux/ipipe.h>
 #include <linux/version.h>
 #include <linux/module.h>
 #include <linux/slab.h>
@@ -32,6 +33,14 @@
 #include <linux/ipipe_tickdev.h>
 #endif /* CONFIG_XENO_OPT_HOSTRT || __IPIPE_FEATURE_REQUEST_TICKDEV */
 #include <asm/io.h>
+
+#ifndef CONFIG_IPIPE_CORE
+#define IPIPE_CORE_APIREV  0
+#endif
+
+#if LINUX_VERSION_CODE < KERNEL_VERSION(3,4,0)
+#include <asm/system.h>
+#endif /* kernel < 3.4.0 */
 
 #if LINUX_VERSION_CODE < KERNEL_VERSION(2,6,0)
 
@@ -89,10 +98,6 @@
 #define pte_offset_kernel(pmd,addr)	pte_offset(pmd,addr)
 #define __copy_to_user_inatomic		__copy_to_user
 #define __copy_from_user_inatomic	__copy_from_user
-
-/* Seqfiles */
-#define SEQ_START_TOKEN ((void *)1)
-#define SEQ_SKIP 	0	/* not implemented. */
 
 /* Sched and process flags */
 #define MAX_RT_PRIO 100
@@ -420,8 +425,20 @@ static inline void *kzalloc(size_t size, int flags)
 #define pgprot_noncached(p) (p)
 #endif /* !pgprot_noncached */
 
-#define wrap_switch_mm(prev,next,task)	\
-    switch_mm(prev,next,task)
+#if IPIPE_CORE_APIREV >= 2
+#define wrap_switch_mm(prev, next, tsk) \
+	ipipe_switch_mm_head(prev, next, tsk)
+#elif IPIPE_CORE_APIREV == 1
+#define wrap_switch_mm(prev, next, tsk) \
+	__switch_mm(prev, next, tsk)
+#elif defined(__IPIPE_FEATURE_HARDENED_SWITCHMM)
+#define wrap_switch_mm(prev, next, tsk) \
+	__switch_mm(prev, next, tsk)
+#else
+#define wrap_switch_mm(prev, next, tsk) \
+	switch_mm(prev, next, tsk)
+#endif
+
 #define wrap_enter_lazy_tlb(mm,task)	\
     enter_lazy_tlb(mm,task)
 
@@ -486,6 +503,17 @@ static inline void *kzalloc(size_t size, int flags)
 #if LINUX_VERSION_CODE < KERNEL_VERSION(2,6,18)
 #define IRQF_SHARED			SA_SHIRQ
 #endif /* < 2.6.18 */
+
+#if LINUX_VERSION_CODE < KERNEL_VERSION(2,6,26)
+#define clamp(val, min, max) ({			\
+	typeof(val) __val = (val);		\
+	typeof(min) __min = (min);		\
+	typeof(max) __max = (max);		\
+	(void) (&__val == &__min);		\
+	(void) (&__val == &__max);		\
+	__val = __val < __min ? __min: __val;	\
+	__val > __max ? __max: __val; })
+#endif /* < 2.6.25 */
 
 #if defined(CONFIG_LTT) || \
     (LINUX_VERSION_CODE > KERNEL_VERSION(2,6,31) && defined(CONFIG_MARKERS))
@@ -677,6 +705,54 @@ static inline void wrap_proc_dir_entry_owner(struct proc_dir_entry *entry)
 			chip->irq_mask(&desc->irq_data);		\
 		__ret__;						\
 	})
+#endif
+
+#if LINUX_VERSION_CODE < KERNEL_VERSION(3,4,0)
+
+#include <linux/sched.h>
+#include <linux/mm.h>
+#include <linux/smp.h>
+
+#ifndef cpu_online_map
+#define cpu_online_mask (&cpu_online_map)
+#endif /* !cpu_online_map */
+#ifndef cpu_online
+#ifdef CONFIG_SMP
+#define cpu_online(cpu)	(cpu_online_map & (1UL << (cpu)))
+#else /* !CONFIG_SMP */
+#define cpu_online(cpu)	((cpu) == 0)
+#endif /* !CONFIG_SMP */
+#endif /* !cpu_online */
+
+static inline
+unsigned long vm_mmap(struct file *file, unsigned long addr,
+	unsigned long len, unsigned long prot,
+	unsigned long flag, unsigned long offset)
+{
+	struct mm_struct *mm = current->mm;
+	unsigned long ret;
+
+	down_write(&mm->mmap_sem);
+	ret = do_mmap(file, addr, len, prot, flag, offset);
+	up_write(&mm->mmap_sem);
+
+	return ret;
+}
+
+#endif /* LINUX_VERSION_CODE < 3.4.0 */
+
+#include <linux/seq_file.h>
+#ifndef SEQ_START_TOKEN
+#define SEQ_START_TOKEN ((void *)1)
+#endif
+#ifndef SEQ_SKIP
+#define SEQ_SKIP 	0	/* not implemented. */
+#endif
+
+#if IPIPE_CORE_APIREV >= 2
+#define wrap_select_timers(mask) ipipe_select_timers(mask)
+#elif IPIPE_CORE_APIREV == 1
+#define wrap_select_timers(mask) ipipe_timers_request()
 #endif
 
 #endif /* _XENO_ASM_GENERIC_WRAPPERS_H */

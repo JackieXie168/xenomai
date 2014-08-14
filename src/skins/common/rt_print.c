@@ -163,9 +163,9 @@ static int vprint_to_buffer(FILE *stream, int priority, unsigned int mode,
 	if (mode == RT_PRINT_MODE_FORMAT) {
 		if (stream != RT_PRINT_SYSLOG_STREAM) {
 			/* We do not need the terminating \0 */
-			res = vsnprintf(head->data, len + 1, format, args);
+			res = vsnprintf(head->data, len, format, args);
 
-			if (res < len + 1) {
+			if (res < len) {
 				/* Text was written completely, res contains its
 				   length */
 				len = res;
@@ -590,7 +590,7 @@ static void print_buffers(void)
 	struct print_buffer *buffer;
 	struct entry_head *head;
 	off_t read_pos;
-	int len;
+	int len, ret;
 
 	while (1) {
 		buffer = get_next_buffer();
@@ -608,8 +608,9 @@ static void print_buffers(void)
 				syslog(head->priority,
 				       "%s", head->data);
 			} else {
-				fwrite(head->data,
-				       head->len, 1, head->dest);
+				ret = fwrite(head->data,
+					     head->len, 1, head->dest);
+				(void)ret;
 			}
 
 			read_pos += sizeof(*head) + len;

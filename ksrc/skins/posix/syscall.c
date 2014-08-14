@@ -402,9 +402,9 @@ static int __pthread_wait_np(struct pt_regs *regs)
 	err = -pthread_wait_np(&overruns);
 
 	if (__xn_reg_arg1(regs) && (err == 0 || err == -ETIMEDOUT))
-		if (__xn_safe_copy_to_user((void __user *)__xn_reg_arg1(regs),
-					   &overruns, sizeof(overruns)))
-			err = -EFAULT;
+		__xn_put_user(overruns,
+			      (unsigned long __user *)__xn_reg_arg1(regs));
+
 	return err;
 }
 
@@ -435,9 +435,11 @@ static int __pthread_set_name_np(struct pt_regs *regs)
 	hkey.u_tid = __xn_reg_arg1(regs);
 	hkey.mm = current->mm;
 	k_tid = __pthread_find(&hkey);
-	p = xnthread_user_task(&k_tid->threadbase);
-	strncpy(p->comm, name, sizeof(p->comm));
-	p->comm[sizeof(p->comm) - 1] = '\0';
+	if (k_tid) {
+		p = xnthread_user_task(&k_tid->threadbase);
+		strncpy(p->comm, name, sizeof(p->comm));
+		p->comm[sizeof(p->comm) - 1] = '\0';
+	}
 
 	return -pthread_set_name_np(k_tid, name);
 }
@@ -2326,7 +2328,7 @@ static int fd_valid_p(int fd)
 {
 	pse51_queues_t *q;
 #if defined(CONFIG_XENO_SKIN_RTDM) || defined (CONFIG_XENO_SKIN_RTDM_MODULE)
-	const int rtdm_fd_start = FD_SETSIZE - RTDM_FD_MAX;
+	const int rtdm_fd_start = __FD_SETSIZE - RTDM_FD_MAX;
 
 	if (fd >= rtdm_fd_start) {
 		struct rtdm_dev_context *ctx;
@@ -2365,7 +2367,7 @@ static int select_bind_one(struct xnselector *selector, unsigned type, int fd)
 	pse51_assoc_t *assoc;
 	pse51_queues_t *q;
 #if defined(CONFIG_XENO_SKIN_RTDM) || defined (CONFIG_XENO_SKIN_RTDM_MODULE)
-	const int rtdm_fd_start = FD_SETSIZE - RTDM_FD_MAX;
+	const int rtdm_fd_start = __FD_SETSIZE - RTDM_FD_MAX;
 
 	if (fd >= rtdm_fd_start)
 		return rtdm_select_bind(fd - rtdm_fd_start,
@@ -2443,7 +2445,7 @@ static int __select(struct pt_regs *regs)
 	}
 
 	nfds = __xn_reg_arg1(regs);
-	fds_size = __FDELT(nfds + __NFDBITS - 1) * sizeof(long);
+	fds_size = __FDELT__(nfds + __NFDBITS__ - 1) * sizeof(long);
 
 	for (i = 0; i < XNSELECT_MAX_TYPES; i++)
 		if (ufd_sets[i]) {
@@ -2499,7 +2501,7 @@ static int __select(struct pt_regs *regs)
 			return -EFAULT;
 	}
 
-	if (err > 0)
+	if (err >= 0)
 		for (i = 0; i < XNSELECT_MAX_TYPES; i++)
 			if (ufd_sets[i]
 			    && __xn_copy_to_user((void __user *) ufd_sets[i],
@@ -2827,6 +2829,47 @@ static int __munmap_epilogue(struct pt_regs *regs)
 
 #endif /* !CONFIG_XENO_OPT_POSIX_SHM */
 
+#ifdef CONFIG_XENO_OPT_SCHED_TP
+/*
+ * int __sched_setconfig_np(int cpu, int policy, union sched_config *p, size_t len)
+ */
+static int __sched_setconfig_np(struct pt_regs *regs)
+{
+	union sched_config __user *u_config, *buf;
+	int len, ret, cpu, policy;
+
+	cpu = __xn_reg_arg1(regs);
+	if (cpu < 0 || cpu >= NR_CPUS || !cpu_online(cpu))
+		return -EINVAL;
+
+	policy = __xn_reg_arg2(regs);
+	u_config = (union sched_config __user *)__xn_reg_arg3(regs);
+	len = __xn_reg_arg4(regs);
+	if (len == 0)
+		return -EINVAL;
+
+	buf = xnmalloc(len);
+	if (buf == NULL)
+		return -ENOMEM;
+
+	if (__xn_safe_copy_from_user(buf, (void __user *)u_config, len)) {
+		ret = -EFAULT;
+		goto out;
+	}
+
+	ret = -sched_setconfig_np(cpu, policy, buf, len);
+out:
+	xnfree(buf);
+
+	return ret;
+}
+
+#else /* !CONFIG_XENO_OPT_SCHED_TP */
+
+#define __sched_setconfig_np        __pse51_call_not_available
+
+#endif /* !CONFIG_XENO_OPT_SCHED_TP */
+
 int __pse51_call_not_available(struct pt_regs *regs)
 {
 	return -ENOSYS;
@@ -2938,6 +2981,7 @@ static xnsysent_t __systab[] = {
 	[__pse51_condattr_setpshared] =
 	    {&__pthread_condattr_setpshared, __xn_exec_any},
 	[__pse51_select] = {&__select, __xn_exec_primary},
+	[__pse51_sched_setconfig_np] = {&__sched_setconfig_np, __xn_exec_any},
 };
 
 static void __shadow_delete_hook(xnthread_t *thread)

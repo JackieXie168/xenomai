@@ -145,12 +145,39 @@ AC_ARG_ENABLE(debug,
 	esac])
 AC_MSG_RESULT(${debug_symbols:-no})
 
-dnl SMP support (default: off)
+dnl Implementation of atomic operations in userland
 
-CONFIG_SMP=
-if test $XENO_TARGET_ARCH = x86; then
-	CONFIG_SMP=y
-fi
+case $XENO_TARGET_ARCH in
+arm)
+	atomic_ops=builtins ;;
+*)
+	atomic_ops=ad-hoc ;;
+esac
+AC_MSG_CHECKING(for atomic operation support)
+AC_ARG_WITH(atomic-ops,
+	AS_HELP_STRING([--with-atomic-ops], [Select implementation of atomic ops]),
+	[case "$withval" in
+	y | yes | built*)
+	    	atomic_ops=builtins
+	    	;;
+	ad-hoc|adhoc)
+	    	atomic_ops=ad-hoc
+	    	;;
+	*)
+		AC_MSG_ERROR([invalid switch "$withval" for atomic-ops (builtins/ad-hoc)])
+		;;
+	esac])
+AC_MSG_RESULT(${atomic_ops})
+
+dnl SMP support (default: on for all SMP-capable architecture except
+dnl ARM, off otherwise)
+
+case $XENO_TARGET_ARCH in
+x86|powerpc|arm)
+	CONFIG_SMP=y ;;
+*)
+	unset CONFIG_SMP ;;
+esac
 AC_MSG_CHECKING(for SMP support)
 AC_ARG_ENABLE(smp,
 	AS_HELP_STRING([--enable-smp], [Enable SMP support]),
@@ -329,6 +356,39 @@ else
    LATEX_MODE=batchmode
 fi
 
+AC_MSG_CHECKING(for asciidoc documentation)
+AC_ARG_ENABLE(asciidoc,
+	AS_HELP_STRING([--enable-asciidoc], [Build Asciidoc documentation]),
+	[case "$enableval" in
+	y | yes) CONFIG_XENO_ASCIIDOC=y ;;
+	*) unset CONFIG_XENO_ASCIIDOC ;;
+	esac])
+
+if test \! -d $srcdir/doc ; then
+    if test x$CONFIG_XENO_ASCIIDOC = xy ;
+    then
+	AC_MSG_ERROR([documentation tree is missing.])
+    fi
+    AC_MSG_RESULT([not present])
+else
+    AC_MSG_RESULT(${CONFIG_XENO_ASCIIDOC:-no})
+fi
+
+AC_CHECK_PROG(ASCIIDOC, asciidoc, asciidoc)
+if test x${CONFIG_XENO_ASCIIDOC} = xy -a x"$ASCIIDOC" = x ; then
+   AC_MSG_ERROR([Missing the asciidoc tool to generate the documentation.])
+fi
+AC_CHECK_PROG(A2X, a2x, a2x)
+if test x${CONFIG_XENO_ASCIIDOC} = xy -a x"$A2X" = x ; then
+   AC_MSG_ERROR([Missing the a2x tool to generate the documentation.])
+fi
+AC_CHECK_PROG(W3M, w3m, w3m)
+if test x${CONFIG_XENO_ASCIIDOC} = xy -a x"$W3M" = x ; then
+   AC_MSG_ERROR([Missing the w3m tool to generate the documentation.])
+fi
+
+
+
 dnl Determine whether some specific headers are present on this system.
 AC_CHECK_HEADERS(mqueue.h)
 
@@ -362,6 +422,11 @@ dnl Userland may want to know about MMU availability on the target.
 dnl For now, we assume that having fork() means having an MMU.
 dnl
 test x$ac_cv_func_fork = xyes && AC_DEFINE(CONFIG_MMU,1,[config])
+
+dnl Where we should get the atomic ops implementation from: "builtins"
+dnl means gcc __sync_*() routines, "ad-hoc" means Xenomai's ad hoc
+dnl implementation.
+test x$atomic_ops = xbuiltins && AC_DEFINE(CONFIG_XENO_ATOMIC_BUILTINS,1,[config])
 
 test x$CONFIG_X86_TSC = xy && AC_DEFINE(CONFIG_X86_TSC,1,[config])
 
@@ -403,6 +468,8 @@ dnl
 
 dnl Documentation.
 AM_CONDITIONAL(CONFIG_XENO_DOC_DOX,[test "$CONFIG_XENO_DOC_DOX" = y])
+
+AM_CONDITIONAL(CONFIG_XENO_ASCIIDOC,[test "$CONFIG_XENO_ASCIIDOC" = y])
 
 AC_MSG_CHECKING([for sched_setaffinity])
 AC_CACHE_VAL(ac_cv_sched_setaffinity,
@@ -718,19 +785,6 @@ if test \! x$XENO_MAYBE_DOCDIR = x ; then
 	doc/Makefile \
 	doc/txt/Makefile \
 	doc/man/Makefile \
-	doc/man/clocktest.man \
-	doc/man/cyclictest.man \
-	doc/man/irqbench.man \
-	doc/man/irqloop.man \
-	doc/man/klatency.man \
-	doc/man/latency.man \
-	doc/man/rtcanconfig.man \
-	doc/man/rtcanrecv.man \
-	doc/man/rtcansend.man \
-	doc/man/switchbench.man \
-	doc/man/switchtest.man \
-	doc/man/xeno.man \
-	doc/man/xeno-config.man \
 	doc/doxygen/Makefile \
 	doc/doxygen/Doxyfile-common \
 	doc/doxygen/Doxyfile \
@@ -738,6 +792,7 @@ if test \! x$XENO_MAYBE_DOCDIR = x ; then
 	doc/doxygen/Doxyfile-nucleus \
 	doc/doxygen/Doxyfile-posix \
 	doc/doxygen/Doxyfile-rtdm \
+	doc/asciidoc/Makefile \
 	doc/docbook/Makefile \
 	doc/docbook/catalog \
 	doc/docbook/custom-stylesheets/Makefile \

@@ -86,7 +86,7 @@ static inline void xnarch_switch_to(xnarchtcb_t *out_tcb, xnarchtcb_t *in_tcb)
 
 	if (next && next != prev) {
 		struct mm_struct *oldmm = prev->active_mm;
-		switch_mm(oldmm, next->active_mm, next);
+		wrap_switch_mm(oldmm, next->active_mm, next);
 		if (next->mm == NULL)
 			enter_lazy_tlb(oldmm, next);
 	}
@@ -260,6 +260,7 @@ static inline void xnarch_restore_fpu(xnarchtcb_t * tcb)
 	} else {
 		/* Restore state of FPU only if TS bit in cr0 was clear. */
 		if (tcb->cr0_ts) {
+			wrap_clear_fpu_used(task);
 			stts();
 			return;
 		}

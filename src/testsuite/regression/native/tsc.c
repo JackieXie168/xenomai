@@ -47,11 +47,17 @@ int main(int argc, const char *argv[])
 		tsc2 = start = __xn_rdtsc();
 		do {
 			tsc1 = __xn_rdtsc();
-			if (tsc1 < tsc2)
+			if (tsc1 < tsc2) {
+				fprintf(stderr, "%016Lx -> %016Lx\n",
+					tsc2, tsc1);
 				goto err1;
+			}
 			tsc2 = __xn_rdtsc();
-			if (tsc2 < tsc1)
+			if (tsc2 < tsc1) {
+				fprintf(stderr, "%016Lx -> %016Lx\n",
+					tsc1, tsc2);
 				goto err2;
+			}
 
 			dt = tsc2 - tsc1;
 
@@ -91,8 +97,8 @@ int main(int argc, const char *argv[])
 	jump = tsc1 - tsc2;
 
   display:
-	fprintf(stderr, "tsc not monotonic after %Lu.%09Lu ticks, ",
-		runtime / 1000000000ULL, runtime % 1000000000ULL);
+	fprintf(stderr, "tsc not monotonic after %Lu ticks, ",
+		runtime);
 	fprintf(stderr, "jumped back %Lu tick\n", jump);
 
 	return EXIT_FAILURE;

@@ -39,7 +39,6 @@
 #include <linux/module.h>
 #include <linux/irq.h>
 #include <linux/console.h>
-#include <asm/system.h>
 #include <asm/hardirq.h>
 #include <asm/hw_irq.h>
 #include <asm/irq.h>
@@ -138,7 +137,7 @@ static inline void rthal_tickdev_release(int cpu)
 
 static inline int rthal_tickdev_select(void)
 {
-	return ipipe_timers_request();
+	return wrap_select_timers(&rthal_supported_cpus);
 }
 
 #else /* !CONFIG_IPIPE_CORE */

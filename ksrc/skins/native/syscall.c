@@ -421,9 +421,8 @@ static int __rt_task_wait_period(struct pt_regs *regs)
 	err = rt_task_wait_period(&overruns);
 
 	if (__xn_reg_arg1(regs) && (err == 0 || err == -ETIMEDOUT))
-		if (__xn_safe_copy_to_user((void __user *)__xn_reg_arg1(regs),
-					   &overruns, sizeof(overruns)))
-			err = -EFAULT;
+		__xn_put_user(overruns,
+			      (unsigned long __user *)__xn_reg_arg1(regs));
 	return err;
 }
 
@@ -2356,8 +2355,8 @@ static int __rt_queue_write(struct pt_regs *regs)
 	}
 
 	ret = rt_queue_send(q, mbuf, size, mode);
-	if (ret == 0 && (mode & Q_BROADCAST))
-		rt_queue_free(q, mbuf); /* Nobody received, free the buffer. */
+	if (ret < 0 || (ret == 0 && (mode & Q_BROADCAST)))
+		rt_queue_free(q, mbuf);
 
 	return ret;
 }

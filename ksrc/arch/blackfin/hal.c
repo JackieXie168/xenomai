@@ -36,7 +36,6 @@
 #include <linux/errno.h>
 #include <linux/module.h>
 #include <asm/time.h>
-#include <asm/system.h>
 #include <asm/atomic.h>
 #include <asm/io.h>
 #include <asm/uaccess.h>
@@ -53,7 +52,7 @@ enum rthal_ktimer_mode rthal_ktimer_saved_mode;
 #ifdef CONFIG_IPIPE_CORE
 
 #define rthal_tickdev_select() \
-	ipipe_timers_request()
+	wrap_select_timers(&rthal_supported_cpus)
 
 #define rthal_tickdev_unselect() \
 	ipipe_timers_release()
@@ -341,7 +340,7 @@ EXPORT_SYMBOL_GPL(rthal_timer_notify_switch);
 
 unsigned long rthal_timer_calibrate(void)
 {
-	return (1000000000 / RTHAL_CPU_FREQ) * 100;	/* 100 CPU cycles -- FIXME */
+	return (1000000000 / RTHAL_CLOCK_FREQ) * 100;	/* 100 CPU cycles -- FIXME */
 }
 
 int rthal_irq_enable(unsigned irq)

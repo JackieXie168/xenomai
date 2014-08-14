@@ -244,6 +244,8 @@ static int iddp_close(struct rtipc_private *priv,
 		xnheap_free(&kheap, mbuf);
 	}
 
+	kfree(sk);
+
 	return 0;
 }
 
@@ -912,7 +914,7 @@ static int iddp_ioctl(struct rtipc_private *priv,
 	return __iddp_ioctl(priv, user_info, request, arg);
 }
 
-static int __init iddp_init(void)
+static int iddp_init(void)
 {
 	portmap = xnmap_create(CONFIG_XENO_OPT_IDDP_NRPORT, 0, 0);
 	if (portmap == NULL)

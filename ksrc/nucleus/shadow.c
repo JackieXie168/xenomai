@@ -1633,9 +1633,7 @@ static unsigned long map_mayday_page(struct task_struct *p)
 
 	old_fops = filp->f_op;
 	filp->f_op = &mayday_fops;
-	down_write(&p->mm->mmap_sem);
-	u_addr = do_mmap(filp, 0, PAGE_SIZE, PROT_EXEC|PROT_READ, MAP_SHARED, 0);
-	up_write(&p->mm->mmap_sem);
+	u_addr = vm_mmap(filp, 0, PAGE_SIZE, PROT_EXEC|PROT_READ, MAP_SHARED, 0);
 	filp->f_op = (typeof(filp->f_op))old_fops;
 	filp_close(filp, p->files);
 
@@ -1932,8 +1930,8 @@ void xnshadow_signal_completion(xncompletion_t __user *u_completion, int err)
 {
 	xncompletion_t completion;
 	struct task_struct *p;
-	int discarded;
 	pid_t pid;
+	int ret;
 
 	/* Hold a mutex to avoid missing a wakeup signal. */
 	down(&completion_mutex);
@@ -1945,7 +1943,8 @@ void xnshadow_signal_completion(xncompletion_t __user *u_completion, int err)
 
 	/* Poor man's semaphore V. */
 	completion.syncflag = err ? : completion_value_ok;
-	discarded = __xn_safe_copy_to_user(u_completion, &completion, sizeof(completion));
+	ret = __xn_safe_copy_to_user(u_completion, &completion, sizeof(completion));
+	(void)ret;
 	pid = completion.pid;
 
 	up(&completion_mutex);
@@ -1968,7 +1967,7 @@ static int xnshadow_sys_completion(struct pt_regs *regs)
 {
 	xncompletion_t __user *u_completion;
 	xncompletion_t completion;
-	int discarded;
+	int ret;
 
 	u_completion = (xncompletion_t __user *)__xn_reg_arg1(regs);
 
@@ -1998,8 +1997,8 @@ static int xnshadow_sys_completion(struct pt_regs *regs)
 
 		if (signal_pending(current)) {
 			completion.pid = -1;
-			discarded = __xn_safe_copy_to_user(u_completion, &completion, sizeof(completion));
-			return -ERESTARTSYS;
+			ret = __xn_safe_copy_to_user(u_completion, &completion, sizeof(completion));
+			return ret ? -EFAULT : -ERESTARTSYS;
 		}
 	}
 
@@ -2600,13 +2599,12 @@ RTHAL_DECLARE_EXIT_EVENT(taskexit_event);
 static inline void do_schedule_event(struct task_struct *next_task)
 {
 	struct task_struct *prev_task;
-	struct xnthread *prev, *next;
+	struct xnthread *next;
 
 	if (!xnpod_active_p())
 		return;
 
 	prev_task = current;
-	prev = xnshadow_thread(prev_task);
 	next = xnshadow_thread(next_task);
 	set_switch_lock_owner(prev_task);
 

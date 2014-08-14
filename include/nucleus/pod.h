@@ -277,20 +277,60 @@ static inline void xnpod_schedule(void)
 	 * unlocked context switch.
 	 */
 #if XENO_DEBUG(NUCLEUS)
-	if (testbits(sched->status | sched->lflags, XNKCOUT|XNINIRQ|XNSWLOCK))
+	if (testbits(sched->status | sched->lflags, XNKCOUT|XNINIRQ|XNINSW))
 		return;
 #else /* !XENO_DEBUG(NUCLEUS) */
 	if (testbits(sched->status | sched->lflags,
-		     XNKCOUT|XNINIRQ|XNSWLOCK|XNRESCHED) != XNRESCHED)
+		     XNKCOUT|XNINIRQ|XNINSW|XNRESCHED|XNINLOCK) != XNRESCHED)
 		return;
 #endif /* !XENO_DEBUG(NUCLEUS) */
 
 	__xnpod_schedule(sched);
 }
 
-void xnpod_lock_sched(void);
+void ___xnpod_lock_sched(xnsched_t *sched);
 
-void xnpod_unlock_sched(void);
+void ___xnpod_unlock_sched(xnsched_t *sched);
+
+static inline void __xnpod_lock_sched(void)
+{
+	xnsched_t *sched;
+
+	barrier();
+	sched = xnpod_current_sched();
+	___xnpod_lock_sched(sched);
+}
+
+static inline void __xnpod_unlock_sched(void)
+{
+	xnsched_t *sched;
+
+	barrier();
+	sched = xnpod_current_sched();
+	___xnpod_unlock_sched(sched);
+}
+
+static inline void xnpod_lock_sched(void)
+{
+	xnsched_t *sched;
+	spl_t s;
+
+	xnlock_get_irqsave(&nklock, s);
+	sched = xnpod_current_sched();
+	___xnpod_lock_sched(sched);
+	xnlock_put_irqrestore(&nklock, s);
+}
+
+static inline void xnpod_unlock_sched(void)
+{
+	xnsched_t *sched;
+	spl_t s;
+
+	xnlock_get_irqsave(&nklock, s);
+	sched = xnpod_current_sched();
+	___xnpod_unlock_sched(sched);
+	xnlock_put_irqrestore(&nklock, s);
+}
 
 void xnpod_fire_callouts(xnqueue_t *hookq,
 			 xnthread_t *thread);

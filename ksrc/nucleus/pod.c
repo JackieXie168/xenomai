@@ -1187,11 +1187,11 @@ void xnpod_delete_thread(xnthread_t *thread)
 	if (xnthread_test_state(thread, XNPEND))
 		xnsynch_forget_sleeper(thread);
 
+	xnthread_set_state(thread, XNZOMBIE);
+
 	xnsynch_release_all_ownerships(thread);
 
 	__xnpod_giveup_fpu(sched, thread);
-
-	xnthread_set_state(thread, XNZOMBIE);
 
 	if (sched->curr == thread) {
 		/*
@@ -1200,10 +1200,11 @@ void xnpod_delete_thread(xnthread_t *thread)
 		 * thread zombie state to go through the rescheduling
 		 * procedure then actually destroy the thread object.
 		 */
+		__clrbits(sched->status, XNINLOCK);
 		xnsched_set_resched(sched);
 		xnpod_schedule();
 #ifdef CONFIG_XENO_HW_UNLOCKED_SWITCH
-	} else if (!testbits(sched->status, XNSWLOCK) &&
+	} else if (!testbits(sched->status, XNINSW) &&
 		   !xnthread_test_state(thread, XNMIGRATE)) {
 		/*
 		 * When killing a thread in the course of a context
@@ -1452,6 +1453,7 @@ void xnpod_suspend_thread(xnthread_t *thread, xnflags_t mask,
 #endif /* __XENO_SIM__ */
 
 	if (thread == sched->curr) {
+		__clrbits(sched->status, XNINLOCK);
 		/*
 		 * If the current thread is being relaxed, we must
 		 * have been called from xnshadow_relax(), in which
@@ -2086,7 +2088,7 @@ static inline void xnpod_switch_to(xnsched_t *sched,
 {
 #ifdef CONFIG_XENO_HW_UNLOCKED_SWITCH
 	sched->last = prev;
-	__setbits(sched->status, XNSWLOCK);
+	__setbits(sched->status, XNINSW);
 	xnlock_clear_irqon(&nklock);
 #endif /* !CONFIG_XENO_HW_UNLOCKED_SWITCH */
 
@@ -2302,13 +2304,15 @@ reschedule:
 	xnpod_run_hooks(&nkpod->tswitchq, curr, "SWITCH");
 
       signal_unlock_and_exit:
-
 	if (xnthread_signaled_p(curr))
 		xnpod_dispatch_signals();
 
 	if (switched &&
 	    xnsched_maybe_resched_after_unlocked_switch(sched))
 		goto reschedule;
+
+	if (xnthread_lock_count(curr))
+		__setbits(sched->status, XNINLOCK);
 
 	xnlock_put_irqrestore(&nklock, s);
 
@@ -2336,40 +2340,31 @@ reschedule:
 }
 EXPORT_SYMBOL_GPL(__xnpod_schedule);
 
-void xnpod_lock_sched(void)
+void ___xnpod_lock_sched(xnsched_t *sched)
 {
-	struct xnthread *curr;
-	spl_t s;
+	struct xnthread *curr = sched->curr;
 
-	xnlock_get_irqsave(&nklock, s);
-
-	curr = xnpod_current_thread();
-
-	if (xnthread_lock_count(curr)++ == 0)
+	if (xnthread_lock_count(curr)++ == 0) {
+		__setbits(sched->status, XNINLOCK);
 		xnthread_set_state(curr, XNLOCK);
-
-	xnlock_put_irqrestore(&nklock, s);
+	}
 }
-EXPORT_SYMBOL_GPL(xnpod_lock_sched);
+EXPORT_SYMBOL_GPL(___xnpod_lock_sched);
 
-void xnpod_unlock_sched(void)
+void ___xnpod_unlock_sched(xnsched_t *sched)
 {
-	struct xnthread *curr;
-	spl_t s;
-
-	xnlock_get_irqsave(&nklock, s);
-
-	curr = xnpod_current_thread();
+	struct xnthread *curr = sched->curr;
+	XENO_ASSERT(NUCLEUS, xnthread_lock_count(curr) > 0,
+		    xnpod_fatal("Unbalanced lock/unlock");
+		    );
 
 	if (--xnthread_lock_count(curr) == 0) {
 		xnthread_clear_state(curr, XNLOCK);
-		xnsched_set_self_resched(curr->sched);
+		__clrbits(sched->status, XNINLOCK);
 		xnpod_schedule();
 	}
-
-	xnlock_put_irqrestore(&nklock, s);
 }
-EXPORT_SYMBOL_GPL(xnpod_unlock_sched);
+EXPORT_SYMBOL_GPL(___xnpod_unlock_sched);
 
 /*!
  * \fn int xnpod_add_hook(int type,void (*routine)(xnthread_t *))
@@ -3144,8 +3139,33 @@ static int lock_vfile_show(struct xnvfile_regular_iterator *it, void *data)
 	return 0;
 }
 
+static ssize_t lock_vfile_store(struct xnvfile_input *input)
+{
+	ssize_t ret;
+	spl_t s;
+	int cpu;
+
+	long val;
+
+	ret = xnvfile_get_integer(input, &val);
+	if (ret < 0)
+		return ret;
+
+	if (val != 0)
+		return -EINVAL;
+
+	for_each_online_cpu(cpu) {
+		xnlock_get_irqsave(&nklock, s);
+		memset(&xnlock_stats[cpu], '\0', sizeof(xnlock_stats[cpu]));
+		xnlock_put_irqrestore(&nklock, s);
+	}
+
+	return ret;
+}
+
 static struct xnvfile_regular_ops lock_vfile_ops = {
 	.show = lock_vfile_show,
+	.store = lock_vfile_store,
 };
 
 static struct xnvfile_regular lock_vfile = {

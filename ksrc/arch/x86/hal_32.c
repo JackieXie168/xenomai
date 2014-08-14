@@ -44,7 +44,6 @@
 #include <linux/module.h>
 #include <linux/console.h>
 #include <linux/bitops.h>
-#include <asm/system.h>
 #include <asm/hardirq.h>
 #include <asm/desc.h>
 #include <asm/io.h>
@@ -76,11 +75,7 @@ unsigned long rthal_timer_calibrate(void)
 	rthal_time_t t, dt;
 	int i;
 
-#ifndef CONFIG_IPIPE_CORE
-	v = 1;
-#else /* I-pipe core */
-	v = RTHAL_TIMER_FREQ / HZ;
-#endif /* I-pipe core */
+	v = RTHAL_COMPAT_TIMERFREQ / HZ;
 
 	flags = rthal_critical_enter(NULL);
 
@@ -283,7 +278,7 @@ void rthal_timer_release(int cpu)
 
 #endif /* !CONFIG_X86_LOCAL_APIC */
 
-#ifndef CONFIG_X86_TSC
+#if !defined(CONFIG_X86_TSC) && IPIPE_CORE_APIREV < 2
 
 static rthal_time_t rthal_tsc_8254;
 
@@ -338,12 +333,12 @@ rthal_time_t rthal_get_8254_tsc(void)
 	return t;
 }
 
-#endif /* !CONFIG_X86_TSC */
+#endif /* !CONFIG_X86_TSC && IPIPE_CORE_APIREV < 2*/
 
 int rthal_arch_init(void)
 {
 #ifdef CONFIG_IPIPE_CORE
-	int rc = ipipe_timers_request();
+	int rc = wrap_select_timers(&rthal_supported_cpus);
 	if (rc < 0)
 		return rc;
 #else /* !I-pipe core */
@@ -361,10 +356,19 @@ int rthal_arch_init(void)
 	old_mksound = kd_mksound;
 	kd_mksound = &dummy_mksound;
 #endif /* !CONFIG_X86_LOCAL_APIC && Linux < 2.6 && !CONFIG_X86_TSC && CONFIG_VT */
+#ifdef CONFIG_X86_TSC
+	if (!cpu_has_tsc) {
+		printk("Xenomai: compiled for TSC, but CPU has no TSC\n"
+		       "         Recompile the kernel selecting a CPU without "
+		       "TSC\n");
+		rthal_smi_restore();
+		return -ENODEV;
+	}
+#endif /* X86_TSC */
 #endif /* !I-pipe core */
 
 	if (rthal_cpufreq_arg == 0)
-#ifdef CONFIG_X86_TSC
+#if defined(CONFIG_X86_TSC) || IPIPE_CORE_APIREV >= 2
 		/* FIXME: 4Ghz barrier is close... */
 		rthal_cpufreq_arg = rthal_get_cpufreq();
 #else /* ! CONFIG_X86_TSC */
@@ -401,6 +405,6 @@ void rthal_arch_cleanup(void)
 
 EXPORT_SYMBOL_GPL(rthal_arch_init);
 EXPORT_SYMBOL_GPL(rthal_arch_cleanup);
-#ifndef CONFIG_X86_TSC
+#if !defined(CONFIG_X86_TSC) && IPIPE_CORE_APIREV < 2
 EXPORT_SYMBOL_GPL(rthal_get_8254_tsc);
-#endif /* !CONFIG_X86_TSC */
+#endif /* !CONFIG_X86_TSC && IPIPE_CORE_APIREV < 2 */

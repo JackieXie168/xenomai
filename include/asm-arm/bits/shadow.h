@@ -174,11 +174,25 @@ static inline int xnarch_local_syscall(struct pt_regs *regs)
 			info.tsc = RTHAL_TSC_INFO(&ipipe_info).u.fr.tsc;
 			break;
 #endif /* IPIPE_TSC_TYPE_FREERUNNING_TWICE */
+		default:
+#if IPIPE_CORE_APIREV >= 1
+			/*
+			 * Newer tsc types, require kuser, not
+			 * backward compatible with old xenomai
+			 * versions
+			 */
+			info.type = __XN_TSC_TYPE_KUSER;
+			info.counter = (void *)
+				RTHAL_TSC_INFO(&ipipe_info).u.counter_paddr;
+			info.mask = RTHAL_TSC_INFO(&ipipe_info).u.mask;
+			info.tsc = RTHAL_TSC_INFO(&ipipe_info).u.fr.tsc;
+			break;
+#else
+			return -EINVAL;
+#endif /* IPIPE_CORE_APIREV >= 1 */
 		case IPIPE_TSC_TYPE_NONE:
 			return -ENOSYS;
 
-		default:
-			return -EINVAL;
 		}
 
 		if (__xn_copy_to_user((void *)__xn_reg_arg2(regs),
@@ -282,6 +296,11 @@ static inline void xnarch_handle_mayday(struct xnarchtcb *tcb,
 #ifdef CONFIG_XENO_ARM_EABI
 	tcb->mayday.r7 = regs->ARM_r7;
 #endif
+#ifdef CONFIG_ARM_THUMB
+	/* The code on the mayday page must be run in ARM mode */
+	tcb->mayday.psr = regs->ARM_cpsr;
+	regs->ARM_cpsr &= ~PSR_T_BIT;
+#endif
 	regs->ARM_pc = tramp;
 }
 
@@ -292,6 +311,9 @@ static inline void xnarch_fixup_mayday(struct xnarchtcb *tcb,
 	regs->ARM_r0 = tcb->mayday.r0;
 #ifdef CONFIG_XENO_ARM_EABI
 	regs->ARM_r7 = tcb->mayday.r7;
+#endif
+#ifdef CONFIG_ARM_THUMB
+	regs->ARM_cpsr = tcb->mayday.psr;
 #endif
 }
 

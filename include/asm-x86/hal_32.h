@@ -37,6 +37,8 @@
 #ifndef _XENO_ASM_X86_HAL_32_H
 #define _XENO_ASM_X86_HAL_32_H
 
+#include <asm/xenomai/wrappers.h>
+
 #define RTHAL_ARCH_NAME			"i386"
 #ifdef CONFIG_IPIPE_CORE
 # define RTHAL_TIMER_DEVICE		(ipipe_timer_name())
@@ -45,13 +47,13 @@
 #else
 # define RTHAL_TIMER_DEVICE		"pit"
 #endif
-#ifdef CONFIG_X86_TSC
+#if IPIPE_CORE_APIREV >= 2
+# define RTHAL_CLOCK_DEVICE		(ipipe_clock_name())
+#elif defined(CONFIG_X86_TSC)
 # define RTHAL_CLOCK_DEVICE		"tsc"
 #else
 # define RTHAL_CLOCK_DEVICE		"pit"
 #endif
-
-#include <asm/xenomai/wrappers.h>
 
 #include <asm-generic/xenomai/hal.h>	/* Read the generic bits. */
 
@@ -76,7 +78,6 @@ static inline __attribute_const__ unsigned long ffnz(unsigned long ul)
 }
 
 #ifndef __cplusplus
-#include <asm/system.h>
 #include <asm/io.h>
 #include <asm/timex.h>
 #include <asm/processor.h>
@@ -136,19 +137,19 @@ static inline void rthal_release_control(void)
 	rthal_smi_restore();
 }
 
-#ifdef CONFIG_X86_TSC
+#if defined(CONFIG_X86_TSC) || IPIPE_CORE_APIREV >= 2
 static inline unsigned long long rthal_rdtsc(void)
 {
 	unsigned long long t;
 	rthal_read_tsc(t);
 	return t;
 }
-#else /* !CONFIG_X86_TSC */
+#else /* !CONFIG_X86_TSC && IPIPE_CORE_APIREV < 2 */
 #define RTHAL_8254_COUNT2LATCH  0xfffe
 void rthal_setup_8254_tsc(void);
 rthal_time_t rthal_get_8254_tsc(void);
 #define rthal_rdtsc() rthal_get_8254_tsc()
-#endif /* CONFIG_X86_TSC */
+#endif /* !CONFIG_X86_TSC && IPIPE_CORE_APIREV < 2 */
 
 static inline void rthal_timer_program_shot(unsigned long delay)
 {
@@ -222,7 +223,7 @@ static const char *const rthal_fault_labels[] = {
 
 static inline int rthal_set_apic_base(int lvtt_value)
 {
-	if (APIC_INTEGRATED(GET_APIC_VERSION(apic_read(APIC_LVR))))
+	if (!APIC_INTEGRATED(GET_APIC_VERSION(apic_read(APIC_LVR))))
 		lvtt_value |= SET_APIC_TIMER_BASE(APIC_TIMER_BASE_DIV);
 
 	return lvtt_value;
