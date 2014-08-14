@@ -334,14 +334,11 @@ while : ; do
    fi
 done
 
-arch_makefile=Makefile
-
 # i386 and x86_64 architectures are merged since 2.6.24. The resulting
 # combo is available from arch/x86 when present.
 if test "$xenomai_arch" = x86; then
   if test -d $linux_tree/arch/x86; then
       linux_arch=x86
-      arch_makefile=Makefile_$x86_arch_bits
   fi
 fi
 
@@ -356,10 +353,10 @@ eval linux_`grep '^PATCHLEVEL =' $linux_tree/Makefile | sed -e 's, ,,g'`
 eval linux_`grep '^SUBLEVEL =' $linux_tree/Makefile | sed -e 's, ,,g'`
 eval linux_`grep '^VERSION =' $linux_tree/Makefile | sed -e 's, ,,g'`
 
-linux_version="$linux_VERSION.$linux_PATCHLEVEL.$linux_SUBLEVEL$linux_EXTRAVERSION"
+linux_version="$linux_VERSION.$linux_PATCHLEVEL.$linux_SUBLEVEL"
 
 if test x$verbose = x1; then
-echo "Preparing kernel $linux_version in $linux_tree..."
+echo "Preparing kernel $linux_version$linux_EXTRAVERSION in $linux_tree..."
 fi
 
 if test -r $linux_tree/include/linux/ipipe.h; then
@@ -372,7 +369,7 @@ elif test -r $linux_tree/include/linux/adeos.h; then
    exit 2
 else
    if test x$adeos_patch = x; then
-      default_adeos_patch=`( ls $xenomai_root/ksrc/arch/$xenomai_arch/patches/adeos-ipipe-$linux_version-$linux_arch-*|sort -r ) 2>/dev/null | head -n1`
+      default_adeos_patch="`( ls $xenomai_root/ksrc/arch/$xenomai_arch/patches/adeos-ipipe-$linux_version*-{$linux_arch,$xenomai_arch}-*|sort -r ) 2>/dev/null | head -n1`"
    fi
    if test x$default_adeos_patch = x; then
       default_adeos_patch=/dev/null
@@ -396,14 +393,14 @@ else
    curdir=$PWD
    cd $linux_tree && patch --dry-run -p1 -f < $adeos_patch || { 
         cd $curdir;
-        echo "$me: Unable to patch kernel $linux_version with `basename $adeos_patch`." >&2
+        echo "$me: Unable to patch kernel $linux_version$linux_EXTRAVERSION with `basename $adeos_patch`." >&2
         exit 2;
    }
    patch -p1 -f -s < $adeos_patch
    cd $curdir
 fi
 
-adeos_version=`grep '^#define.*IPIPE_ARCH_STRING.*"' $linux_tree/include/asm-$linux_arch/ipipe.h|sed -e 's,.*"\(.*\)"$,\1,'`
+adeos_version=`grep '^#define.*IPIPE_ARCH_STRING.*"' $linux_tree/include/asm-{$linux_arch,$xenomai_arch}/ipipe.h 2>/dev/null|head -1|sed -e 's,.*"\(.*\)"$,\1,'`
 
 if test \! "x$adeos_version" = x; then
    if test x$verbose = x1; then
@@ -433,9 +430,9 @@ case $linux_VERSION.$linux_PATCHLEVEL in
             patch_append init/Kconfig
     fi
 
-    if ! grep -q CONFIG_XENOMAI $linux_tree/arch/$linux_arch/$arch_makefile; then
+    if ! grep -q CONFIG_XENOMAI $linux_tree/arch/$linux_arch/Makefile; then
 	p="drivers-\$(CONFIG_XENOMAI)		+= arch/$linux_arch/xenomai/"
-	( echo ; echo $p ) | patch_append arch/$linux_arch/$arch_makefile
+	( echo ; echo $p ) | patch_append arch/$linux_arch/Makefile
     fi
 
     patch_architecture_specific="n"

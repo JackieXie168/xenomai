@@ -96,14 +96,14 @@ static void rthal_timer_set_periodic(void)
 
 #if LINUX_VERSION_CODE < KERNEL_VERSION(2,6,0)
 #include <asm/smpboot.h>
-static inline void send_IPI_all(int vector)
+static inline void send_IPI_allbutself(int vector)
 {
 	unsigned long flags;
 
 	rthal_local_irq_save_hw(flags);
 	apic_wait_icr_idle();
 	apic_write_around(APIC_ICR,
-			  APIC_DM_FIXED | APIC_DEST_ALLINC | INT_DEST_ADDR_MODE
+			  APIC_DM_FIXED | APIC_DEST_ALLBUT | INT_DEST_ADDR_MODE
 			  | vector);
 	rthal_local_irq_restore_hw(flags);
 }
@@ -114,12 +114,13 @@ static inline void send_IPI_all(int vector)
 DECLARE_LINUX_IRQ_HANDLER(rthal_broadcast_to_local_timers, irq, dev_id)
 {
 #ifdef CONFIG_SMP
-	send_IPI_all(LOCAL_TIMER_VECTOR);
-#else
-	rthal_trigger_irq(RTHAL_HOST_TICK_IRQ);
+	send_IPI_allbutself(LOCAL_TIMER_VECTOR);
 #endif
+	rthal_trigger_irq(RTHAL_HOST_TICK_IRQ);
 	return IRQ_HANDLED;
 }
+
+static int cpu_timers_requested;
 
 #ifdef CONFIG_GENERIC_CLOCKEVENTS
 
@@ -180,16 +181,16 @@ int rthal_timer_request(
 	 * The rest of the initialization should only be performed
 	 * once by a single CPU.
 	 */
-	if (cpu > 0)
+	if (cpu_timers_requested++ > 0)
 		goto out;
-
-	rthal_timer_set_oneshot(1);
 
 	err = rthal_irq_request(RTHAL_APIC_TIMER_IPI,
 				(rthal_irq_handler_t) tick_handler, NULL, NULL);
 
 	if (err)
 		return err;
+
+	rthal_timer_set_oneshot(1);
 
 	rthal_nmi_init(&rthal_latency_above_max);
 out:
@@ -220,10 +221,8 @@ int rthal_timer_request(void (*tick_handler)(void), int cpu)
 	 * The rest of the initialization should only be performed
 	 * once by a single CPU.
 	 */
-	if (cpu > 0)
+	if (cpu_timers_requested++ > 0)
 		goto out;
-
-	rthal_timer_set_oneshot(1);
 
 	err = rthal_irq_request(RTHAL_APIC_TIMER_IPI,
 			  (rthal_irq_handler_t) tick_handler, NULL, NULL);
@@ -236,6 +235,14 @@ int rthal_timer_request(void (*tick_handler)(void), int cpu)
 			       "rthal_broadcast_timer",
 			       &rthal_broadcast_to_local_timers);
 
+	rthal_timer_set_oneshot(1);
+
+	/*
+	 * rthal_timer_set_oneshot assumes the host tick flows via
+	 * RTHAL_TIMER_IRQ, but that's not the case for legacy x86_64.
+	 */
+	__ipipe_tick_irq = RTHAL_BCAST_TICK_IRQ;
+
 	rthal_nmi_init(&rthal_latency_above_max);
 out:
 	return 0;
@@ -247,17 +254,19 @@ void rthal_timer_release(int cpu)
 {
 #ifdef CONFIG_GENERIC_CLOCKEVENTS
 	ipipe_release_tickdev(cpu);
-#else
-	rthal_irq_host_release(RTHAL_BCAST_TICK_IRQ,
-			       &rthal_broadcast_to_local_timers);
 #endif
 
 	/*
 	 * The rest of the cleanup work should only be performed once
-	 * by a single CPU.
+	 * by the last releasing CPU.
 	 */
-	if (cpu > 0)
+	if (--cpu_timers_requested > 0)
 		return;
+
+#ifndef CONFIG_GENERIC_CLOCKEVENTS
+	rthal_irq_host_release(RTHAL_BCAST_TICK_IRQ,
+			       &rthal_broadcast_to_local_timers);
+#endif
 
 	rthal_nmi_release();
 

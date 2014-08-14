@@ -36,9 +36,9 @@ static inline unsigned long xnarch_get_sched_latency(void)
 
 #if defined(CONFIG_PPC_PASEMI)
 #ifdef CONFIG_SMP
-#define __sched_latency 9000
+#define __sched_latency 8000
 #else
-#define __sched_latency 7000
+#define __sched_latency 6000
 #endif
 #elif defined(CONFIG_WALNUT)
 #define __sched_latency 11000
@@ -54,6 +54,8 @@ static inline unsigned long xnarch_get_sched_latency(void)
 #define __sched_latency 4000
 #elif defined(CONFIG_TAISHAN)
 #define __sched_latency 1800
+#elif defined(CONFIG_RAINIER)
+#define __sched_latency 2300
 #elif defined(CONFIG_YUCCA)
 #define __sched_latency 2780
 #elif defined(CONFIG_YELLOWSTONE)
