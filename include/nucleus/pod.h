@@ -5,7 +5,7 @@
  * Copyright (C) 2001,2002,2003,2004,2005 Philippe Gerum <rpm@xenomai.org>.
  * Copyright (C) 2004 The RTAI project <http://www.rtai.org>
  * Copyright (C) 2004 The HYADES project <http://www.hyades-itea.org>
- * Copyright (C) 2004 The Xenomai project <http://www.Xenomai.org>
+ * Copyright (C) 2004 The Xenomai project <http://www.xenomai.org>
  *
  * Xenomai is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published
@@ -35,7 +35,7 @@
 #include <nucleus/intr.h>
 
 /* Creation flags */
-#define XNDREORD 0x00000001     /* Don't reorder pend queues upon prio change */
+#define XNREUSE  0x00000001     /* Reuse pod with identical properties */
 
 /* Pod status flags */
 #define XNRPRIO  0x00000002     /* Reverse priority scheme */
@@ -69,7 +69,6 @@
 #define XNPOD_NORMAL_EXIT  0x0
 #define XNPOD_FATAL_EXIT   0x1
 
-#define XNPOD_DEFAULT_TICK         XNARCH_DEFAULT_TICK
 #define XNPOD_DEFAULT_TICKHANDLER  (&xnpod_announce_tick)
 
 #define XNPOD_ALL_CPUS  XNARCH_CPU_MASK_ALL
@@ -128,7 +127,10 @@ typedef struct xnsched {
 
     xnsched_queue_t readyq;     /*!< Ready-to-run threads (prioritized). */
 
-    xnqueue_t timerwheel[XNTIMER_WHEELSIZE]; /*!< BSDish timer wheel. */
+    xntimerq_t timerqueue;
+#ifdef CONFIG_XENO_OPT_TIMING_PERIODIC
+    xnqueue_t timerwheel [XNTIMER_WHEELSIZE]; /*!< BSDish timer wheel. */
+#endif /* CONFIG_XENO_OPT_TIMING_PERIODIC */
 
     volatile unsigned inesting; /*!< Interrupt nesting level. */
 
@@ -191,7 +193,7 @@ struct xnpod {
 
     xnqueue_t threadq;          /*!< All existing threads. */
 
-    atomic_counter_t schedlck;  /*!< Scheduler lock count. */
+    volatile u_long schedlck;	/*!< Scheduler lock count. */
 
     xnqueue_t tstartq,          /*!< Thread start hook queue. */
               tswitchq,         /*!< Thread switch hook queue. */
@@ -209,7 +211,9 @@ struct xnpod {
 
     int refcnt;			/*!< Reference count.  */
 
+#ifdef __KERNEL__
     atomic_counter_t timerlck;	/*!< Timer lock depth.  */
+#endif /* __KERNEL__ */
 
     struct {
         void (*settime)(xnticks_t newtime); /*!< Clock setting hook. */
@@ -240,6 +244,8 @@ extern xnlock_t nklock;
 extern u_long nkschedlat;
 
 extern u_long nktimerlat;
+
+extern u_long nktickdef;
 
 extern char *nkmsgbuf;
 
@@ -311,10 +317,8 @@ static inline void xnpod_renice_root (int prio)
 
     xnlock_get_irqsave(&nklock,s);
     rootcb = &nkpod->sched[xnarch_current_cpu()].rootcb;
-    if (rootcb->cprio != prio) { /* No round-robin effect. */
-    	rootcb->cprio = prio;
-	xnpod_schedule_runnable(rootcb,XNPOD_SCHEDLIFO|XNPOD_NOSWITCH);
-    }
+    rootcb->cprio = prio;
+    xnpod_schedule_runnable(rootcb,XNPOD_SCHEDLIFO|XNPOD_NOSWITCH);
     xnlock_put_irqrestore(&nklock,s);
 }
 
@@ -370,30 +374,34 @@ static inline void xnpod_renice_root (int prio)
 #define xnpod_timeset_p() \
     (!!testbits(nkpod->status,XNTMSET))
 
-static inline u_long xnpod_get_ticks2sec (void) {
+static inline u_long xnpod_get_ticks2sec (void)
+{
     return nkpod->ticks2sec;
 }
 
-static inline u_long xnpod_get_tickval (void) {
+static inline u_long xnpod_get_tickval (void)
+{
     /* Returns the duration of a tick in nanoseconds */
     return nkpod->tickvalue;
 }
 
-static inline xntime_t xnpod_ticks2ns (xnticks_t ticks) {
+static inline xntime_t xnpod_ticks2ns (xnticks_t ticks)
+{
     /* Convert a count of ticks in nanoseconds */
-#ifdef CONFIG_XENO_HW_PERIODIC_TIMER
+#ifdef CONFIG_XENO_OPT_TIMING_PERIODIC
     return ticks * xnpod_get_tickval();
-#else /* !CONFIG_XENO_HW_PERIODIC_TIMER */
+#else /* !CONFIG_XENO_OPT_TIMING_PERIODIC */
     return ticks;
-#endif /* !CONFIG_XENO_HW_PERIODIC_TIMER */
+#endif /* !CONFIG_XENO_OPT_TIMING_PERIODIC */
 }
 
-static inline xnticks_t xnpod_ns2ticks (xntime_t t) {
-#ifdef CONFIG_XENO_HW_PERIODIC_TIMER
+static inline xnticks_t xnpod_ns2ticks (xntime_t t)
+{
+#ifdef CONFIG_XENO_OPT_TIMING_PERIODIC
     return xnarch_ulldiv(t,xnpod_get_tickval(),NULL);
-#else /* !CONFIG_XENO_HW_PERIODIC_TIMER */
+#else /* !CONFIG_XENO_OPT_TIMING_PERIODIC */
     return t;
-#endif /* !CONFIG_XENO_HW_PERIODIC_TIMER */
+#endif /* !CONFIG_XENO_OPT_TIMING_PERIODIC */
 }
 
 int xnpod_init(xnpod_t *pod,
@@ -452,30 +460,29 @@ void xnpod_dispatch_signals(void);
 
 static inline void xnpod_lock_sched (void)
 {
-    /* Don't swap these two lines... */
-    xnarch_atomic_inc(&nkpod->schedlck);
-    __setbits(xnpod_current_sched()->runthread->status,XNLOCK);
+    spl_t s;
+
+    xnlock_get_irqsave(&nklock,s);
+
+    if (nkpod->schedlck++ == 0)
+	__setbits(xnpod_current_sched()->runthread->status,XNLOCK);
+
+    xnlock_put_irqrestore(&nklock,s);
 }
 
 static inline void xnpod_unlock_sched (void)
 {
-    if (xnarch_atomic_dec_and_test(&nkpod->schedlck))
+    spl_t s;
+
+    xnlock_get_irqsave(&nklock,s);
+
+    if (--nkpod->schedlck == 0)
         {
         __clrbits(xnpod_current_sched()->runthread->status,XNLOCK);
         xnpod_schedule();
         }
-}
 
-static inline void xnpod_lock_timers (void)
-{
-    xnarch_atomic_inc(&nkpod->timerlck);
-    setbits(nkpod->status,XNTLOCK);
-}
-
-static inline void xnpod_unlock_timers (void)
-{
-    if (xnarch_atomic_dec_and_test(&nkpod->timerlck))
-	clrbits(nkpod->status,XNTLOCK);
+    xnlock_put_irqrestore(&nklock,s);
 }
 
 int xnpod_announce_tick(struct xnintr *intr);
@@ -490,7 +497,7 @@ int xnpod_set_thread_periodic(xnthread_t *thread,
                               xnticks_t idate,
                               xnticks_t period);
 
-int xnpod_wait_thread_period(void);
+int xnpod_wait_thread_period(unsigned long *overruns_r);
 
 xnticks_t xnpod_get_time(void);
 
@@ -507,20 +514,24 @@ int xnpod_remove_hook(int type,
 
 void xnpod_check_context(int mask);
 
-static inline void xnpod_yield (void) {
+static inline void xnpod_yield (void)
+{
     xnpod_resume_thread(xnpod_current_thread(),0);
     xnpod_schedule();
 }
 
-static inline void xnpod_delay (xnticks_t timeout) {
+static inline void xnpod_delay (xnticks_t timeout)
+{
     xnpod_suspend_thread(xnpod_current_thread(),XNDELAY,timeout,NULL);
 }
 
-static inline void xnpod_suspend_self (void) {
+static inline void xnpod_suspend_self (void)
+{
     xnpod_suspend_thread(xnpod_current_thread(),XNSUSP,XN_INFINITE,NULL);
 }
 
-static inline void xnpod_delete_self (void) {
+static inline void xnpod_delete_self (void)
+{
     xnpod_delete_thread(xnpod_current_thread());
 }
 

@@ -54,18 +54,18 @@
 /*
   Must follow the declaration order of the above bits. Status symbols
   are defined as follows:
-  'S' -> forcibly suspended.
-  'w'/'W' -> waiting for a resource, with or without timeout.
-  'D' -> delayed (without any other wait condition).
-  'R' -> runnable.
-  'U' -> unstarted or dormant.
+  'S' -> Forcibly suspended.
+  'w'/'W' -> Waiting for a resource, with or without timeout.
+  'D' -> Delayed (without any other wait condition).
+  'R' -> Runnable.
+  'U' -> Unstarted or dormant.
   'X' -> Relaxed shadow.
   'b' -> Priority boost undergoing.
-  'T' -> ptraced and stopped.
-  'l' -> locks scheduler.
-  'r' -> undergoes round-robin .
-  's' -> interrupt shield enabled.
-  't' -> mode switches trapped.
+  'T' -> Ptraced and stopped.
+  'l' -> Locks scheduler.
+  'r' -> Undergoes round-robin .
+  's' -> Interrupt shield enabled.
+  't' -> Mode switches trapped.
   'f' -> FPU enabled (for kernel threads).
 */
 #define XNTHREAD_SLABEL_INIT { \
@@ -135,7 +135,7 @@ typedef struct xnthread {
 
     xntimer_t ptimer;		/* Periodic timer */
 
-    int poverrun;		/* Periodic timer overrun. */
+    xnticks_t pexpect;		/* Date of next periodic release point (raw ticks). */
 
     xnsigmask_t signals;	/* Pending signals */
 
@@ -166,6 +166,13 @@ typedef struct xnthread {
     int imode;			/* Initial mode */
 
     int iprio;			/* Initial priority */
+
+#ifdef CONFIG_XENO_OPT_REGISTRY
+    struct {
+	xnhandle_t handle;	/* Handle in registry */
+	const char *waitkey;	/* Pended key */
+    } registry;
+#endif /* CONFIG_XENO_OPT_REGISTRY */
 
     unsigned magic;		/* Skin magic. */
 
@@ -217,6 +224,7 @@ typedef struct xnhook {
 #define xnthread_timeout(thread)           xntimer_get_timeout(&(thread)->rtimer)
 #define xnthread_stack_size(thread)        xnarch_stack_size(xnthread_archtcb(thread))
 #define xnthread_extended_info(thread)     ((thread)->extinfo)
+#define xnthread_handle(thread)            ((thread)->registry.handle)
 #define xnthread_set_magic(thread,m)       do { (thread)->magic = (m); } while(0)
 #define xnthread_get_magic(thread)         ((thread)->magic)
 #define xnthread_signaled_p(thread)        ((thread)->signals != 0)
