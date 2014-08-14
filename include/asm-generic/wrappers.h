@@ -179,6 +179,10 @@ void show_stack(struct task_struct *task,
 
 #define atomic_cmpxchg(v, old, new) ((int)cmpxchg(&((v)->counter), old, new))
 
+#ifndef __deprecated
+#define __deprecated  __attribute__((deprecated))
+#endif
+
 #else /* LINUX_VERSION_CODE >= KERNEL_VERSION(2,5,0) */
 
 #define compat_module_param_array(name, type, count, perm) \
@@ -266,5 +270,9 @@ unsigned long __va_to_kva(unsigned long va);
 #endif /* >= 2.6.20 */
 
 #endif /* LINUX_VERSION_CODE < KERNEL_VERSION(2,5,0) */
+
+#if LINUX_VERSION_CODE < KERNEL_VERSION(2,6,18)
+#define IRQF_SHARED			SA_SHIRQ
+#endif /* < 2.6.18 */
 
 #endif /* _XENO_ASM_GENERIC_WRAPPERS_H */

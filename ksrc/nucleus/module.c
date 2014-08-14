@@ -187,9 +187,9 @@ static int sched_seq_open(struct inode *inode, struct file *file)
 	if (!nkpod)
 		return -ESRCH;
 
-      restart:
 	xnlock_get_irqsave(&nklock, s);
 
+      restart:
 	rev = nkpod->threadq_rev;
 	count = countq(&nkpod->threadq);	/* Cannot be empty (ROOT) */
 	holder = getheadq(&nkpod->threadq);
@@ -357,9 +357,10 @@ static int stat_seq_open(struct inode *inode, struct file *file)
 	if (!nkpod)
 		return -ESRCH;
 
-      restart:
+      restart_unlocked:
 	xnlock_get_irqsave(&nklock, s);
 
+      restart:
 	count = countq(&nkpod->threadq);	/* Cannot be empty (ROOT) */
 	holder = getheadq(&nkpod->threadq);
 	thrq_rev = nkpod->threadq_rev;
@@ -439,7 +440,7 @@ static int stat_seq_open(struct inode *inode, struct file *file)
 	}
 
 	/* Iterate over all IRQ numbers, ... */
-	for (irq = 0; irq < RTHAL_NR_IRQS; irq++) {
+	for (irq = 0; irq < XNARCH_NR_IRQS; irq++) {
 		xnintr_t *prev = NULL;
 		int cpu = 0;
 		int err;
@@ -455,7 +456,7 @@ static int stat_seq_open(struct inode *inode, struct file *file)
 					   &stat_info->runtime,
 					   &stat_info->account_period);
 			if (err == -EAGAIN)
-				goto restart;
+				goto restart_unlocked;
 			if (err)
 				break; /* line unused or end of chain */
 
@@ -642,7 +643,7 @@ static int irq_read_proc(char *page,
 		p += sprintf(p, "        CPU%d", cpu);
 	}
 
-	for (irq = 0; irq < RTHAL_NR_IRQS; irq++) {
+	for (irq = 0; irq < XNARCH_NR_IRQS; irq++) {
 
 		if (rthal_irq_handler(&rthal_domain, irq) == NULL)
 			continue;
@@ -832,10 +833,9 @@ void xnpod_declare_iface_proc(struct xnskentry *iface)
 				    iface_proc_root);
 }
 
-void xnpod_discard_iface_proc(struct xnskentry *iface)
+void xnpod_discard_iface_proc(const char *iface_name)
 {
-	remove_proc_entry(iface->name, iface_proc_root);
-	iface->proc = NULL;
+	remove_proc_entry(iface_name, iface_proc_root);
 }
 
 #endif /* CONFIG_XENO_OPT_PERVASIVE */

@@ -58,8 +58,6 @@ static inline __attribute_const__ unsigned long ffnz(unsigned long ul)
 #define RTHAL_HOST_TIMER_IPI	IPIPE_SERVICE_IPI4
 #endif /* CONFIG_SMP */
 
-#define rthal_irq_descp(irq)	(&irq_desc[(irq)])
-
 #define rthal_grab_control()     do { } while(0)
 #define rthal_release_control()  do { } while(0)
 
@@ -185,7 +183,9 @@ static const char *const rthal_fault_labels[] = {
 	[10] = "System reset exception",
 	[11] = "Kernel FP unavailable",
 	[12] = "Performance monitor",
-	[13] = NULL
+	[13] = "", /* No cache locking exception */
+	[14] = "Kernel FP unavailable",
+	[15] = NULL
 #else /* !CONFIG_PPC64 */
 	[0] = "Data or instruction access",
 	[1] = "Alignment",
@@ -201,7 +201,9 @@ static const char *const rthal_fault_labels[] = {
 	[11] = "Debug",
 	[12] = "SPE",
 	[13] = "Altivec assist",
-	[14] = NULL
+	[14] = "Cache-locking exception",
+	[15] = "Kernel FP unavailable",
+	[16] = NULL
 #endif /* CONFIG_PPC64 */
 };
 

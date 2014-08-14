@@ -62,6 +62,10 @@
 #define CONFIG_XENO_OPT_DEBUG_NUCLEUS  0
 #endif
 
+static int xn_gid_arg = -1;
+module_param_named(xenomai_gid, xn_gid_arg, int, 0644);
+MODULE_PARM_DESC(xenomai_gid, "GID of the group with access to Xenomai services");
+
 int nkthrptd;
 
 int nkerrptd;
@@ -117,7 +121,7 @@ static int nucleus_muxid = -1;
 
 void xnpod_declare_iface_proc(struct xnskentry *iface);
 
-void xnpod_discard_iface_proc(struct xnskentry *iface);
+void xnpod_discard_iface_proc(const char *iface);
 
 #ifndef CONFIG_XENO_OPT_RPIDISABLE
 
@@ -134,7 +138,8 @@ static inline void rpi_init(void)
 
 static inline void rpi_init_gk(struct __gatekeeper *gk)
 {
-	sched_initpq(&gk->rpislot.threadq, xnqueue_down, XNCORE_NR_PRIO);
+	sched_initpq(&gk->rpislot.threadq, xnqueue_down,
+		     XNCORE_MIN_PRIO, XNCORE_MAX_PRIO);
 }
 
 static inline void rpi_none(xnthread_t *thread)
@@ -577,9 +582,9 @@ static rthal_pipeline_stage_t irq_shield;
 
 static cpumask_t shielded_cpus, unshielded_cpus;
 
-static rthal_rwlock_t shield_lock = RTHAL_RW_LOCK_UNLOCKED;
+static unsigned long shield_sync;
 
-static inline void engage_irq_shield(void)
+static void engage_irq_shield(void)
 {
 	unsigned long flags;
 	rthal_declare_cpuid;
@@ -589,13 +594,14 @@ static inline void engage_irq_shield(void)
 	if (xnarch_cpu_test_and_set(cpuid, shielded_cpus))
 		goto unmask_and_exit;
 
-	rthal_read_lock(&shield_lock);
+	while (test_bit(0, &shield_sync))
+		/* We don't want to defer the actual shielding for too
+		 * long, so we spin IRQS off. */
+		cpu_relax();
 
 	xnarch_cpu_clear(cpuid, unshielded_cpus);
 
 	xnarch_lock_xirqs(&irq_shield, cpuid);
-
-	rthal_read_unlock(&shield_lock);
 
       unmask_and_exit:
 
@@ -612,18 +618,21 @@ static void disengage_irq_shield(void)
 	if (xnarch_cpu_test_and_set(cpuid, unshielded_cpus))
 		goto unmask_and_exit;
 
-	rthal_write_lock(&shield_lock);
+	/* Prevent other CPUs from engaging the shield while we
+	   attempt to disengage. */
+	set_bit(0, &shield_sync);
 
+	/* Ok, this one is now unshielded. */
 	xnarch_cpu_clear(cpuid, shielded_cpus);
+
+	smp_mb__after_clear_bit();
 
 	/* We want the shield to be either engaged on all CPUs (i.e. if at
 	   least one CPU asked for shielding), or disengaged on all
 	   (i.e. if no CPU asked for shielding). */
 
-	if (!cpus_empty(shielded_cpus)) {
-		rthal_write_unlock(&shield_lock);
-		goto unmask_and_exit;
-	}
+	if (!xnarch_cpus_empty(shielded_cpus))
+		goto clear_sync;
 
 	/* At this point we know that we are the last CPU to disengage the
 	   shield, so we just unlock the external IRQs for all CPUs, and
@@ -642,11 +651,15 @@ static void disengage_irq_shield(void)
 	}
 #endif /* CONFIG_SMP */
 
-	rthal_write_unlock(&shield_lock);
-
 	rthal_stage_irq_enable(&irq_shield);
 
-      unmask_and_exit:
+clear_sync:
+
+	clear_bit(0, &shield_sync);
+
+	smp_mb__after_clear_bit();
+
+unmask_and_exit:
 
 	rthal_unlock_cpu(flags);
 }
@@ -712,17 +725,6 @@ static void lostage_handler(void *cookie)
 
 		case LO_WAKEUP_REQ:
 
-#ifdef CONFIG_SMP
-			/* If the shadow thread changed its CPU while
-			   in primary mode, change the CPU of its
-			   Linux counter-part (this is a cheap
-			   operation, since the said Linux
-			   counter-part is suspended from Linux
-			   POV). */
-			if (!xnarch_cpu_isset(cpuid, p->cpus_allowed))
-				set_cpus_allowed(p, cpumask_of_cpu(cpuid));
-#endif /* CONFIG_SMP */
-
 			/* We need to downgrade the root thread
 			   priority whenever the APC runs over a
 			   non-shadow, so that the temporary boost we
@@ -771,7 +773,7 @@ static void lostage_handler(void *cookie)
 static void schedule_linux_call(int type, struct task_struct *p, int arg)
 {
 	/* Do _not_ use smp_processor_id() here so we don't trigger Linux
-	   preemption debug traps inadvertently (see lib/kernel_lock.c). */
+	   preemption debug traps inadvertently (see lib/smp_processor_id.c). */
 	int cpuid = rthal_processor_id(), reqnum;
 	struct __lostagerq *rq = &lostagerq[cpuid];
 	spl_t s;
@@ -783,11 +785,19 @@ static void schedule_linux_call(int type, struct task_struct *p, int arg)
 		);
 
 	splhigh(s);
+
 	reqnum = rq->in;
+
+	if (XENO_DEBUG(NUCLEUS) &&
+	    ((reqnum + 1) & (LO_MAX_REQUESTS - 1)) == rq->out)
+	    xnpod_fatal("lostage queue overflow on CPU %d! "
+			"Increase LO_MAX_REQUESTS", cpuid);
+
 	rq->req[reqnum].type = type;
 	rq->req[reqnum].task = p;
 	rq->req[reqnum].arg = arg;
 	rq->in = (reqnum + 1) & (LO_MAX_REQUESTS - 1);
+
 	splexit(s);
 
 	rthal_apc_schedule(lostage_apc);
@@ -1092,7 +1102,7 @@ int xnshadow_map(xnthread_t *thread, xncompletion_t __user * u_completion)
 {
 	xnarch_cpumask_t affinity;
 	unsigned muxid, magic;
-	int mode, prio, err;
+	int prio, err;
 
 #ifdef CONFIG_MMU
 	if (!(current->mm->def_flags & VM_LOCKED))
@@ -1128,10 +1138,6 @@ int xnshadow_map(xnthread_t *thread, xncompletion_t __user * u_completion)
 	   plain (i.e. non-Xenomai) Linux tasks. */
 	current->flags |= PF_EVNOTIFY;
 
-	current->cap_effective |=
-	    CAP_TO_MASK(CAP_IPC_LOCK) |
-	    CAP_TO_MASK(CAP_SYS_RAWIO) | CAP_TO_MASK(CAP_SYS_NICE);
-
 	xnarch_init_shadow_tcb(xnthread_archtcb(thread), thread,
 			       xnthread_name(thread));
 	prio = normalize_priority(xnthread_base_priority(thread));
@@ -1157,8 +1163,7 @@ int xnshadow_map(xnthread_t *thread, xncompletion_t __user * u_completion)
 	affinity = xnarch_cpumask_of_cpu(rthal_processor_id());
 	set_cpus_allowed(current, affinity);
 
-	mode = thread->rrperiod != XN_INFINITE ? XNRRB : 0;
-	xnpod_start_thread(thread, mode, 0, affinity, NULL, NULL);
+	xnpod_start_thread(thread, 0, 0, affinity, NULL, NULL);
 
 	err = xnshadow_harden();
 
@@ -1388,6 +1393,15 @@ static int xnshadow_sys_bind(struct task_struct *curr, struct pt_regs *regs)
 
 	if (!check_abi_revision(abirev))
 		return -ENOEXEC;
+
+	if (!cap_raised(current->cap_effective, CAP_SYS_NICE) &&
+	    (xn_gid_arg == -1 || !in_group_p(xn_gid_arg)))
+		return -EPERM;
+
+	/* Raise capabilities for the caller in case they are lacking yet. */
+	cap_raise(current->cap_effective, CAP_SYS_NICE);
+	cap_raise(current->cap_effective, CAP_IPC_LOCK);
+	cap_raise(current->cap_effective, CAP_SYS_RAWIO);
 
 	xnlock_get_irqsave(&nklock, s);
 
@@ -1665,12 +1679,13 @@ static inline int do_hisyscall_event(unsigned event, unsigned domid, void *data)
 	if (!__xn_reg_mux_p(regs))
 		goto linux_syscall;
 
-#ifdef CONFIG_XENO_OPT_SECURITY_ACCESS
-	if (unlikely(!cap_raised(p->cap_effective, CAP_SYS_NICE))) {
+	/* Executing Xenomai services requires CAP_SYS_NICE, except for
+	   __xn_sys_bind which does its own checks. */
+	if (unlikely(!cap_raised(p->cap_effective, CAP_SYS_NICE)) &&
+	    __xn_reg_mux(regs) != __xn_mux_code(0, __xn_sys_bind)) {
 		__xn_error_return(regs, -EPERM);
 		return RTHAL_EVENT_STOP;
 	}
-#endif /* CONFIG_XENO_OPT_SECURITY_ACCESS */
 
 	muxid = __xn_mux_id(regs);
 	muxop = __xn_mux_op(regs);
@@ -2170,7 +2185,7 @@ int xnshadow_register_interface(const char *name,
 }
 
 /*
- * xnshadow_unregister_interface() -- Unregister a new skin/interface.
+ * xnshadow_unregister_interface() -- Unregister a skin/interface.
  * NOTE: an interface can be unregistered without its pod being
  * necessarily active.
  */
@@ -2191,7 +2206,15 @@ int xnshadow_unregister_interface(int muxid)
 		muxtable[muxid].magic = 0;
 		xnarch_atomic_set(&muxtable[muxid].refcnt, -1);
 #ifdef CONFIG_PROC_FS
-		xnpod_discard_iface_proc(muxtable + muxid);
+		{
+			const char *name = muxtable[muxid].name;
+			muxtable[muxid].proc = NULL;
+			xnlock_put_irqrestore(&nklock, s);
+
+			xnpod_discard_iface_proc(name);
+
+			return 0;
+		}
 #endif /* CONFIG_PROC_FS */
 	} else
 		err = -EBUSY;

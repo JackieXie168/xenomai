@@ -35,6 +35,8 @@ static inline void xnarch_init_shadow_tcb(xnarchtcb_t * tcb,
 
 	tcb->user_task = task;
 	tcb->active_task = NULL;
+	tcb->mm = task->mm;
+	tcb->active_mm = NULL;
 	tcb->tip = task->thread_info;
 #ifdef CONFIG_XENO_HW_FPU
 	tcb->user_fpu_owner = task;
@@ -154,6 +156,39 @@ static inline int xnarch_local_syscall(struct pt_regs *regs)
 			local_irq_restore_hw(flags);
 			break;
 		}
+
+/* If I-pipe supports user-space tsc emulation, add a syscall for retrieving tsc
+   infos. */
+#ifdef IPIPE_TSC_TYPE_NONE
+	case XENOMAI_SYSARCH_TSCINFO:{
+		struct ipipe_sysinfo ipipe_info;
+		struct __xn_tscinfo info;
+
+		error = ipipe_get_sysinfo(&ipipe_info);
+		if (error)
+			return error;
+
+		switch (ipipe_info.archdep.tsc.type) {
+		case IPIPE_TSC_TYPE_FREERUNNING:
+			info.type = __XN_TSC_TYPE_FREERUNNING,
+			info.u.fr.counter = ipipe_info.archdep.tsc.u.fr.counter;
+			info.u.fr.mask = ipipe_info.archdep.tsc.u.fr.mask;
+			info.u.fr.tsc = ipipe_info.archdep.tsc.u.fr.tsc;
+			break;
+		case IPIPE_TSC_TYPE_DECREMENTER:
+		case IPIPE_TSC_TYPE_NONE:
+			return -ENOSYS;
+			
+		default:
+			return -EINVAL;
+		}
+		
+		__xn_copy_to_user(current, (void *)__xn_reg_arg2(regs),
+				  &info, sizeof(info));
+		break;
+	}
+#endif /* IPIPE_TSC_TYPE_NONE */
+
 	default:
 		error = -EINVAL;
 	}

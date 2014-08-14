@@ -120,6 +120,7 @@ typedef struct { atomic_t owner; } xnlock_t;
 
 #define XNARCH_NR_CPUS               RTHAL_NR_CPUS
 
+#define XNARCH_NR_IRQS               RTHAL_NR_IRQS
 #define XNARCH_TIMER_IRQ	     RTHAL_TIMER_IRQ
 
 #define XNARCH_ROOT_STACKSZ   0	/* Only a placeholder -- no stack */
@@ -129,18 +130,6 @@ typedef struct { atomic_t owner; } xnlock_t;
 #define xnarch_logwarn(fmt,args...)  printk(KERN_WARNING XNARCH_PROMPT fmt , ##args)
 #define xnarch_logerr(fmt,args...)   printk(KERN_ERR XNARCH_PROMPT fmt , ##args)
 #define xnarch_printf(fmt,args...)   printk(KERN_INFO XNARCH_PROMPT fmt , ##args)
-
-#define xnarch_ullmod(ull,uld,rem)   ({ xnarch_ulldiv(ull,uld,rem); (*rem); })
-#define xnarch_uldiv(ull, d)         rthal_uldivrem(ull, d, NULL)
-#define xnarch_ulmod(ull, d)         ({ u_long _rem;                    \
-                                        rthal_uldivrem(ull,d,&_rem); _rem; })
-
-#define xnarch_ullmul                rthal_ullmul
-#define xnarch_uldivrem              rthal_uldivrem
-#define xnarch_ulldiv                rthal_ulldiv
-#define xnarch_imuldiv               rthal_imuldiv
-#define xnarch_llimd                 rthal_llimd
-#define xnarch_get_cpu_tsc           rthal_rdtsc
 
 typedef cpumask_t xnarch_cpumask_t;
 

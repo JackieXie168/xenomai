@@ -66,11 +66,11 @@ static inline int xnpipe_minor_alloc(int minor)
 
 	if (minor == XNPIPE_NDEVS ||
 	    testbits(xnpipe_bitmap[minor / BITS_PER_LONG],
-		     1 << (minor % BITS_PER_LONG)))
+		     1UL << (minor % BITS_PER_LONG)))
 		minor = -EBUSY;
 	else
 		__setbits(xnpipe_bitmap[minor / BITS_PER_LONG],
-			  1 << (minor % BITS_PER_LONG));
+			  1UL << (minor % BITS_PER_LONG));
 
 	xnlock_put_irqrestore(&nklock, s);
 
@@ -83,7 +83,7 @@ static inline void xnpipe_minor_free(int minor)
 		return;
 
 	__clrbits(xnpipe_bitmap[minor / BITS_PER_LONG],
-		  1 << (minor % BITS_PER_LONG));
+		  1UL << (minor % BITS_PER_LONG));
 }
 
 static inline void xnpipe_enqueue_read(xnpipe_state_t *state)
@@ -209,7 +209,7 @@ static void xnpipe_wakeup_proc(void *cookie)
 			   for the sleep queue */
 
 #if defined(CONFIG_PREEMPT_RT) || defined (CONFIG_SMP)
-			nholder = getheadq(&xnpipe_sleepq);
+			nholder = getheadq(&xnpipe_asyncq);
 #endif /* CONFIG_PREEMPT_RT || CONFIG_SMP */
 		}
 	}
@@ -658,7 +658,6 @@ static int xnpipe_release(struct inode *inode, struct file *file)
 		fasync_helper(-1, file, 0, &state->asyncq);
 	}
 
-	/* Free the state object. Since that time it can be open by someone else */
 	xnpipe_cleanup_user_conn(state);
 
 	return err;
@@ -798,7 +797,15 @@ static ssize_t xnpipe_write(struct file *file,
 	inith(xnpipe_m_link(mh));
 	xnpipe_m_size(mh) = count;
 	xnpipe_m_rdoff(mh) = 0;
-	__copy_from_user(xnpipe_m_data(mh), buf, count);
+
+	if (copy_from_user(xnpipe_m_data(mh), buf, count)) {
+		if (alloc_handler == NULL)
+			xnfree(mh);
+		else if (input_handler != NULL)
+			state->input_handler(xnminor_from_state(state), mh,
+					     -EFAULT, state->cookie);
+		return -EFAULT;
+	}
 
 	xnlock_get_irqsave(&nklock, s);
 

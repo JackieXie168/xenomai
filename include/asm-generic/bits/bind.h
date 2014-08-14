@@ -17,10 +17,6 @@ xeno_bind_skin(unsigned skin_magic, const char *skin, const char *module)
 	xnfeatinfo_t finfo;
 	int muxid;
 
-#ifdef xeno_arch_features_check
-	xeno_arch_features_check();
-#endif /* xeno_arch_features_check */
-
 	muxid = XENOMAI_SYSBIND(skin_magic,
 				XENOMAI_FEAT_DEP, XENOMAI_ABI_REV, &finfo);
 	switch (muxid) {
@@ -54,6 +50,10 @@ xeno_bind_skin(unsigned skin_magic, const char *skin, const char *module)
 		exit(1);
 	}
 
+#ifdef xeno_arch_features_check
+	xeno_arch_features_check();
+#endif /* xeno_arch_features_check */
+
 	/* Install a SIGXCPU handler to intercept alerts about unlocked
 	   process memory. */
 
@@ -62,7 +62,7 @@ xeno_bind_skin(unsigned skin_magic, const char *skin, const char *module)
 	sa.sa_flags = 0;
 	sigaction(SIGXCPU, &sa, NULL);
 
-	return __xn_mux_shifted_id(muxid);
+	return muxid;
 }
 
 static inline int
@@ -70,10 +70,6 @@ xeno_bind_skin_opt(unsigned skin_magic, const char *skin, const char *module)
 {
 	xnfeatinfo_t finfo;
 	int muxid;
-
-#ifdef xeno_arch_features_check
-	xeno_arch_features_check();
-#endif /* xeno_arch_features_check */
 
 	muxid = XENOMAI_SYSBIND(skin_magic,
 				XENOMAI_FEAT_DEP, XENOMAI_ABI_REV, &finfo);
@@ -105,7 +101,11 @@ xeno_bind_skin_opt(unsigned skin_magic, const char *skin, const char *module)
 		exit(1);
 	}
 
-	return __xn_mux_shifted_id(muxid);
+#ifdef xeno_arch_features_check
+	xeno_arch_features_check();
+#endif /* xeno_arch_features_check */
+
+	return muxid;
 }
 
 #endif /* _XENO_ASM_GENERIC_BITS_BIND_H */

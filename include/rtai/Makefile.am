@@ -1,6 +1,6 @@
-includedir = $(prefix)/include/rtai
+includesubdir = $(includedir)/rtai
 
-include_HEADERS = \
+includesub_HEADERS = \
 	fifo.h \
 	intr.h \
 	rt_mem_mgr.h \
@@ -12,6 +12,7 @@ include_HEADERS = \
 	rtai_sched.h \
 	rtai_sem.h \
 	rtai_shm.h \
+	rtai_timer.h \
 	rtai_types.h \
 	sem.h \
 	shm.h \

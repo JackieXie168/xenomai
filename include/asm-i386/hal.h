@@ -39,71 +39,6 @@
 
 #include <asm/xenomai/wrappers.h>
 
-#define __rthal_u64tou32(ull, h, l) ({          \
-    unsigned long long _ull = (ull);            \
-    (l) = _ull & 0xffffffff;                    \
-    (h) = _ull >> 32;                           \
-})
-
-#define __rthal_u64fromu32(h, l) ({             \
-    unsigned long long _ull;                    \
-    asm ( "": "=A"(_ull) : "d"(h), "a"(l));     \
-    _ull;                                       \
-})
-
-/* const helper for rthal_uldivrem, so that the compiler will eliminate
-   multiple calls with same arguments, at no additionnal cost. */
-static inline __attribute_const__ unsigned long long
-__rthal_uldivrem(const unsigned long long ull, const unsigned long d)
-{
-    unsigned long long ret;
-    __asm__ ("divl %1" : "=A,A"(ret) : "r,?m"(d), "A,A"(ull));
-    /* Exception if quotient does not fit on unsigned long. */
-    return ret;
-}
-
-/* Fast long long division: when the quotient and remainder fit on 32 bits. */
-static inline unsigned long __rthal_i386_uldivrem(unsigned long long ull,
-                                                  const unsigned d,
-                                                  unsigned long *const rp)
-{
-    unsigned long q, r;
-    ull = __rthal_uldivrem(ull, d);
-    __asm__ ( "": "=d"(r), "=a"(q) : "A"(ull));
-    if(rp)
-        *rp = r;
-    return q;
-}
-#define rthal_uldivrem(ull, d, rp) __rthal_i386_uldivrem((ull),(d),(rp))
-
-/* Division of an unsigned 96 bits ((h << 32) + l) by an unsigned 32 bits.
-   Building block for ulldiv. */
-static inline unsigned long long __rthal_div96by32 (const unsigned long long h,
-                                                    const unsigned long l,
-                                                    const unsigned long d,
-                                                    unsigned long *const rp)
-{
-    u_long rh;
-    const u_long qh = rthal_uldivrem(h, d, &rh);
-    const unsigned long long t = __rthal_u64fromu32(rh, l);
-    const u_long ql = rthal_uldivrem(t, d, rp);
-
-    return __rthal_u64fromu32(qh, ql);
-}
-
-/* Slow long long division. Uses rthal_uldivrem, hence has the same property:
-   the compiler removes redundant calls. */
-static inline unsigned long long
-__rthal_i386_ulldiv (const unsigned long long ull,
-                     const unsigned d,
-                     unsigned long *const rp)
-{
-    unsigned long h, l;
-    __rthal_u64tou32(ull, h, l);
-    return __rthal_div96by32(h, l, d, rp);
-}
-#define rthal_ulldiv(ull,d,rp) __rthal_i386_ulldiv((ull),(d),(rp))
-
 #include <asm-generic/xenomai/hal.h>    /* Read the generic bits. */
 
 #ifndef CONFIG_X86_WP_WORKS_OK
@@ -142,6 +77,11 @@ static inline __attribute_const__ unsigned long ffnz (unsigned long ul)
 #define RTHAL_APIC_TIMER_IPI       RTHAL_SERVICE_IPI3
 #define RTHAL_APIC_ICOUNT          ((RTHAL_TIMER_FREQ + HZ/2)/HZ)
 #define RTHAL_TIMER_IRQ 	   RTHAL_APIC_TIMER_IPI
+#ifndef ipipe_apic_vector_irq
+/* Older I-pipe versions do not differentiate the normal IRQ space
+   from the system IRQ range, which is wrong... */
+#define ipipe_apic_vector_irq(vec) (vec - FIRST_EXTERNAL_VECTOR)
+#endif
 #else  /* !CONFIG_X86_LOCAL_APIC */
 #define RTHAL_TIMER_IRQ		   RTHAL_8254_IRQ
 #endif /* CONFIG_X86_LOCAL_APIC */
@@ -190,8 +130,6 @@ static inline void rthal_timer_program_shot (unsigned long delay)
     /* Note: reading before writing just to work around the Pentium
        APIC double write bug. apic_read_around() expands to nil
        whenever CONFIG_X86_GOOD_APIC is set. --rpm */
-    apic_read_around(APIC_LVTT);
-    apic_write_around(APIC_LVTT,RTHAL_APIC_TIMER_VECTOR);
     apic_read_around(APIC_TMICT);
     apic_write_around(APIC_TMICT,delay);
     }
