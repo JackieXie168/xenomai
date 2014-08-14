@@ -25,6 +25,8 @@ patch_kernelversion_filter="b"
 # "b": don't filter according to the architecture.
 patch_architecture_filter="b"
 
+# Default path to kernel tree
+linux_tree=.
 
 patch_copytempfile() {
     file="$1"
@@ -168,7 +170,7 @@ generate_patch() {
 }
 
 
-usage='usage: prepare-kernel --linux=<linux-tree> --adeos=<adeos-patch> [--arch=<arch>] [--outpatch=<file> <tempdir> [--filterkvers=y|n] [--filterarch=y|n]] [--forcelink] [--default] [--verbose]'
+usage='usage: prepare-kernel --linux=<linux-tree> --adeos=<adeos-patch> [--arch=<arch>] [--outpatch=<file> [--filterkvers=y|n] [--filterarch=y|n]] [--forcelink] [--default] [--verbose]'
 me=`basename $0`
 
 while test $# -gt 0; do
@@ -186,8 +188,6 @@ while test $# -gt 0; do
 	;;
     --outpatch=*)
 	output_patch=`echo $1|sed -e 's,^--outpatch=\\(.*\\)$,\\1,g'`
-	shift
-	temp_tree=`echo $1|sed -e 's,^--tempdir=\\(.*\\)$,\\1,g'`
 	;;
     --filterkvers=*)
         patch_kernelversion_filter=`echo $1|sed -e 's,^--filterkvers=\\(.*\\)$,\\1,g'`
@@ -257,13 +257,11 @@ fi
 # Create an empty output patch file, and initialize the temporary tree.
 if test "x$output_patch" != "x"; then
 
-    # The directory must exist, but should be empty. To lower the risks of data
-    # loss, the script does not deletes files itself.
-    if test ! -d $temp_tree; then
-        echo "$me: $temp_tree (temporary tree) is not an existing directory" >&2
-        exit 2
+    temp_tree=$TMPDIR/prepare-kernel-$$
+    if ! mkdir $temp_tree; then
+	echo Temporary directory $temp_tree already exists, aborting.
+	exit 1
     fi
-    temp_tree=`cd $temp_tree && pwd`
 
     patchdir=`dirname $output_patch`
     patchdir=`cd $patchdir && pwd`
@@ -373,6 +371,9 @@ else
       default_adeos_patch="`( ls $xenomai_root/ksrc/arch/$xenomai_arch/patches/adeos-ipipe-$linux_version*-{$linux_arch,$xenomai_arch}-*|sort -r ) 2>/dev/null | head -n1`"
    fi
    if test x$default_adeos_patch = x; then
+      if test x$verbose = x1; then
+         echo "$me: no default Adeos patch found." >&2
+      fi
       default_adeos_patch=/dev/null
    fi
    while test x$adeos_patch = x; do
@@ -383,7 +384,7 @@ else
       if test x$adeos_patch = x; then
          adeos_patch=$default_adeos_patch
       fi
-      if test \! -r "$adeos_patch"; then
+      if test \! -r "$adeos_patch" -o x$adeos_patch = x/dev/null; then
          echo "$me: cannot read Adeos patch from $adeos_patch" >&2
          usedefault=
          adeos_patch=
@@ -412,6 +413,10 @@ else
    asm_ipipe_h=`ls $linux_tree/include/asm-{$linux_arch,$xenomai_arch}/ipipe.h 2>/dev/null|head -n1`
 fi
 
+if test -z "$asm_ipipe_h"; then
+   echo "$me: $linux_tree has no Adeos support for $linux_arch" >&2
+   exit 2
+fi
 adeos_version=`grep '^#define.*IPIPE_ARCH_STRING.*"' $asm_ipipe_h 2>/dev/null|head -n1|sed -e 's,.*"\(.*\)"$,\1,'`
 
 if test \! "x$adeos_version" = x; then
@@ -589,6 +594,7 @@ if test "x$output_patch" != "x"; then
     echo 'Generating patch.'
     fi
     generate_patch > "$output_patch"
+    rm -rf $temp_tree
 fi
 
 if test x$verbose = x1; then

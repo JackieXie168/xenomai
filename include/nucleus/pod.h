@@ -154,13 +154,16 @@ void __xnpod_schedule(struct xnsched *sched);
     testbits(nkpod->status, XNFATAL)
 
 #define xnpod_interrupt_p() \
-    testbits(xnpod_current_sched()->status, XNINIRQ)
+    testbits(xnpod_current_sched()->lflags, XNINIRQ)
 
 #define xnpod_callout_p() \
     testbits(xnpod_current_sched()->status, XNKCOUT)
 
 #define xnpod_asynch_p() \
-    testbits(xnpod_current_sched()->status, XNKCOUT|XNINIRQ)
+	({								\
+		xnsched_t *sched = xnpod_current_sched();		\
+		testbits(sched->status | sched->lflags, XNKCOUT|XNINIRQ); \
+	})
 
 #define xnpod_current_thread() \
     (xnpod_current_sched()->curr)
@@ -277,10 +280,10 @@ static inline void xnpod_schedule(void)
 	 * unlocked context switch.
 	 */
 #if XENO_DEBUG(NUCLEUS)
-	if (testbits(sched->status, XNKCOUT|XNINIRQ|XNSWLOCK))
+	if (testbits(sched->status | sched->lflags, XNKCOUT|XNINIRQ|XNSWLOCK))
 		return;
 #else /* !XENO_DEBUG(NUCLEUS) */
-	if (testbits(sched->status,
+	if (testbits(sched->status | sched->lflags,
 		     XNKCOUT|XNINIRQ|XNSWLOCK|XNRESCHED) != XNRESCHED)
 		return;
 #endif /* !XENO_DEBUG(NUCLEUS) */

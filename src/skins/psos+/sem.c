@@ -33,11 +33,16 @@ u_long sm_delete(u_long smid)
 
 u_long sm_p(u_long smid, u_long flags, u_long timeout)
 {
-	return XENOMAI_SKINCALL3(__psos_muxid, __psos_sm_p, smid, 
+	return XENOMAI_SKINCALL3(__psos_muxid, __psos_sm_p, smid,
 				 flags, timeout);
 }
 
 u_long sm_v(u_long smid)
 {
 	return XENOMAI_SKINCALL1(__psos_muxid, __psos_sm_v, smid);
+}
+
+u_long sm_ident(const char *name, u_long nodeno, u_long *smid_r)
+{
+	return XENOMAI_SKINCALL2(__psos_muxid, __psos_sm_ident, name, smid_r);
 }

@@ -166,6 +166,8 @@ typedef irq_handler_t rthal_irq_host_handler_t;
 		__err__;							\
 	})
 #else /* > 2.6.19 */
+#if !defined(CONFIG_GENERIC_HARDIRQS) \
+	|| LINUX_VERSION_CODE < KERNEL_VERSION(2,6,37)
 #define rthal_irq_chip_enable(irq)					\
 	({								\
 		int __err__ = 0;					\
@@ -184,11 +186,16 @@ typedef irq_handler_t rthal_irq_host_handler_t;
 			rthal_irq_handlerp(irq)->mask(irq);		\
 		__err__;						\
 	})
+#endif
 #define rthal_irq_chip_end(irq)      ({ rthal_irq_descp(irq)->ipipe_end(irq, rthal_irq_descp(irq)); 0; })
 #endif
 
 #if LINUX_VERSION_CODE < KERNEL_VERSION(2,6,31)
 #define mpc5xxx_get_bus_frequency(node)	mpc52xx_find_ipb_freq(node)
+#endif
+
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,36)
+#define of_device platform_device
 #endif
 
 #endif /* _XENO_ASM_POWERPC_WRAPPERS_H */

@@ -85,7 +85,7 @@ static void xnintr_irq_handler(unsigned irq, void *cookie);
 
 void xnintr_host_tick(struct xnsched *sched) /* Interrupts off. */
 {
-	__clrbits(sched->status, XNHTICK);
+	__clrbits(sched->lflags, XNHTICK);
 	xnarch_relay_tick();
 }
 
@@ -106,7 +106,7 @@ void xnintr_clock_handler(void)
 	trace_mark(xn_nucleus, tbase_tick, "base %s", nktbase.name);
 
 	++sched->inesting;
-	__setbits(sched->status, XNINIRQ);
+	__setbits(sched->lflags, XNINIRQ);
 
 	xnlock_get(&nklock);
 	xntimer_tick_aperiodic();
@@ -117,7 +117,7 @@ void xnintr_clock_handler(void)
 		&nkclock.stat[xnsched_cpu(sched)].account, start);
 
 	if (--sched->inesting == 0) {
-		__clrbits(sched->status, XNINIRQ);
+		__clrbits(sched->lflags, XNINIRQ);
 		xnpod_schedule();
 	}
 	/*
@@ -127,7 +127,7 @@ void xnintr_clock_handler(void)
 	 * we only need to propagate the host tick in case the
 	 * interrupt preempted the root thread.
 	 */
-	if (testbits(sched->status, XNHTICK) &&
+	if (testbits(sched->lflags, XNHTICK) &&
 	    xnthread_test_state(sched->curr, XNROOT))
 		xnintr_host_tick(sched);
 
@@ -178,7 +178,7 @@ static void xnintr_shirq_handler(unsigned irq, void *cookie)
 	trace_mark(xn_nucleus, irq_enter, "irq %u", irq);
 
 	++sched->inesting;
-	__setbits(sched->status, XNINIRQ);
+	__setbits(sched->lflags, XNINIRQ);
 
 	xnlock_get(&shirq->lock);
 	intr = shirq->handlers;
@@ -220,7 +220,7 @@ static void xnintr_shirq_handler(unsigned irq, void *cookie)
 		xnarch_end_irq(irq);
 
 	if (--sched->inesting == 0) {
-		__clrbits(sched->status, XNINIRQ);
+		__clrbits(sched->lflags, XNINIRQ);
 		xnpod_schedule();
 	}
 
@@ -247,7 +247,7 @@ static void xnintr_edge_shirq_handler(unsigned irq, void *cookie)
 	trace_mark(xn_nucleus, irq_enter, "irq %u", irq);
 
 	++sched->inesting;
-	__setbits(sched->status, XNINIRQ);
+	__setbits(sched->lflags, XNINIRQ);
 
 	xnlock_get(&shirq->lock);
 	intr = shirq->handlers;
@@ -291,7 +291,7 @@ static void xnintr_edge_shirq_handler(unsigned irq, void *cookie)
 	if (unlikely(s == XN_ISR_NONE)) {
 		if (++shirq->unhandled == XNINTR_MAX_UNHANDLED) {
 			xnlogerr("%s: IRQ%d not handled. Disabling IRQ "
-			         "line.\n", __FUNCTION__, irq);
+				 "line.\n", __FUNCTION__, irq);
 			s |= XN_ISR_NOENABLE;
 		}
 	} else
@@ -303,7 +303,7 @@ static void xnintr_edge_shirq_handler(unsigned irq, void *cookie)
 		xnarch_end_irq(irq);
 
 	if (--sched->inesting == 0) {
-		__clrbits(sched->status, XNINIRQ);
+		__clrbits(sched->lflags, XNINIRQ);
 		xnpod_schedule();
 	}
 	trace_mark(xn_nucleus, irq_exit, "irq %u", irq);
@@ -446,7 +446,7 @@ static void xnintr_irq_handler(unsigned irq, void *cookie)
 	trace_mark(xn_nucleus, irq_enter, "irq %u", irq);
 
 	++sched->inesting;
-	__setbits(sched->status, XNINIRQ);
+	__setbits(sched->lflags, XNINIRQ);
 
 	xnlock_get(&xnirqs[irq].lock);
 
@@ -493,7 +493,7 @@ static void xnintr_irq_handler(unsigned irq, void *cookie)
 		xnarch_end_irq(irq);
 
 	if (--sched->inesting == 0) {
-		__clrbits(sched->status, XNINIRQ);
+		__clrbits(sched->lflags, XNINIRQ);
 		xnpod_schedule();
 	}
 
@@ -599,7 +599,8 @@ int __init xnintr_mount(void)
  * - XN_ISR_EDGE is an additional flag need to be set together with XN_ISR_SHARED
  * to enable IRQ-sharing of edge-triggered interrupts.
  *
- * @return No error condition being defined, 0 is always returned.
+ * @return 0 is returned on success. Otherwise, -EINVAL is returned if
+ * @a irq is not a valid interrupt number.
  *
  * Environments:
  *
@@ -615,6 +616,9 @@ int xnintr_init(xnintr_t *intr,
 		const char *name,
 		unsigned irq, xnisr_t isr, xniack_t iack, xnflags_t flags)
 {
+	if (irq >= XNARCH_NR_IRQS)
+		return -EINVAL;
+
 	intr->irq = irq;
 	intr->isr = isr;
 	intr->iack = iack;
@@ -719,11 +723,6 @@ int xnintr_attach(xnintr_t *intr, void *cookie)
 
 	xnlock_get_irqsave(&intrlock, s);
 
-	if (intr->irq >= XNARCH_NR_IRQS) {
-		ret = -EINVAL;
-		goto out;
-	}
-
 	if (__testbits(intr->flags, XN_ISR_ATTACHED)) {
 		ret = -EBUSY;
 		goto out;
@@ -781,11 +780,6 @@ int xnintr_detach(xnintr_t *intr)
 	trace_mark(xn_nucleus, irq_detach, "irq %u", intr->irq);
 
 	xnlock_get_irqsave(&intrlock, s);
-
-	if (intr->irq >= XNARCH_NR_IRQS) {
-		ret = -EINVAL;
-		goto out;
-	}
 
 	if (!__testbits(intr->flags, XN_ISR_ATTACHED)) {
 		ret = -EINVAL;

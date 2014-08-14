@@ -137,10 +137,12 @@ void xnsched_init(struct xnsched *sched, int cpu)
 	strcpy(root_name, "ROOT");
 #endif
 	sched->status = 0;
+	sched->lflags = 0;
 	sched->inesting = 0;
 	sched->curr = &sched->rootcb;
 #ifdef CONFIG_XENO_OPT_PRIOCPL
 	xnlock_init(&sched->rpilock);
+	sched->rpistatus = 0;
 #endif
 	/*
 	 * No direct handler here since the host timer processing is
@@ -152,7 +154,9 @@ void xnsched_init(struct xnsched *sched, int cpu)
 	xntimer_set_name(&sched->htimer, htimer_name);
 	xntimer_set_sched(&sched->htimer, sched);
 	sched->zombie = NULL;
+#ifdef CONFIG_SMP
 	xnarch_cpus_clear(sched->resched);
+#endif
 
 	attr.flags = XNROOT | XNSTARTED | XNFPU;
 	attr.name = root_name;

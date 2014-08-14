@@ -1,6 +1,6 @@
 /**
  * @file
- * Analogy for Linux, command, transfer, etc. related features  
+ * Analogy for Linux, command, transfer, etc. related features
  *
  * @note Copyright (C) 1997-2000 David A. Schleef <ds@schleef.org>
  * @note Copyright (C) 2008 Alexis Berlemont <alexis.berlemont@free.fr>
@@ -109,8 +109,9 @@ int a4l_snd_cancel(a4l_desc_t * dsc, unsigned int idx_subd)
  *
  * @return 0 on success. Otherwise:
  *
- * - -EINVAL is returned if some argument is missing or wrong (Please,
- *    type "dmesg" for more info)
+ * - -EINVAL is returned if the analogy descriptor is not correct or
+      if some argument is missing or wrong (Please, type "dmesg" for
+      more info)
  * - -EPERM is returned if the function is called in an RT context or
  *    if the buffer to resize is mapped in user-space (Please, type
  *    "dmesg" for more info)
@@ -123,13 +124,11 @@ int a4l_snd_cancel(a4l_desc_t * dsc, unsigned int idx_subd)
 int a4l_set_bufsize(a4l_desc_t * dsc,
 		    unsigned int idx_subd, unsigned long size)
 {
-	a4l_bufcfg_t cfg = { idx_subd, size };
-
 	/* Basic checking */
 	if (dsc == NULL || dsc->fd < 0)
 		return -EINVAL;
 
-	return __sys_ioctl(dsc->fd, A4L_BUFCFG, &cfg);
+	return a4l_sys_bufcfg(dsc->fd, idx_subd, size);
 }
 
 /**
@@ -176,11 +175,11 @@ int a4l_get_bufsize(a4l_desc_t * dsc,
 }
 
 /**
- * @brief Update the asynchronous buffer state 
+ * @brief Update the asynchronous buffer state
  *
  * When the mapping of the asynchronous ring-buffer (thanks to
  * a4l_mmap() is disabled, common read / write syscalls have to be
- * used. 
+ * used.
  * In input case, a4l_read() must be used for:
  * - the retrieval of the acquired data.
  * - the notification to the Analogy layer that the acquired data have
@@ -361,7 +360,7 @@ int a4l_async_read(a4l_desc_t * dsc,
 	if (dsc == NULL)
 		return -EINVAL;
 
-	/* The function a4l_poll() is useful only if 
+	/* The function a4l_poll() is useful only if
 	   the timeout is not A4L_INFINITE (== 0) */
 	if (ms_timeout != A4L_INFINITE) {
 		int ret;
@@ -418,7 +417,7 @@ int a4l_async_write(a4l_desc_t * dsc,
 	if (dsc == NULL)
 		return -EINVAL;
 
-	/* The function a4l_poll() is useful only if 
+	/* The function a4l_poll() is useful only if
 	   the timeout is not A4L_INFINITE (== 0) */
 	if (ms_timeout != A4L_INFINITE) {
 		int ret;

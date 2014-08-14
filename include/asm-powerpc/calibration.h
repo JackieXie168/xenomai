@@ -3,7 +3,7 @@
  *
  * 64-bit PowerPC adoption
  *   copyright (C) 2005 Taneli Vähäkangas and Heikki Lindholm
- * 
+ *
  * Xenomai is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
  * the Free Software Foundation; either version 2 of the License, or
@@ -46,6 +46,8 @@ static inline unsigned long xnarch_get_sched_latency(void)
 #define __sched_latency 8000
 #elif defined(CONFIG_SEQUOIA)
 #define __sched_latency 3000
+#elif defined(CONFIG_LWMON5)
+#define __sched_latency 2800
 #elif defined(CONFIG_OCOTEA)
 #define __sched_latency 2700
 #elif defined(CONFIG_BAMBOO)
@@ -68,6 +70,8 @@ static inline unsigned long xnarch_get_sched_latency(void)
 #define __sched_latency 4000
 #elif defined(CONFIG_MPC8272_ADS)
 #define __sched_latency 5500
+#elif defined(CONFIG_MPC85xx_RDB)
+#define __sched_latency 2000
 #elif defined(CONFIG_MVME7100)
 #define __sched_latency 1500
 #elif defined(CONFIG_TQM8548)

@@ -100,7 +100,7 @@ static struct task_struct *switch_lock_owner[XNARCH_NR_CPUS];
 
 static int nucleus_muxid = -1;
 
-static DECLARE_MUTEX(completion_mutex);
+static DEFINE_SEMAPHORE(completion_mutex);
 
 static inline struct task_struct *get_switch_lock_owner(void)
 {
@@ -311,8 +311,6 @@ static void rpi_clear_remote(struct xnthread *thread)
 	if (xnsched_peek_rpi(rpi) == NULL)
 		rcpu = xnsched_cpu(rpi);
 
-	xnlock_put_irqrestore(&rpi->rpilock, s);
-
 	/*
 	 * Ok, this one is not trivial. Unless a relaxed shadow has
 	 * forced its CPU affinity, it may migrate to another CPU as a
@@ -328,13 +326,21 @@ static void rpi_clear_remote(struct xnthread *thread)
 	 * priority.
 	 */
 	if (rcpu != -1 && rcpu != rthal_processor_id()) {
-		if (!testbits(rpi->status, XNRPICK)) {
-			setbits(rpi->status, XNRPICK);
-			xnarch_cpus_clear(cpumask);
-			xnarch_cpu_set(rcpu, cpumask);
-			xnarch_send_ipi(cpumask);
+		if (!testbits(rpi->rpistatus, XNRPICK)) {
+			__setbits(rpi->rpistatus, XNRPICK);
+			xnlock_put_irqrestore(&rpi->rpilock, s);
+			goto exit_send_ipi;
 		}
 	}
+
+	xnlock_put_irqrestore(&rpi->rpilock, s);
+
+	return;
+
+  exit_send_ipi:
+	xnarch_cpus_clear(cpumask);
+	xnarch_cpu_set(rcpu, cpumask);
+	xnarch_send_ipi(cpumask);
 }
 
 static void rpi_migrate(struct xnsched *sched, struct xnthread *thread)
@@ -493,6 +499,7 @@ void xnshadow_rpi_check(void)
 	spl_t s;
 
 	xnlock_get_irqsave(&sched->rpilock, s);
+	__clrbits(sched->rpistatus, XNRPICK);
  	top = xnsched_peek_rpi(sched);
 	xnlock_put_irqrestore(&sched->rpilock, s);
 
@@ -763,7 +770,7 @@ static inline void request_syscall_restart(xnthread_t *thread,
 		if (__xn_interrupted_p(regs)) {
 			__xn_error_return(regs,
 					  (sysflags & __xn_exec_norestart) ?
-					  -ERESTARTNOHAND : -ERESTARTSYS);
+					  -EINTR : -ERESTARTSYS);
 			notify = !xnthread_test_state(thread, XNDEBUG);
 		}
 
@@ -1299,7 +1306,7 @@ int xnshadow_map(xnthread_t *thread, xncompletion_t __user *u_completion,
 {
 	struct xnthread_start_attr attr;
 	xnarch_cpumask_t affinity;
-	unsigned muxid, magic;
+	unsigned int muxid, magic;
 	int ret;
 
 	if (!xnthread_test_state(thread, XNSHADOW))
@@ -1348,6 +1355,12 @@ int xnshadow_map(xnthread_t *thread, xncompletion_t __user *u_completion,
 		   thread, xnthread_name(thread), current->pid,
 		   xnthread_base_priority(thread));
 
+	xnarch_init_shadow_tcb(xnthread_archtcb(thread), thread,
+			       xnthread_name(thread));
+	thread->u_mode = u_mode;
+	xnthread_set_state(thread, XNMAPPED);
+	xnpod_suspend_thread(thread, XNRELAX, XN_INFINITE, XN_RELATIVE, NULL);
+
 	/*
 	 * Switch on propagation of normal kernel events for the bound
 	 * task. This is basically a per-task event filter which
@@ -1355,16 +1368,14 @@ int xnshadow_map(xnthread_t *thread, xncompletion_t __user *u_completion,
 	 * tasks bearing a specific flag, so that we don't uselessly
 	 * intercept those events when they happen to be caused by
 	 * plain (i.e. non-Xenomai) Linux tasks.
+	 *
+	 * CAUTION: we arm the notification callback only when the
+	 * shadow TCB is consistent, so that we won't trigger false
+	 * positive in debug code from do_schedule_event() and
+	 * friends.
 	 */
-	rthal_enable_notifier(current);
-
-	xnarch_init_shadow_tcb(xnthread_archtcb(thread), thread,
-			       xnthread_name(thread));
 	xnshadow_thrptd(current) = thread;
-	xnthread_set_state(thread, XNMAPPED);
-	xnpod_suspend_thread(thread, XNRELAX, XN_INFINITE, XN_RELATIVE, NULL);
-
-	thread->u_mode = u_mode;
+	rthal_enable_notifier(current);
 
 	if (u_completion) {
 		/*
@@ -2214,7 +2225,7 @@ static void handle_shadow_exit(void)
 	 */
 	if (thread->u_mode && !warned) {
 		warned = 1;
-#ifndef CONFIG_MMU
+#ifdef CONFIG_MMU
 		printk(KERN_WARNING
 		       "Xenomai: User-space support anterior to 2.5.2"
 		       " detected, may corrupt memory upon\n"

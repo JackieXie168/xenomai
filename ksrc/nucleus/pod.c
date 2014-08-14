@@ -279,12 +279,11 @@ void xnpod_schedule_handler(void) /* Called with hw interrupts off. */
 	xnsched_t *sched;
 
 	trace_mark(xn_nucleus, sched_remote, MARK_NOARGS);
+	xnarch_memory_barrier();
 #if defined(CONFIG_SMP) && defined(CONFIG_XENO_OPT_PRIOCPL)
 	sched = xnpod_current_sched();
-	if (testbits(sched->status, XNRPICK)) {
-		clrbits(sched->status, XNRPICK);
+	if (testbits(sched->rpistatus, XNRPICK))
 		xnshadow_rpi_check();
-	}
 #else
 	(void)sched;
 #endif /* CONFIG_SMP && CONFIG_XENO_OPT_PRIOCPL */
@@ -1467,10 +1466,23 @@ void xnpod_suspend_thread(xnthread_t *thread, xnflags_t mask,
 		 * shortens the uninterruptible code path.  This
 		 * particular caller expects us to always return with
 		 * interrupts enabled.
+		 *
+		 * We have to shut irqs off around xnpod_schedule()
+		 * though: if an interrupt could preempt us in
+		 * __xnpod_schedule right after the call to
+		 * xnarch_escalate but before we lock the nklock, we
+		 * would enter the critical section in xnpod_schedule
+		 * while the current Adeos domain is Linux, which
+		 * would defeat the purpose of having called
+		 * xnarch_escalate(). xnpod_schedule() is expected to
+		 * return with interrupts on.
 		 */
 		if (mask & XNRELAX) {
 			xnlock_clear_irqon(&nklock);
+
+			splhigh(s);
 			xnpod_schedule();
+			splexit(s);
 			return;
 		}
 		/*
@@ -2164,10 +2176,13 @@ static inline int __xnpod_test_resched(struct xnsched *sched)
 	int resched = testbits(sched->status, XNRESCHED);
 #ifdef CONFIG_SMP
 	/* Send resched IPI to remote CPU(s). */
-	if (unlikely(xnsched_resched_p(sched))) {
+	if (unlikely(!xnarch_cpus_empty(sched->resched))) {
+		xnarch_memory_barrier();
 		xnarch_send_ipi(sched->resched);
 		xnarch_cpus_clear(sched->resched);
 	}
+#else
+	resched = xnsched_resched_p(sched);
 #endif
 	clrbits(sched->status, XNRESCHED);
 	return resched;
@@ -2204,9 +2219,9 @@ reschedule:
 	if (next == curr && !xnthread_test_state(curr, XNRESTART)) {
 		/* Note: the root thread never restarts. */
 		if (unlikely(xnthread_test_state(next, XNROOT))) {
-			if (testbits(sched->status, XNHTICK))
+			if (testbits(sched->lflags, XNHTICK))
 				xnintr_host_tick(sched);
-			if (testbits(sched->status, XNHDEFER))
+			if (testbits(sched->lflags, XNHDEFER))
 				xntimer_next_local_shot(sched);
 		}
 		goto signal_unlock_and_exit;
@@ -2241,9 +2256,9 @@ reschedule:
 	if (xnthread_test_state(prev, XNROOT))
 		xnarch_leave_root(xnthread_archtcb(prev));
 	else if (xnthread_test_state(next, XNROOT)) {
-		if (testbits(sched->status, XNHTICK))
+		if (testbits(sched->lflags, XNHTICK))
 			xnintr_host_tick(sched);
-		if (testbits(sched->status, XNHDEFER))
+		if (testbits(sched->lflags, XNHDEFER))
 			xntimer_next_local_shot(sched);
 		xnarch_enter_root(xnthread_archtcb(next));
 	}
@@ -2312,8 +2327,6 @@ reschedule:
 #ifdef CONFIG_XENO_OPT_PERVASIVE
       shadow_epilogue:
 	{
-		spl_t ignored;
-
 		/* Shadow on entry and root without shadow extension on exit?
 		   Mmmm... This must be the user-space mate of a deleted real-time
 		   shadow we've just rescheduled in the Linux domain to have it
@@ -2323,11 +2336,9 @@ reschedule:
 			xnshadow_exit();
 		}
 
-		/* We need to relock nklock here, since it is not locked and
-		   the caller may expect it to be locked. */
-		xnlock_get_irqsave(&nklock, ignored);
-		xnlock_put_irqrestore(&nklock, s);
-
+		/* We are returning to xnshadow_relax via
+		   xnpod_suspend_thread, do nothing,
+		   xnpod_suspend_thread will re-enable interrupts. */
 		return;
 	}
 #endif /* CONFIG_XENO_OPT_PERVASIVE */
@@ -3077,10 +3088,12 @@ int xnpod_set_thread_tslice(struct xnthread *thread, xnticks_t quantum)
 	int aperiodic;
 	spl_t s;
 
-	if (thread->base_class->sched_tick == NULL)
-		return -EINVAL;
-
 	xnlock_get_irqsave(&nklock, s);
+
+	if (thread->base_class->sched_tick == NULL) {
+		xnlock_put_irqrestore(&nklock, s);
+		return -EINVAL;
+	}
 
 	aperiodic = !xntbase_periodic_p(xnthread_time_base(thread));
 	thread->rrperiod = quantum;
