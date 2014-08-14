@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2005 Gilles Chanteperdrix <gilles.chanteperdrix@laposte.net>.
+ * Copyright (C) 2005 Gilles Chanteperdrix <gilles.chanteperdrix@xenomai.org>.
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
@@ -113,8 +113,7 @@ void *__wrap_mmap(void *addr,
 	if (err)
 		goto err_mmap_epilogue;
 
-	/* map the whole heap. */
-	uaddr = __real_mmap(NULL, map.mapsize, prot, flags, fildes, 0);
+	uaddr = __real_mmap(addr, len, prot, flags, fildes, off + map.offset);
 
 	if (uaddr == MAP_FAILED) {
 	      err_mmap_epilogue:
@@ -123,16 +122,6 @@ void *__wrap_mmap(void *addr,
 		return MAP_FAILED;
 	}
 
-	/* Forbid access to map.offset first bytes. */
-	mprotect(uaddr, map.offset, PROT_NONE);
-
-	uaddr = (char *)uaddr + map.offset;
-
-	/* Forbid access to the last mapsize - offset - len bytes. */
-	if (len < map.mapsize - map.offset)
-		mprotect((char *)uaddr + len, map.mapsize - map.offset - len,
-			 PROT_NONE);
-
 	err = -XENOMAI_SKINCALL2(__pse51_muxid,
 				 __pse51_mmap_epilogue,
 				 (unsigned long)uaddr, &map);
@@ -140,7 +129,7 @@ void *__wrap_mmap(void *addr,
 	if (!err)
 		return uaddr;
 
-	__real_munmap(uaddr, map.mapsize);
+	__real_munmap(uaddr, len);
 
       error:
 	errno = err;
@@ -160,8 +149,10 @@ int __wrap_ftruncate64(int fildes, long long length)
 	if (!err)
 		return 0;
 
+#ifdef HAVE_FTRUNCATE64
 	if (err == EBADF || err == ENOSYS)
 		return __real_ftruncate64(fildes, length);
+#endif
 
 	errno = err;
 	return -1;
@@ -185,8 +176,10 @@ void *__wrap_mmap64(void *addr,
 				 ((unsigned long long) off < LONG_MAX
 				  ? (long) off : -1L), &map);
 
+#ifdef HAVE_MMAP64
 	if (err == EBADF || err == ENOSYS)
 		return __real_mmap64(addr, len, prot, flags, fildes, off);
+#endif
 
 	if (err)
 		goto error;
@@ -196,25 +189,17 @@ void *__wrap_mmap64(void *addr,
 	if (err)
 		goto err_mmap_epilogue;
 
-	/* map the whole heap. */
-	uaddr = __real_mmap64(NULL, map.mapsize, prot, flags, fildes, 0);
-
+#ifdef HAVE_MMAP64
+	uaddr = __real_mmap64(addr, len, prot, flags, fildes, map.offset + off);
+#else
+	uaddr = MAP_FAILED;
+#endif
 	if (uaddr == MAP_FAILED) {
 	      err_mmap_epilogue:
 		XENOMAI_SKINCALL2(__pse51_muxid,
 				  __pse51_mmap_epilogue, MAP_FAILED, &map);
 		return MAP_FAILED;
 	}
-
-	/* Forbid access to map.offset first bytes. */
-	mprotect(uaddr, map.offset, PROT_NONE);
-
-	uaddr = (char *)uaddr + map.offset;
-
-	/* Forbid access to the last mapsize - offset - len bytes. */
-	if (len < map.mapsize - map.offset)
-		mprotect((char *)uaddr + len, map.mapsize - map.offset - len,
-			 PROT_NONE);
 
 	err = -XENOMAI_SKINCALL2(__pse51_muxid,
 				 __pse51_mmap_epilogue,
@@ -223,7 +208,7 @@ void *__wrap_mmap64(void *addr,
 	if (!err)
 		return uaddr;
 
-	__real_munmap(uaddr, map.mapsize);
+	__real_munmap(uaddr, len);
 
       error:
 	errno = err;
@@ -261,7 +246,7 @@ int __wrap_munmap(void *addr, size_t len)
 	if (err)
 		goto error;
 
-	if (__real_munmap((char *)addr - map.offset, map.mapsize))
+	if (__real_munmap(addr, len))
 		return -1;
 
 	err = -XENOMAI_SKINCALL2(__pse51_muxid,

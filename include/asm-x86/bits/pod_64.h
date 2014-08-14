@@ -1,6 +1,6 @@
 /*
  * Copyright (C) 2001-2007 Philippe Gerum <rpm@xenomai.org>.
- * Copyright (C) 2004-2006 Gilles Chanteperdrix <gilles.chanteperdrix@laposte.net>.
+ * Copyright (C) 2004-2006 Gilles Chanteperdrix <gilles.chanteperdrix@xenomai.org>.
  *
  * Xenomai is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -64,7 +64,14 @@ static inline void xnarch_leave_root(xnarchtcb_t *rootcb)
 	rootcb->ts_usedfpu = !!(task_thread_info(current)->status & TS_USEDFPU);
 	rootcb->cr0_ts = (read_cr0() & 8) != 0;
 	/* So that xnarch_save_fpu() will operate on the right FPU area. */
-	rootcb->fpup = x86_fpustate_ptr(&rootcb->user_task->thread);
+	if (rootcb->cr0_ts || rootcb->ts_usedfpu)
+		rootcb->fpup = x86_fpustate_ptr(&rootcb->user_task->thread);
+	else
+		/*
+		 * The kernel is currently using fpu in kernel-space,
+		 * do not clobber the user-space fpu backup area.
+		 */
+		rootcb->fpup = &rootcb->i387;
 }
 
 static inline void xnarch_enter_root(xnarchtcb_t * rootcb)

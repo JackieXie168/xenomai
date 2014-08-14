@@ -1,6 +1,6 @@
 /*
  * Copyright (C) 2001,2002,2003,2004,2005 Philippe Gerum <rpm@xenomai.org>.
- * Copyright (C) 2004,2005 Gilles Chanteperdrix <gilles.chanteperdrix@laposte.net>.
+ * Copyright (C) 2004,2005 Gilles Chanteperdrix <gilles.chanteperdrix@xenomai.org>.
  *
  * Xenomai is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -52,14 +52,15 @@
 
 /* Tracer interface */
 #define xnarch_trace_max_begin(v)		rthal_trace_max_begin(v)
-#define xnarch_trace_max_end(v)		rthal_trace_max_end(v)
+#define xnarch_trace_max_end(v)			rthal_trace_max_end(v)
 #define xnarch_trace_max_reset()		rthal_trace_max_reset()
 #define xnarch_trace_user_start()		rthal_trace_user_start()
 #define xnarch_trace_user_stop(v)		rthal_trace_user_stop(v)
 #define xnarch_trace_user_freeze(v, once) 	rthal_trace_user_freeze(v, once)
 #define xnarch_trace_special(id, v)		rthal_trace_special(id, v)
-#define xnarch_trace_special_u64(id, v)	rthal_trace_special_u64(id, v)
+#define xnarch_trace_special_u64(id, v)		rthal_trace_special_u64(id, v)
 #define xnarch_trace_pid(pid, prio)		rthal_trace_pid(pid, prio)
+#define xnarch_trace_tick(delay_tsc)		rthal_trace_tick(delay_tsc)
 #define xnarch_trace_panic_freeze()		rthal_trace_panic_freeze()
 #define xnarch_trace_panic_dump()		rthal_trace_panic_dump()
 
@@ -136,6 +137,12 @@ typedef struct { atomic_t owner; } xnlock_t;
 #define xnarch_logerr(fmt,args...)   printk(KERN_ERR XNARCH_PROMPT fmt , ##args)
 #define xnarch_printf(fmt,args...)   printk(KERN_INFO XNARCH_PROMPT fmt , ##args)
 
+#ifndef RTHAL_SHARED_HEAP_FLAGS
+#define XNARCH_SHARED_HEAP_FLAGS 0
+#else /* !RTHAL_SHARED_HEAP_FLAGS */
+#define XNARCH_SHARED_HEAP_FLAGS RTHAL_SHARED_HEAP_FLAGS
+#endif /* !RTHAL_SHARED_HEAP_FLAGS */
+
 typedef cpumask_t xnarch_cpumask_t;
 
 #ifdef CONFIG_SMP
@@ -157,13 +164,14 @@ typedef cpumask_t xnarch_cpumask_t;
 #define xnarch_first_cpu(mask)            first_cpu(mask)
 #define XNARCH_CPU_MASK_ALL               CPU_MASK_ALL
 
+struct xnheap;
+ 
 typedef struct xnarch_heapcb {
 
     atomic_t numaps;	/* # of active user-space mappings. */
-
     int kmflags;	/* Kernel memory flags (0 if vmalloc()). */
-
     void *heapbase;	/* Shared heap memory base. */
+    void (*release)(struct xnheap *heap); /* callback upon last unmap */
 
 } xnarch_heapcb_t;
 
@@ -429,6 +437,12 @@ static inline int xnarch_remap_kmem_page_range(struct vm_area_struct *vma,
 {
     return wrap_remap_kmem_page_range(vma,from,to,size,prot);
 }
+
+#ifdef rthal_fault_range
+#define xnarch_fault_range(vma) rthal_fault_range(vma)
+#else /* !rthal_fault_range */
+#define xnarch_fault_range(vma) do { } while (0)
+#endif /*!rthal_fault_range */
 
 #ifndef xnarch_hisyscall_entry
 static inline void xnarch_hisyscall_entry(void)	{ }

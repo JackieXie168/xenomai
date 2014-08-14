@@ -84,6 +84,7 @@ typedef struct rttst_overall_bench_res {
 	void *__padding;	/* align to dwords on 32-bit archs */
 } rttst_overall_bench_res_t;
 
+#define RTTST_TMBENCH_NONE		-1
 #define RTTST_TMBENCH_TASK		0
 #define RTTST_TMBENCH_HANDLER		1
 
@@ -198,6 +199,9 @@ struct rttst_swtest_error {
 
 #define RTTST_RTIOC_SWTEST_GET_LAST_ERROR \
 	_IOR(RTIOC_TYPE_TESTING, 0x37, struct rttst_swtest_error)
+
+#define RTTST_RTIOC_SWTEST_SET_PAUSE \
+	_IOW(RTIOC_TYPE_TESTING, 0x38, unsigned long)
 /** @} */
 
 /** @} */

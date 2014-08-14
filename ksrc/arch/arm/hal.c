@@ -36,6 +36,7 @@
 #include <linux/errno.h>
 #include <linux/module.h>
 #include <linux/console.h>
+#include <linux/mm.h>
 #include <asm/system.h>
 #include <asm/hardirq.h>
 #include <asm/irq.h>
@@ -68,10 +69,13 @@ int rthal_timer_request(void (*handler)(void),
     unsigned long flags;
 
 #ifdef CONFIG_GENERIC_CLOCKEVENTS
-    unsigned long tmfreq;
+    unsigned long dummy, *tmfreq = &dummy;
+
+    if (rthal_timerfreq_arg == 0)
+        tmfreq = &rthal_tunables.timer_freq;
 
     int res = ipipe_request_tickdev(RTHAL_TIMER_DEVICE, mode_emul,
-				    tick_emul, cpu, &tmfreq);
+				    tick_emul, cpu, tmfreq);
     
     switch (res) {
     case CLOCK_EVT_MODE_PERIODIC:
@@ -98,9 +102,6 @@ int rthal_timer_request(void (*handler)(void),
 	    return res;
     }
     rthal_ktimer_saved_mode = res;
-
-    if (rthal_timerfreq_arg == 0)
-	    rthal_tunables.timer_freq = tmfreq;
 #else /* !CONFIG_GENERIC_CLOCKEVENTS */
     tickval = 1000000000UL / HZ;
     rthal_ktimer_saved_mode = KTIMER_MODE_PERIODIC;
@@ -227,6 +228,13 @@ int rthal_irq_end(unsigned irq)
     return rthal_irq_chip_end(irq);
 }
 
+void __rthal_arm_fault_range(struct vm_area_struct *vma)
+{
+	unsigned long addr;
+	for (addr = vma->vm_start; addr != vma->vm_end; addr += PAGE_SIZE)
+		handle_mm_fault(vma->vm_mm, vma, addr, 1);
+}
+
 static inline int do_exception_event(unsigned event, unsigned domid, void *data)
 {
     if (domid == RTHAL_DOMAIN_ID) {
@@ -280,6 +288,7 @@ EXPORT_SYMBOL(rthal_arch_init);
 EXPORT_SYMBOL(rthal_arch_cleanup);
 EXPORT_SYMBOL(rthal_thread_switch);
 EXPORT_SYMBOL(rthal_thread_trampoline);
+EXPORT_SYMBOL(__rthal_arm_fault_range);
 #if defined(CONFIG_VFP) && defined(CONFIG_XENO_HW_FPU)
 EXPORT_SYMBOL(last_VFP_context);
 EXPORT_SYMBOL(rthal_vfp_save);

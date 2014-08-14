@@ -6,7 +6,7 @@
  * Copyright (C) 2004 The RTAI project <http://www.rtai.org>
  * Copyright (C) 2004 The HYADES project <http://www.hyades-itea.org>
  * Copyright (C) 2005 The Xenomai project <http://www.xenomai.org>
- * Copyright (C) 2006 Gilles Chanteperdrix <gilles.chanteperdrix@laposte.net>
+ * Copyright (C) 2006 Gilles Chanteperdrix <gilles.chanteperdrix@xenomai.org>
  *
  * Xenomai is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published
@@ -1291,7 +1291,10 @@ void xnshadow_exit(void)
  * Xenomai resource remains attached to it.
  *
  * - -EINVAL is returned if the thread control block does not bear the
- * XNSHADOW bit, or if the thread has already been mapped.
+ * XNSHADOW bit.
+ *
+ * - -EBUSY is returned if either the current Linux task or the
+ * associated shadow thread is already involved in a shadow mapping.
  *
  * Environments:
  *
@@ -1312,8 +1315,8 @@ int xnshadow_map(xnthread_t *thread, xncompletion_t __user *u_completion)
 	if (!xnthread_test_state(thread, XNSHADOW))
 		return -EINVAL;
 
-	if (xnthread_test_state(thread, XNMAPPED))
-		return -EINVAL;
+	if (xnshadow_thread(current) || xnthread_test_state(thread, XNMAPPED))
+		return -EBUSY;
 
 #ifdef CONFIG_MMU
 	if (!(current->mm->def_flags & VM_LOCKED))
@@ -2145,7 +2148,7 @@ static inline void do_taskexit_event(struct task_struct *p)
 	if (!thread)
 		return;
 
-	if (xnthread_test_info(thread, XNDEBUG))
+	if (xnthread_test_state(thread, XNDEBUG))
 		unlock_timers();
 
 	if (xnpod_shadow_p())
@@ -2192,7 +2195,7 @@ static inline void do_schedule_event(struct task_struct *next)
 		 * order to encompass both the NPTL and LinuxThreads
 		 * behaviours.
 		 */
-		if (xnthread_test_info(threadin, XNDEBUG)) {
+		if (xnthread_test_state(threadin, XNDEBUG)) {
 			if (signal_pending(next)) {
 				sigset_t pending;
 				/*
@@ -2209,7 +2212,7 @@ static inline void do_schedule_event(struct task_struct *next)
 					goto no_ptrace;
 			}
 
-			xnthread_clear_info(threadin, XNDEBUG);
+			xnthread_clear_state(threadin, XNDEBUG);
 			unlock_timers();
 		}
 
@@ -2253,12 +2256,12 @@ static inline void do_sigwake_event(struct task_struct *p)
 	xnthread_t *thread = xnshadow_thread(p);
 	spl_t s;
 
-	if (!thread)
+	if (thread == NULL)
 		return;
 
 	xnlock_get_irqsave(&nklock, s);
 
-	if ((p->ptrace & PT_PTRACED) && !xnthread_test_info(thread, XNDEBUG)) {
+	if ((p->ptrace & PT_PTRACED) && !xnthread_test_state(thread, XNDEBUG)) {
 		sigset_t pending;
 
 		/* We already own the siglock. */
@@ -2267,16 +2270,35 @@ static inline void do_sigwake_event(struct task_struct *p)
 		if (sigismember(&pending, SIGTRAP) ||
 		    sigismember(&pending, SIGSTOP)
 		    || sigismember(&pending, SIGINT)) {
-			xnthread_set_info(thread, XNDEBUG);
+			xnthread_set_state(thread, XNDEBUG);
 			lock_timers();
 		}
 	}
 
 	if (xnthread_test_state(thread, XNRELAX))
 		goto unlock_and_exit;
+	/*
+	 * If we are kicking a shadow thread in primary mode, make
+	 * sure Linux won't schedule in its mate under our feet as a
+	 * result of running signal_wake_up(). The Xenomai scheduler
+	 * must remain in control for now, until we explicitly relax
+	 * the shadow thread to allow for processing the pending
+	 * signals. Make sure we keep the additional state flags
+	 * unmodified so that we don't break any undergoing ptrace.
+	 */
+	set_task_nowakeup(p);
 
-	if (thread == thread->sched->runthread)
-		xnsched_set_resched(thread->sched);
+	/*
+	 * Tricky case: a ready thread does not actually run, but
+	 * nevertheless waits for the CPU in primary mode, so we have
+	 * to make sure that it will be notified of the pending break
+	 * condition as soon as it enters xnpod_suspend_thread() from
+	 * a blocking Xenomai syscall.
+	 */
+	if (xnthread_test_state(thread, XNREADY)) {
+		xnthread_set_info(thread, XNKICKED);
+		goto unlock_and_exit;
+	}
 
 	if (xnpod_unblock_thread(thread))
 		xnthread_set_info(thread, XNKICKED);
@@ -2286,19 +2308,12 @@ static inline void do_sigwake_event(struct task_struct *p)
 		xnthread_set_info(thread, XNKICKED|XNBREAK);
 	}
 
-	/* If we are kicking a shadow thread, make sure Linux won't
-	   schedule in its mate under our feet as a result of running
-	   signal_wake_up(). The Xenomai scheduler must remain in
-	   control for now, until we explicitly relax the shadow
-	   thread to allow for processing the pending signals. Make
-	   sure we keep the additional state flags unmodified so that
-	   we don't break any undergoing ptrace. */
+	if (xnthread_test_info(thread, XNKICKED)) {
+		xnsched_set_resched(thread->sched);
+		xnpod_schedule();
+	}
 
-	set_task_nowakeup(p);
-
-	xnpod_schedule();
-
-      unlock_and_exit:
+unlock_and_exit:
 
 	xnlock_put_irqrestore(&nklock, s);
 }

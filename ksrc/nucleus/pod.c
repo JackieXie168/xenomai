@@ -844,8 +844,8 @@ int xnpod_start_thread(xnthread_t *thread,
 	if (xnthread_test_state(thread, XNSHADOW)) {
 		xnlock_put_irqrestore(&nklock, s);
 		xnshadow_start(thread);
-		xnpod_schedule();
-		return 0;
+		xnlock_get_irqsave(&nklock, s);
+		goto callout;
 	}
 #endif /* CONFIG_XENO_OPT_PERVASIVE */
 
@@ -861,7 +861,10 @@ int xnpod_start_thread(xnthread_t *thread,
 		nkpod->schedhook(thread, XNREADY);
 #endif /* __XENO_SIM__ */
 
-	if (!emptyq_p(&nkpod->tstartq) && !xnthread_test_state(thread, XNROOT)) {
+#ifdef CONFIG_XENO_OPT_PERVASIVE
+ callout:
+#endif
+	if (!emptyq_p(&nkpod->tstartq)) {
 		trace_mark(xn_nucleus_thread_callout,
 			   "thread %p thread_name %s hook %s",
 			   thread, xnthread_name(thread), "START");
@@ -2468,8 +2471,8 @@ void xnpod_schedule(void)
 	if (!need_resched) {
 		xnprintf
 		    ("xnpod_schedule: scheduler state changed without rescheduling"
-		     "bit set\nwhen switching from %s to %s\n", runthread->name,
-		     threadin->name);
+		     " bit set\nwhen switching from %s (state=%lx) to %s\n", runthread->name,
+		     runthread->state, threadin->name);
 #ifdef __KERNEL__
 		show_stack(NULL, NULL);
 #endif
@@ -3078,7 +3081,7 @@ int xnpod_enable_timesource(void)
 	xnlock_put_irqrestore(&nklock, s);
 
 	nktbase.wallclock_offset =
-		xnarch_get_host_time() + xnarch_get_cpu_time();
+		xnarch_get_host_time() - xnarch_get_cpu_time();
 
 	for (cpu = 0; cpu < xnarch_num_online_cpus(); cpu++) {
 

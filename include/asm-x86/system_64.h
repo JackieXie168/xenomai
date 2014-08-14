@@ -1,6 +1,6 @@
 /*
  * Copyright (C) 2001-2007 Philippe Gerum <rpm@xenomai.org>.
- * Copyright (C) 2004-2006 Gilles Chanteperdrix <gilles.chanteperdrix@laposte.net>.
+ * Copyright (C) 2004-2006 Gilles Chanteperdrix <gilles.chanteperdrix@xenomai.org>.
  *
  * Xenomai is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -28,7 +28,7 @@
 #include <linux/ptrace.h>
 #include <asm-generic/xenomai/system.h>
 
-#define XNARCH_THREAD_STACKSZ	4096
+#define XNARCH_THREAD_STACKSZ	8192
 
 #define xnarch_stack_size(tcb)  ((tcb)->stacksize)
 #define xnarch_stack_base(tcb)	((tcb)->stackbase)

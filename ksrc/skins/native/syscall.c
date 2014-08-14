@@ -2324,9 +2324,9 @@ static int __rt_queue_write(struct task_struct *curr, struct pt_regs *regs)
 {
 	RT_QUEUE_PLACEHOLDER ph;
 	void __user *buf, *mbuf;
+	int mode, ret;
 	RT_QUEUE *q;
 	size_t size;
-	int mode;
 
 	if (!__xn_access_ok(curr, VERIFY_READ, __xn_reg_arg1(regs), sizeof(ph)))
 		return -EFAULT;
@@ -2358,7 +2358,11 @@ static int __rt_queue_write(struct task_struct *curr, struct pt_regs *regs)
 		__xn_copy_from_user(curr, mbuf, buf, size);
 	}
 
-	return rt_queue_send(q, mbuf, size, mode);
+	ret = rt_queue_send(q, mbuf, size, mode);
+	if (ret == 0 && (mode & Q_BROADCAST))
+		rt_queue_free(q, mbuf); /* Nobody received, free the buffer. */
+
+	return ret;
 }
 
 /*
@@ -3454,7 +3458,6 @@ static int __rt_pipe_delete(struct task_struct *curr, struct pt_regs *regs)
 {
 	RT_PIPE_PLACEHOLDER ph;
 	RT_PIPE *pipe;
-	int err;
 
 	if (!__xn_access_ok(curr, VERIFY_READ, __xn_reg_arg1(regs), sizeof(ph)))
 		return -EFAULT;
@@ -3467,12 +3470,7 @@ static int __rt_pipe_delete(struct task_struct *curr, struct pt_regs *regs)
 	if (!pipe)
 		return -ESRCH;
 
-	err = rt_pipe_delete(pipe);
-
-	if (!err && pipe->cpid)
-		xnfree(pipe);
-
-	return err;
+	return rt_pipe_delete(pipe);
 }
 
 /*

@@ -1,7 +1,7 @@
 /**
  * @file
  * @note Copyright (C) 2001,2002,2003,2007 Philippe Gerum <rpm@xenomai.org>.
- *       Copyright (C) 2004 Gilles Chanteperdrix <gilles.chanteperdrix@laposte.net>
+ *       Copyright (C) 2004 Gilles Chanteperdrix <gilles.chanteperdrix@xenomai.org>
  *
  * Xenomai is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -75,6 +75,8 @@ static void xntimer_next_local_shot(xnsched_t *this_sched)
 		delay = 0;
 	else if (delay > ULONG_MAX)
 		delay = ULONG_MAX;
+
+	xnarch_trace_tick((unsigned)delay);
 
 	xnarch_program_timer_shot(delay);
 }

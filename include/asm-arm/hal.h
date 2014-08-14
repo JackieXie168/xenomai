@@ -118,10 +118,15 @@ static inline __attribute_const__ unsigned long ffnz (unsigned long ul)
 #include <asm/processor.h>
 #include <asm/ipipe.h>
 #include <asm/mach/irq.h>
+#include <asm/cacheflush.h>
 
 #define RTHAL_TIMER_IRQ   __ipipe_mach_timerint
 
-#define RTHAL_SHARED_HEAP_FLAGS XNHEAP_GFP_NONCACHED
+#ifdef CONFIG_XENO_OPT_PERVASIVE
+#define RTHAL_SHARED_HEAP_FLAGS (cache_is_vivt() ? XNHEAP_GFP_NONCACHED : 0)
+#else /* !CONFIG_XENO_OPT_PERVASIVE */
+#define RTHAL_SHARED_HEAP_FLAGS 0
+#endif /* !CONFIG_XENO_OPT_PERVASIVE */
 
 #define rthal_grab_control()     do { } while(0)
 #define rthal_release_control()  do { } while(0)
@@ -155,7 +160,14 @@ static inline struct mm_struct *rthal_get_active_mm(void)
 #endif /* !TIF_MMSWITCH_INT */
 }
 
-    /* Private interface -- Internal use only */
+static inline void rthal_set_active_mm(struct mm_struct *mm)
+{
+#ifdef TIF_MMSWITCH_INT
+	per_cpu(ipipe_active_mm, rthal_processor_id()) = mm;
+#endif /* TIF_MMSWITCH_INT */
+}
+
+/* Private interface -- Internal use only */
 
 asmlinkage void rthal_thread_switch(struct task_struct *prev,
 				    struct thread_info *out,
@@ -269,6 +281,9 @@ static inline void rthal_restore_fpu(rthal_fpenv_t *fpuenv)
 #endif /* !CONFIG_VFP */
 
 #endif /* CONFIG_XENO_HW_FPU */
+
+void __rthal_arm_fault_range(struct vm_area_struct *vma);
+#define rthal_fault_range(vma) __rthal_arm_fault_range(vma)
 
 static const char *const rthal_fault_labels[] = {
     [IPIPE_TRAP_ACCESS] = "Data or instruction access",

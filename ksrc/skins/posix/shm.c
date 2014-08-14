@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2005 Gilles Chanteperdrix <gilles.chanteperdrix@laposte.net>.
+ * Copyright (C) 2005 Gilles Chanteperdrix <gilles.chanteperdrix@xenomai.org>.
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
@@ -108,7 +108,7 @@ static void pse51_shm_destroy(pse51_shm_t * shm, int force)
 		xnheap_free(&shm->heapbase, shm->addr);
 
 #ifdef CONFIG_XENO_OPT_PERVASIVE
-		xnheap_destroy_mapped(&shm->heapbase, NULL);
+		xnheap_destroy_mapped(&shm->heapbase, NULL, NULL);
 #else /* !CONFIG_XENO_OPT_PERVASIVE. */
 		xnheap_destroy(&shm->heapbase, &pse51_free_heap_extent, NULL);
 #endif /* !CONFIG_XENO_OPT_PERVASIVE. */
@@ -516,7 +516,13 @@ int ftruncate(int fd, off_t len)
 		size_t size = 0;
 
 		if (shm->addr) {
-			size = shm->size;
+			if (len == xnheap_extentsize(&shm->heapbase)) {
+				/* Size unchanged, skip copy and reinit. */
+				err = 0;
+				goto err_up;
+			}
+
+			size = xnheap_max_contiguous(&shm->heapbase);
 			addr = xnarch_alloc_host_mem(size);
 			if (!addr) {
 				err = ENOMEM;
@@ -527,7 +533,7 @@ int ftruncate(int fd, off_t len)
 
 			xnheap_free(&shm->heapbase, shm->addr);
 #ifdef CONFIG_XENO_OPT_PERVASIVE
-			xnheap_destroy_mapped(&shm->heapbase, NULL);
+			xnheap_destroy_mapped(&shm->heapbase, NULL, NULL);
 #else /* !CONFIG_XENO_OPT_PERVASIVE. */
 			xnheap_destroy(&shm->heapbase, &pse51_free_heap_extent,
 				       NULL);
@@ -539,7 +545,8 @@ int ftruncate(int fd, off_t len)
 
 		if (len) {
 #ifdef CONFIG_XENO_OPT_PERVASIVE
-			int flags = len <= 128 * 1024 ? GFP_USER : 0;
+			int flags = (XNARCH_SHARED_HEAP_FLAGS ?:
+				     len <= 128 * 1024 ? GFP_USER : 0);
 			err = -xnheap_init_mapped(&shm->heapbase, len, flags);
 #else /* !CONFIG_XENO_OPT_PERVASIVE. */
 			{
@@ -562,12 +569,13 @@ int ftruncate(int fd, off_t len)
 			shm->addr = xnheap_alloc(&shm->heapbase, shm->size);
 			/* Required. */
 			memset(shm->addr, '\0', shm->size);
-			shm->size -= PAGE_SIZE;
 
 			/* Copy the previous contents. */
 			if (addr)
 				memcpy(shm->addr, addr,
 				       shm->size < size ? shm->size : size);
+
+			shm->size -= PAGE_SIZE;
 		}
 
 		if (addr)
