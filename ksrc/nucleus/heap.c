@@ -1091,8 +1091,12 @@ static int xnheap_mmap(struct file *file, struct vm_area_struct *vma)
 
 	vaddr = (unsigned long)heap->archdep.heapbase;
 
-	if (!heap->archdep.kmflags) {
+	if (!heap->archdep.kmflags
+	    || heap->archdep.kmflags == XNHEAP_GFP_NONCACHED) {
 		unsigned long maddr = vma->vm_start;
+
+		if (heap->archdep.kmflags == XNHEAP_GFP_NONCACHED)
+			vma->vm_page_prot = pgprot_noncached(vma->vm_page_prot);
 
 		while (size > 0) {
 			if (xnarch_remap_vm_page(vma, maddr, vaddr))
@@ -1127,7 +1131,7 @@ static struct miscdevice xnheap_dev = {
 
 int xnheap_mount(void)
 {
-	struct class_device *cldev;
+	DECLARE_DEVHANDLE(cldev);
 
 	xnheap_class = class_create(THIS_MODULE, "rtheap");
 
@@ -1137,9 +1141,9 @@ int xnheap_mount(void)
 		return -EBUSY;
 	}
 
-	cldev = wrap_class_device_create(xnheap_class, NULL,
-					 MKDEV(MISC_MAJOR, XNHEAP_DEV_MINOR),
-					 NULL, "rtheap");
+	cldev = wrap_device_create(xnheap_class, NULL,
+				   MKDEV(MISC_MAJOR, XNHEAP_DEV_MINOR),
+				   NULL, "rtheap");
 	if (IS_ERR(cldev)) {
 		xnlogerr
 		    ("can't add device class, major=%d, minor=%d, err=%ld\n",
@@ -1157,7 +1161,7 @@ int xnheap_mount(void)
 void xnheap_umount(void)
 {
 	misc_deregister(&xnheap_dev);
-	class_device_destroy(xnheap_class, MKDEV(MISC_MAJOR, XNHEAP_DEV_MINOR));
+	wrap_device_destroy(xnheap_class, MKDEV(MISC_MAJOR, XNHEAP_DEV_MINOR));
 	class_destroy(xnheap_class);
 }
 
@@ -1168,9 +1172,13 @@ static inline void *__alloc_and_reserve_heap(size_t size, int kmflags)
 
 	/* Size must be page-aligned. */
 
-	if (!kmflags) {
-		ptr = vmalloc(size);
-
+	if (!kmflags || kmflags == XNHEAP_GFP_NONCACHED) {
+		if (!kmflags)
+			ptr = vmalloc(size);
+		else
+			ptr = __vmalloc(size,
+					GFP_KERNEL | __GFP_HIGHMEM,
+					pgprot_noncached(PAGE_KERNEL));
 		if (!ptr)
 			return NULL;
 
@@ -1184,7 +1192,11 @@ static inline void *__alloc_and_reserve_heap(size_t size, int kmflags)
 		 * space. Assume that we can wait to get the required memory.
 		 */
 
-		ptr = kmalloc(size, kmflags | GFP_KERNEL);
+		if (size <= KMALLOC_MAX_SIZE)
+			ptr = kmalloc(size, kmflags | GFP_KERNEL);
+		else
+			ptr = (void*) __get_free_pages(kmflags | GFP_KERNEL,
+						       get_order(size));
 
 		if (!ptr)
 			return NULL;
@@ -1207,7 +1219,7 @@ static inline void __unreserve_and_free_heap(void *ptr, size_t size,
 
 	vabase = (unsigned long)ptr;
 
-	if (!kmflags) {
+	if (!kmflags  || kmflags == XNHEAP_GFP_NONCACHED) {
 		for (vaddr = vabase; vaddr < vabase + size; vaddr += PAGE_SIZE)
 			ClearPageReserved(virt_to_page(__va_to_kva(vaddr)));
 
@@ -1216,7 +1228,10 @@ static inline void __unreserve_and_free_heap(void *ptr, size_t size,
 		for (vaddr = vabase; vaddr < vabase + size; vaddr += PAGE_SIZE)
 			ClearPageReserved(virt_to_page(vaddr));
 
-		kfree(ptr);
+		if (size <= KMALLOC_MAX_SIZE)
+			kfree(ptr);
+		else
+			free_pages((unsigned long)ptr, get_order(size));
 	}
 }
 
@@ -1228,6 +1243,11 @@ int xnheap_init_mapped(xnheap_t *heap, u_long heapsize, int memflags)
 
 	/* Caller must have accounted for internal overhead. */
 	heapsize = xnheap_align(heapsize, PAGE_SIZE);
+
+	if ((memflags & XNHEAP_GFP_NONCACHED)
+	    && memflags != XNHEAP_GFP_NONCACHED)
+		return -EINVAL;
+
 	heapbase = __alloc_and_reserve_heap(heapsize, memflags);
 
 	if (!heapbase)

@@ -205,24 +205,22 @@ char *xnthread_symbolic_status(xnflags_t status, char *buf, int size)
 	return buf;
 }
 
-int *xnthread_get_errno_location(void)
+int *xnthread_get_errno_location(xnthread_t *thread)
 {
 	static int fallback_errno;
 
 	if (unlikely(!xnpod_active_p()))
-		goto fallback;
+		return &fallback_errno;
 
 #ifdef CONFIG_XENO_OPT_PERVASIVE
-	if (likely(xnpod_userspace_p()))
+	if (xnthread_test_state(thread, XNSHADOW))
+		return &thread->errcode;
+
+	if (xnthread_test_state(thread, XNROOT))
 		return &xnshadow_errno(current);
 #endif /* CONFIG_XENO_OPT_PERVASIVE */
 
-	if (likely(xnpod_primary_p()))
-		return &xnpod_current_thread()->errcode;
-
-      fallback:
-
-	return &fallback_errno;
+	return &thread->errcode;
 }
 
 EXPORT_SYMBOL(xnthread_get_errno_location);

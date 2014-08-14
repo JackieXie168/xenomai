@@ -32,7 +32,7 @@
 pt->bitmap[((n) / (sizeof(u_long) * 8))]
 
 #define pt_block_pos(n) \
-(1 << ((n) % (sizeof(u_long) * 8)))
+(1L << ((n) % (sizeof(u_long) * 8)))
 
 #define pt_bitmap_setbit(pt,n) \
 (pt_bitmap_pos(pt,n) |= pt_block_pos(n))
@@ -67,13 +67,13 @@ typedef struct psospt {
 
     char *data;			/* Pointer to the user space behind the bitmap */
 
-    u_long bitmap[1];		/* Start of bitmap -- keeps alignment */
-
     xnholder_t rlink;		/* !< Link in resource queue. */
 
 #define rlink2pt(ln)		container_of(ln, psospt_t, rlink)
 
     xnqueue_t *rqueue;		/* !< Backpointer to resource queue. */
+
+    u_long bitmap[1];		/* Start of bitmap -- keeps alignment */
 
 } psospt_t;
 

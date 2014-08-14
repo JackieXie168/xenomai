@@ -202,8 +202,12 @@ static void __heap_flush_private(xnheap_t *heap,
  *
  * - H_DMA causes the block pool associated to the heap to be
  * allocated in physically contiguous memory, suitable for DMA
- * operations with I/O devices. A 128Kb limit exists for @a heapsize
- * when this flag is passed.
+ * operations with I/O devices. @a heapsize beyond 128KiB will
+ * be rounded up to a two expononent allocation.
+ *
+ * - H_NONCACHED causes the heap not to be cached. This is necessary on
+ * platforms such as ARM to share a heap between kernel and user-space.
+ * Note that this flag is not compatible with the H_DMA flag.
  *
  * @return 0 is returned upon success. Otherwise:
  *
@@ -260,7 +264,9 @@ int rt_heap_create(RT_HEAP *heap, const char *name, size_t heapsize, int mode)
 
 		err = xnheap_init_mapped(&heap->heap_base,
 					 heapsize,
-					 (mode & H_DMA) ? GFP_DMA : 0);
+					 ((mode & H_DMA) ? GFP_DMA : 0)
+					 | ((mode & H_NONCACHED) ?
+					    XNHEAP_GFP_NONCACHED : 0));
 		if (err)
 			return err;
 

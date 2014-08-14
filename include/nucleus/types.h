@@ -28,6 +28,7 @@
 #define linux_semaphore semaphore
 #endif /* !CONFIG_PREEMPT_RT */
 #else /* !__KERNEL__ */
+#include <stdio.h>
 #include <sys/types.h>
 #include <errno.h>
 #ifndef BITS_PER_LONG
@@ -97,7 +98,7 @@ typedef atomic_flags_t xnflags_t;
 static inline void xnobject_copy_name(char *dst, const char *src)
 {
     if (src)
-        strncpy(dst, src, XNOBJECT_NAME_LEN);
+	snprintf(dst, XNOBJECT_NAME_LEN, "%s", src);
     else
         *dst = '\0';
 }

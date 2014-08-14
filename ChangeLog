@@ -1,3 +1,146 @@
+2008-08-19  Philippe Gerum  <rpm@xenomai.org>
+	
+	* RELEASE: Xenomai 2.4.5 (Overdriver)
+
+2008-08-19  Philippe Gerum  <rpm@xenomai.org>
+
+	* ksrc/nucleus/thread.c (xnthread_get_errno_location): Always
+	return a pointer to in-TCB errno variable when running with
+	CONFIG_XENO_OPT_PERVASIVE disabled.
+
+	* ksrc/skins/posix/apc.c (pse51_lostage_handle_request): Exclude
+	PSE51_LO_SIGNAL_REQ handling when CONFIG_XENO_OPT_PERVASIVE is
+	disabled.
+
+2008-08-18  Paul Corner <paul_c@tuxcnc.org>, Jan Kiszka <jan.kiszka@web.de>
+
+	* ksrc/drivers/can/sja1000/rtcan_{isa, mem}.c: Add "can_" prefix
+	to clock module parameter to avoid conflict with 2.6.26+ symbol.
+
+2008-08-14  Jan Kiszka  <jan.kiszka@siemens.com>
+
+	* include/nucleus/stat.h: Make xnstat_counter unsigned and extend
+	it to long.
+
+2008-08-13  Stephane Fillod  <stephane.fillod@thomson.net>
+
+	* ksrc/arch/generic/hal.c: rthal_realtime_faults[][] should be
+	unsigned to cope with (unexpectedly) large values.
+	
+2008-08-13  Philippe Gerum  <rpm@xenomai.org>
+
+	* ksrc/nucleus/shadow.c (request_syscall_restart): Notify about
+	mode transition in the interrupted syscall case.
+
+2008-08-12  Philippe Gerum  <rpm@eclipse.xenomai.org>
+
+	* ksrc/nucleus/synch.c (xnsynch_sleep_on): Compute remaining
+	timeout value using xntimer_get_timeout_stopped(), to resume timed
+	wait on a stolen resource. This prevents early timeouts due to
+	xnthread_timeout() always returning XN_INFINITE (0) for stopped
+	timers.
+
+2008-08-12  Philippe Gerum  <rpm@xenomai.org>
+
+	* src/skins/native/{heap, queue}.c (rt_{heap, queue}_delete):
+	Unmap the memory pool only after the actual deletion syscall
+	returned successfully.
+
+2008-07-29  Gilles Chanteperdrix  <gilles.chanteperdrix@xenomai.org>
+
+	* ksrc/arch/arm/patches: Update to 2.6.26-arm-1.9-03.
+	
+2008-08-05  Philippe Gerum  <rpm@xenomai.org>
+
+	* include/asm-powerpc/calibration.h: Add calibration value for the
+	MPC836x_MDS series. Decrease PA-Semi value, we made progress.
+
+	* ksrc/arch/powerpc/patches: Upgrade to 2.6.26-powerpc-2.2-04.
+	
+2008-08-04  Philippe Gerum  <rpm@xenomai.org>
+
+	* ksrc/nucleus/module.c (stat_seq_open): Move cpu field assignment
+	inside the safe section.
+
+2008-07-29  Gilles Chanteperdrix  <gilles.chanteperdrix@xenomai.org>
+
+	* include/nucleus/types.h (xnobject_copy_name): Add trailing NULL
+	character in the overflow case.
+
+	* ksrc/arch/arm/patches: Upgrade to 2.6.26-arm-1.9-02.
+	
+2008-07-19  Philippe Gerum  <rpm@xenomai.org>
+
+	* ksrc/arch/x86/patches: Upgrade to 2.6.26-x86-2.0-09.
+
+	* ksrc/nucleus/pipe.c (xnpipe_poll): Fix race.
+
+2008-07-19  Philippe Gerum  <rpm@xenomai.org>
+
+	* ksrc/nucleus/registry.c: Fix timer mode issue.
+
+2008-07-15  Philippe Gerum  <rpm@xenomai.org>
+
+	* ksrc/nucleus/registry.c (xnregistry_bind): Use absolute timeout.
+
+2008-07-07  Gilles Chanteperdrix  <gilles.chanteperdrix@xenomai.org>
+
+	* ksrc/nucleus/heap.c (xnheap_init_mapped): Add support for non
+	shared mappings.
+
+2008-07-07  Gilles Chanteperdrix  <gilles.chanteperdrix@gmail.com>
+
+	* ksrc/nucleus/heap.c (__alloc_and_reserve_heap): Allow heaps
+	larger than KMALLOC_MAX_SIZE by using __get_free_pages.
+
+2008-07-07  Philippe Gerum  <rpm@xenomai.org>
+
+	* ksrc/skins/vxworks/sysLib.c (wind_sysclk_init): Allow for
+	aperiodic timing.
+
+	* ksrc/skins/posix/syscall.c (__pthread_setschedparam): Use
+	__xn_copy_to_user() to clear might_sleep() warning.
+
+2008-07-05  Philippe Gerum  <rpm@xenomai.org>
+
+	* ksrc/skins/psos/pt.c (pt_create): Fix overhead computation.
+
+	* include/psos/pt.h (pt_block_pos): Fix 64bit issue. Fix control
+	block corruption (bitmap field not last).
+
+2008-07-03  Philippe Gerum  <rpm@xenomai.org>
+
+	* ksrc/skins/psos/task.c (t_mode): Fix update mask.
+
+2008-06-23  Philippe Gerum  <rpm@xenomai.org>
+
+	* include/asm-x86, ksrc/nucleus/heap.c, ksrc/nucleus/pipe.c: Adapt
+	to 2.6.26-rc7.
+
+	* ksrc/nucleus/heap.c, ksrc/nucleus/Config.in,
+	ksrc/skins/posix/mutex.h: Fix 2.4 compilation issues.
+
+	* ksrc/arch/powerpc/patches: Upgrade to 2.6.25-powerpc-2.2-03.
+	
+	* ksrc/arch/x86/patches: Update to 2.6.25-x86-2.0-09.
+	
+2008-06-18  Markus Osterried <markus.osterried@ericsson.com>
+
+	* ksrc/skins/psos+/tm.c (tm_ticks_to_date): Fix overflow and
+	off-by-one reference error.
+
+2008-06-18  Philippe Gerum  <rpm@xenomai.org>
+
+	* thread.c (xnthread_get_errno_location): Allow operation on
+	non-current threads.
+
+	* ksrc/skins/vxworks/errnoLib.c (errnoOfTaskGet, errnoOfTaskSet):
+	Refer to the target task's errno location (instead of current's).
+
+	* ksrc/skins/vxworks/syscall.c (__wind_errno_taskset,
+	__wind_errno_taskset): Allow calls from non-VxWorks tasks.
+
+
 2008-06-08  Philippe Gerum  <rpm@xenomai.org>
 	
 	* RELEASE: Xenomai 2.4.4 (Made Of Tears)

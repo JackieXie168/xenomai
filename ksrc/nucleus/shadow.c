@@ -205,13 +205,12 @@ static void rpi_push(xnthread_t *thread, int cpu)
 	int prio;
 	spl_t s;
 
-	/* non-RT shadows and RT shadows which disabled RPI cause the
-	   root priority to be lowered to its base level. The purpose
-	   of the following code is to enqueue the just thread
-	   whenever it involves RPI, and determine which priority to
-	   pick next for the root thread (i.e. the highest among RPI
-	   enabled threads, or the base level if none exists). */
-
+	/*
+	 * The purpose of the following code is to enqueue the thread
+	 * whenever it involves RPI, and determine which priority to
+	 * pick next for the root thread (i.e. the highest among RPI
+	 * enabled threads, or the base level if none exists).
+	 */
 	if (likely(xnthread_user_task(thread)->policy == SCHED_FIFO &&
 		   !xnthread_test_state(thread, XNRPIOFF))) {
 		xnlock_get_irqsave(&rpislot->lock, s);
@@ -819,21 +818,20 @@ static inline void request_syscall_restart(xnthread_t *thread,
 					   struct pt_regs *regs,
 					   int sysflags)
 {
+	int notify = 0;
+
 	if (xnthread_test_info(thread, XNKICKED)) {
-		if (__xn_interrupted_p(regs))
+		if (__xn_interrupted_p(regs)) {
 			__xn_error_return(regs,
 					  (sysflags & __xn_exec_norestart) ?
 					  -ERESTARTNOHAND : -ERESTARTSYS);
+			notify = 1;
+		}
 
 		xnthread_clear_info(thread, XNKICKED);
 	}
 
-	/* Relaxing due to a fault will trigger a notification from the
-	   trap handler when applicable, so we don't otherwise notify upon
-	   signal receipt, since testing syscall return values for -EINTR
-	   is still possible to detect such situation. */
-
-	xnshadow_relax(0);
+	xnshadow_relax(notify);
 }
 
 static inline void set_linux_task_priority(struct task_struct *p, int prio)

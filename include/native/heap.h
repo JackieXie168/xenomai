@@ -33,7 +33,12 @@
 #define H_MAPPABLE 0x200	/* Memory is mappable to user-space. */
 #define H_SINGLE   0x400	/* Manage as single-block area. */
 #define H_SHARED   (H_MAPPABLE|H_SINGLE) /* I.e. shared memory segment. */
+#define H_NONCACHED 0x800
 
+/** Structure containing heap-information useful to users.
+ *
+ *  @see rt_heap_inquire()
+ */
 typedef struct rt_heap_info {
 
     int nwaiters;		/* !< Number of pending tasks. */
