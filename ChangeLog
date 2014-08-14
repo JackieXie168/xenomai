@@ -1,3 +1,52 @@
+2006-03-16  Philippe Gerum  <rpm@xenomai.org>
+
+ 	* RELEASE: Xenomai 2.0.4 (Slick)
+
+2006-03-16  Philippe Gerum  <rpm@xenomai.org>
+
+	* arch/*/patches: Upgrade all Adeos patches.
+
+2006-03-12  Philippe Gerum  <rpm@xenomai.org>
+
+	* include/nucleus/asm-i386/system.h (xnarch_switch_to): Set bitmap
+	new owner as required.
+
+2006-03-02  Philippe Gerum  <rpm@xenomai.org>
+
+	* include/nucleus/asm-ia64/syscall.h (__xn_interrupted_p): Test
+	the proper errno value.
+
+2006-02-18  Philippe Gerum  <rpm@xenomai.org>
+
+	* skins/native/syscall.c: Make rt_task_set_periodic a conforming
+	call.
+	(__rt_event_wait): Check for output parameter address.
+
+2006-02-08  Philippe Gerum  <rpm@xenomai.org>
+
+	* skins/native/task.c (rt_task_self): Return NULL if
+	!xnpod_primary_p().
+
+2006-01-31  Philippe Gerum  <rpm@xenomai.org>
+
+	* skins/native/heap.c (rt_heap_create): Record and use original
+	heap size when needed, not the actual size including the
+	bookkeeping area.
+
+	* skins/native/event.c (rt_event_wait): Do not auto-clear the
+	satisfied event bits; rely on explicit call to rt_event_clear() to
+	do so.
+
+2006-01-30  Philippe Gerum  <rpm@xenomai.org>
+
+	* nucleus/shadow.c (xnshadow_harden): Use TASK_ATOMICSWITCH when
+	available to enforce the required atomic scheduling section.
+
+2006-01-18  Jan Kiszka  <jan.kiszka@web.de>
+ 
+ 	* ksrc/skins/native/mutex.c (rt_mutex_unlock): Fix leaking lockcnt
+ 	on unlock with pending waiters.
+ 
 2006-01-13  Philippe Gerum  <rpm@xenomai.org>
 
  	* RELEASE: Xenomai 2.0.3 (Hill Groove)
