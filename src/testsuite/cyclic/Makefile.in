@@ -225,7 +225,7 @@ target_alias = @target_alias@
 target_cpu = @target_cpu@
 target_os = @target_os@
 target_vendor = @target_vendor@
-testdir = $(prefix)/testsuite/cyclic
+testdir = $(exec_prefix)/testsuite/cyclic
 cyclictest_SOURCES = cyclictest.c
 cyclictest_CPPFLAGS = -I$(top_srcdir)/include/posix $(XENO_USER_CFLAGS) -DIPIPE_TRACE=1 -I$(top_srcdir)/include
 cyclictest_LDFLAGS = $(XENO_POSIX_WRAPPERS) $(XENO_USER_LDFLAGS)

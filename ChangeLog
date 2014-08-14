@@ -1,3 +1,78 @@
+2006-09-17  Philippe Gerum  <rpm@xenomai.org>
+
+ 	* RELEASE: Xenomai 2.2.3 (Memories)
+
+2006-09-17  Philippe Gerum  <rpm@xenomai.org>
+
+	* ksrc/arch/arm/patches: Upgrade to 2.6.1{4,5}-1.5-00.
+
+	* ksrc/arch/i386/patches: Upgrade to 2.6.17-1.4-00, and
+	2.4.33-1.3-00.
+
+	* ksrc/arch/powerpc/patches: Upgrade to 2.6.14-ppc-1.4-00,
+	2.6.14-ppc64-1.3-00, 2.4.25-CVS-20060707-1.2-00.
+
+2006-09-16  Philippe Gerum  <rpm@xenomai.org>
+
+	* ksrc/nucleus/shadow.c: Use per-task I-pipe event filter
+	(PF_EVNOTIFY) when available.
+
+2006-09-15  Philippe Gerum  <rpm@xenomai.org>
+
+	* include/asm-generic/wrappers.h: Wrap
+	schedule_timeout_interruptible() for 2.4.
+
+2006-09-15  Wolfgang Grandegger  <wg@grandegger.com>
+
+	* ksrc/arch/*/hal.c (rthal_irq_enable, rthal_irq_disable): Switch
+	the IRQ_DISABLED bit appropriately in the status field of the IRQ
+	descriptor.
+ 
+2006-09-15  Philippe Gerum  <rpm@xenomai.org>
+
+	* ksrc/skins/native/pipe.c: Backport optimization for data
+	streaming.
+
+2006-09-14  Gilles Chanteperdrix  <gilles.chanteperdrix@laposte.net>
+
+	* ksrc/skins/posix/thread.c (pthread_join): Have pthread_join work
+	when called from module initialization or cleanup routine.
+
+2006-09-14  Philippe Gerum  <rpm@xenomai.org>
+
+	* ksrc/nucleus/thread.c (xnthread_periodic_handler): Do not wake
+	up threads blocked on a resource.
+
+	* ksrc/nucleus/pipe.c: Support partial buffer reading from the
+	character device endpoint.
+
+2006-09-12  Gilles Chanteperdrix  <gilles.chanteperdrix@laposte.net>
+
+	* include/asm-i386/bits/pod.h (xnarch_*_fpu): Restore root thread
+	fpu context consistently with ts bit value in cr0, fixes a bug
+	that occured when Xenomai preempted Linux in the middle of 
+	dup_task_struct().
+
+2006-09-09  Philippe Gerum  <rpm@xenomai.org>
+
+	* ksrc/nucleus/module.c (heap_read_proc): Export system heap
+	information.
+
+	* ksrc/skins/rtai/fifo.c: Globally rework the emulation to
+	optimize for highly scattered data sent over a short period of
+	time.
+
+	* ksrc/nucleus/pipe.c (xnpipe_mfixup): Allow adding more data to a
+	message bucket while it is waiting on the output queue.
+	(xnpipe_read): Handle the interaction with
+	xnpipe_send_more(). Note: the output handler is now always called
+	with nklock held, interrupts off.
+
+2006-09-09  Jan Kiszka <jan.kiszka@web.de>
+
+	* ksrc/nucleus/Config.in: Add CONFIG_XENO_OPT_RPIDISABLE switch to
+	2.4 configuration.
+
 2006-09-03  Philippe Gerum  <rpm@xenomai.org>
 
  	* RELEASE: Xenomai 2.2.2 (Ride)

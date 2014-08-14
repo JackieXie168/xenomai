@@ -28,10 +28,10 @@
 #define XNPIPEIOC_FLUSH       _IO(XNPIPE_IOCTL_BASE,1)
 #define XNPIPEIOC_SETSIG      _IO(XNPIPE_IOCTL_BASE,2)
 
-#define XNPIPE_NORMAL 0x0
-#define XNPIPE_URGENT 0x1
+#define XNPIPE_NORMAL  0x0
+#define XNPIPE_URGENT  0x1
 
-#define XNPIPE_MINOR_AUTO	-1
+#define XNPIPE_MINOR_AUTO  -1
 
 #ifdef __KERNEL__
 
@@ -41,10 +41,10 @@
 #include <linux/types.h>
 #include <linux/poll.h>
 
-#define XNPIPE_KERN_CONN   0x1
-#define XNPIPE_USER_CONN   0x2
-#define XNPIPE_USER_SIGIO  0x4
-#define XNPIPE_USER_WREAD  0x08
+#define XNPIPE_KERN_CONN         0x1
+#define XNPIPE_USER_CONN         0x2
+#define XNPIPE_USER_SIGIO        0x4
+#define XNPIPE_USER_WREAD        0x8
 #define XNPIPE_USER_WREAD_READY  0x10
 
 #define XNPIPE_USER_WMASK \
@@ -57,6 +57,7 @@ typedef struct xnpipe_mh {
 
     xnholder_t link;
     unsigned size;
+    unsigned rdoff;
     
 } xnpipe_mh_t;
 
@@ -130,6 +131,10 @@ ssize_t xnpipe_send(int minor,
 		    size_t size,
 		    int flags);
 
+ssize_t xnpipe_mfixup(int minor,
+		      struct xnpipe_mh *mh,
+		      ssize_t size);
+
 ssize_t xnpipe_recv(int minor,
 		    struct xnpipe_mh **pmh,
 		    xnticks_t timeout);
@@ -151,6 +156,8 @@ static inline char *xnpipe_m_data(xnpipe_mh_t *mh)
 }
 
 #define xnpipe_m_size(mh) ((mh)->size)
+
+#define xnpipe_m_rdoff(mh) ((mh)->rdoff)
 
 #endif /* __KERNEL__ */
 
